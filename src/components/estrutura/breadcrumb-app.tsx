@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Breadcrumb,
@@ -47,7 +48,9 @@ export function BreadcrumbApp() {
               {item.ultimo ? (
                 <BreadcrumbPage>{item.titulo}</BreadcrumbPage>
               ) : (
-                <BreadcrumbLink href={item.href}>{item.titulo}</BreadcrumbLink>
+                <BreadcrumbLink asChild>
+                  <Link href={item.href}>{item.titulo}</Link>
+                </BreadcrumbLink>
               )}
             </BreadcrumbItem>
             {index < itens.length - 1 && <BreadcrumbSeparator />}

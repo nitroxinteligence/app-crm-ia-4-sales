@@ -1,5 +1,6 @@
 export function formatarMoeda(valor: number, moeda: "BRL" | "USD"): string {
-  return new Intl.NumberFormat("pt-BR", {
+  const locale = moeda === "BRL" ? "pt-BR" : "en-US";
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: moeda,
     minimumFractionDigits: 0,

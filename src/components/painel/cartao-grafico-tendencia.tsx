@@ -30,13 +30,13 @@ export function CartaoGraficoTendencia({ serie }: { serie: SerieGrafico }) {
         <div className="rounded-lg border border-dashed border-border p-3">
           <svg
             viewBox={`0 0 ${largura} ${altura}`}
-            className="h-32 w-full"
+            className="h-32 w-full text-primary"
             aria-hidden
           >
             <path
               d={path}
               fill="none"
-              stroke="hsl(var(--primary))"
+              stroke="currentColor"
               strokeWidth="3"
             />
             {pontos.map((ponto, index) => (
@@ -45,7 +45,7 @@ export function CartaoGraficoTendencia({ serie }: { serie: SerieGrafico }) {
                 cx={ponto.x}
                 cy={ponto.y}
                 r={3}
-                fill="hsl(var(--primary))"
+                fill="currentColor"
               />
             ))}
           </svg>
