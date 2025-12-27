@@ -23,7 +23,7 @@ export function CartaoGraficoTendencia({ serie }: { serie: SerieGrafico }) {
       <CardHeader className="pb-2">
         <p className="text-sm font-medium">{serie.titulo}</p>
         <p className="text-xs text-muted-foreground">
-          Tendencia de conversas (placeholder)
+          Tendência de conversas (placeholder)
         </p>
       </CardHeader>
       <CardContent>

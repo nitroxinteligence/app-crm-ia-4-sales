@@ -23,7 +23,7 @@ const notificacoesMock = [
   {
     id: "notif-2",
     titulo: "Agente sugeriu resposta",
-    descricao: "Inbox: conversa com alta intencao.",
+    descricao: "Inbox: conversa com alta intenção.",
   },
   {
     id: "notif-3",
@@ -76,7 +76,7 @@ export function BarraSuperior() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-80">
-              <DropdownMenuLabel>Notificacoes</DropdownMenuLabel>
+              <DropdownMenuLabel>Notificações</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {notificacoesMock.map((notificacao) => (
                 <DropdownMenuItem key={notificacao.id} className="flex flex-col">

@@ -9,7 +9,7 @@ export function CartaoGraficoFunil({ serie }: { serie: SerieGrafico }) {
       <CardHeader className="pb-2">
         <p className="text-sm font-medium">{serie.titulo}</p>
         <p className="text-xs text-muted-foreground">
-          Conversao por etapa (placeholder)
+          Conversão por etapa (placeholder)
         </p>
       </CardHeader>
       <CardContent>

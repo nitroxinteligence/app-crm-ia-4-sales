@@ -30,13 +30,6 @@ export const kpisPainel: KPI[] = [
     delta: "+9%",
     descricao: "Pipeline atual",
   },
-  {
-    id: "kpi-acoes",
-    titulo: "Acoes do agente (24h)",
-    valor: formatarNumero(318),
-    delta: "+18%",
-    descricao: "Execucoes automatizadas",
-  },
 ];
 
 export const seriesFunil: SerieGrafico = {
@@ -53,7 +46,7 @@ export const seriesCanais: SerieGrafico = {
 
 export const seriesTendencia: SerieGrafico = {
   id: "tendencia",
-  titulo: "Tendencia 7/30 dias",
+  titulo: "Tendência 7/30 dias",
   valores: [12, 18, 14, 22, 26, 24, 30],
 };
 
@@ -61,13 +54,13 @@ export const alertasPainel: AlertaPainel[] = [
   {
     id: "alerta-resposta",
     titulo: "Leads sem resposta",
-    descricao: "12 contatos aguardando ha mais de 2h.",
+    descricao: "12 contatos aguardando há mais de 2h.",
     tipo: "critico",
     ativo: true,
   },
   {
     id: "alerta-intencao",
-    titulo: "Intencao alta",
+    titulo: "Intenção alta",
     descricao: "8 conversas com score alto.",
     tipo: "atencao",
     ativo: true,

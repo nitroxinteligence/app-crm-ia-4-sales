@@ -7,9 +7,9 @@ export function AcoesRapidas({ acoes }: { acoes: AcaoRapida[] }) {
   return (
     <Card className="shadow-none">
       <CardHeader className="pb-2">
-        <p className="text-sm font-medium">Acoes rapidas</p>
+        <p className="text-sm font-medium">Ações rápidas</p>
         <p className="text-xs text-muted-foreground">
-          Atalhos para operacoes essenciais.
+          Atalhos para operações essenciais.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">

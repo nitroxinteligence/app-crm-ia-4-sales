@@ -12,18 +12,17 @@ export function CabecalhoPainel() {
   return (
     <div className="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <p className="text-sm text-muted-foreground">Visao geral</p>
-        <h1 className="text-2xl font-semibold">Painel</h1>
+        <h1 className="text-2xl font-semibold">Visão Geral</h1>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <Select defaultValue="7d">
           <SelectTrigger className="w-[140px]">
-            <SelectValue placeholder="Periodo" />
+            <SelectValue placeholder="Período" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="hoje">Hoje</SelectItem>
-            <SelectItem value="7d">Ultimos 7 dias</SelectItem>
-            <SelectItem value="30d">Ultimos 30 dias</SelectItem>
+            <SelectItem value="7d">Últimos 7 dias</SelectItem>
+            <SelectItem value="30d">Últimos 30 dias</SelectItem>
           </SelectContent>
         </Select>
         <Select defaultValue="todos">

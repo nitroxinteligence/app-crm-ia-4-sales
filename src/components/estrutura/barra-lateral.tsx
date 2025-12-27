@@ -34,27 +34,43 @@ export function BarraLateral({
         colapsada ? "w-20" : "w-64"
       )}
     >
-      <div className="flex h-16 items-center justify-between px-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
-            VP
-          </div>
-          {!colapsada && (
-            <div className="leading-tight">
-              <p className="text-sm font-semibold">VP CRM</p>
-              <p className="text-xs text-muted-foreground">Vertical Partners</p>
+      <div
+        className={cn(
+          "flex h-16 items-center px-4",
+          colapsada ? "justify-start" : "justify-between"
+        )}
+      >
+        {colapsada ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={aoAlternar}
+            aria-label="Expandir barra lateral"
+          >
+            <PanelLeft className={cn("h-4 w-4", "rotate-180")} />
+          </Button>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
+                VP
+              </div>
+              <div className="leading-tight">
+                <p className="text-sm font-semibold">VP CRM</p>
+                <p className="text-xs text-muted-foreground">Vertical Partners</p>
+              </div>
             </div>
-          )}
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="hidden md:inline-flex"
-          onClick={aoAlternar}
-          aria-label={colapsada ? "Expandir sidebar" : "Recolher sidebar"}
-        >
-          <PanelLeft className={cn("h-4 w-4", colapsada && "rotate-180")} />
-        </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="hidden md:inline-flex"
+              onClick={aoAlternar}
+              aria-label="Recolher barra lateral"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </Button>
+          </>
+        )}
       </div>
       <Separator />
       <TooltipProvider delayDuration={0}>

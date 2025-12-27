@@ -11,7 +11,7 @@ export default function Home() {
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold">VP CRM</h1>
           <p className="text-sm text-muted-foreground">
-            Experiencia omnichannel com agentes de IA. Frontend V1 em
+            Experiência omnichannel com agentes de IA. Frontend V1 em
             desenvolvimento.
           </p>
         </div>

@@ -37,7 +37,7 @@ export default function Page({
     <div className="space-y-6">
       <CabecalhoPainel />
 
-      <section className="grid gap-4 lg:grid-cols-5">
+      <section className="grid gap-4 lg:grid-cols-4">
         {kpisPainel.map((kpi) => (
           <CartaoKpi key={kpi.id} kpi={kpi} />
         ))}

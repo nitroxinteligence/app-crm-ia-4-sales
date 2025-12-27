@@ -46,7 +46,7 @@ export function EstadoPainel({ estado }: { estado: EstadoPainel }) {
             <AlertTriangle className="h-5 w-5 text-muted-foreground" />
           </div>
           <div>
-            <p className="text-lg font-semibold">Sem dados no periodo</p>
+            <p className="text-lg font-semibold">Sem dados no período</p>
             <p className="text-sm text-muted-foreground">
               Ajuste os filtros para visualizar indicadores.
             </p>
@@ -65,10 +65,10 @@ export function EstadoPainel({ estado }: { estado: EstadoPainel }) {
             <AlertTriangle className="h-5 w-5 text-destructive" />
           </div>
           <div>
-            <p className="text-lg font-semibold">Falha ao carregar o painel</p>
-            <p className="text-sm text-muted-foreground">
-              Tente novamente em instantes.
-            </p>
+          <p className="text-lg font-semibold">Falha ao carregar o painel</p>
+          <p className="text-sm text-muted-foreground">
+            Tente novamente em instantes.
+          </p>
           </div>
           <Button>Recarregar</Button>
         </CardContent>
@@ -83,9 +83,9 @@ export function EstadoPainel({ estado }: { estado: EstadoPainel }) {
           <AlertTriangle className="h-5 w-5 text-muted-foreground" />
         </div>
         <div>
-          <p className="text-lg font-semibold">Permissao negada</p>
+          <p className="text-lg font-semibold">Permissão negada</p>
           <p className="text-sm text-muted-foreground">
-            Seu perfil nao tem acesso a este painel.
+            Seu perfil não tem acesso a este painel.
           </p>
         </div>
         <Button variant="outline">Solicitar acesso</Button>

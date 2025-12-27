@@ -11,7 +11,7 @@ export function CartaoGraficoCanais({ serie }: { serie: SerieGrafico }) {
       <CardHeader className="pb-2">
         <p className="text-sm font-medium">{serie.titulo}</p>
         <p className="text-xs text-muted-foreground">
-          Distribuicao por canal (placeholder)
+          Distribuição por canal (placeholder)
         </p>
       </CardHeader>
       <CardContent>
