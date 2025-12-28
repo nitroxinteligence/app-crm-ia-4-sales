@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,10 +23,19 @@ export function AcoesRapidas({ acoes }: { acoes: AcaoRapida[] }) {
               <p className="text-sm font-semibold">{acao.titulo}</p>
               <p className="text-xs text-muted-foreground">{acao.descricao}</p>
             </div>
-            <Button variant="outline" size="sm" className="gap-2">
-              Abrir
-              <ArrowRight className="h-4 w-4" />
-            </Button>
+            {acao.href ? (
+              <Button asChild variant="outline" size="sm" className="gap-2">
+                <Link href={acao.href}>
+                  Abrir
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" className="gap-2" disabled>
+                Abrir
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         ))}
       </CardContent>

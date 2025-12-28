@@ -1,8 +1,8 @@
 "use client";
-import { Moon, Sun } from "lucide-react";
+import { LogOut, Moon, Settings, Sun, User } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAutenticacao } from "@/lib/contexto-autenticacao";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,20 +29,30 @@ export function MenuPerfil() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" className="h-10 gap-2 px-2">
-          <Avatar className="h-8 w-8">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-10 w-10"
+          aria-label="Abrir menu do usuário"
+        >
+          <Avatar className="h-9 w-9">
+            {usuario.avatarUrl && (
+              <AvatarImage src={usuario.avatarUrl} alt={usuario.nome} />
+            )}
             <AvatarFallback>{iniciais}</AvatarFallback>
           </Avatar>
-          <div className="hidden text-left text-xs md:block">
-            <p className="font-medium leading-tight">{usuario.nome}</p>
-            <p className="text-muted-foreground">{usuario.role}</p>
-          </div>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel>Conta</DropdownMenuLabel>
-        <DropdownMenuItem>Perfil</DropdownMenuItem>
+        <DropdownMenuLabel className="flex items-center gap-2">
+          <User className="h-4 w-4" />
+          Conta
+        </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem className="flex items-center gap-2">
+          <Settings className="h-4 w-4" />
+          Configurações
+        </DropdownMenuItem>
         <DropdownMenuItem className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             {temaEscuro ? (
@@ -58,7 +68,10 @@ export function MenuPerfil() {
           />
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>Sair</DropdownMenuItem>
+        <DropdownMenuItem className="flex items-center gap-2 text-destructive focus:text-destructive">
+          <LogOut className="h-4 w-4" />
+          Sair
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

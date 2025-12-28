@@ -24,7 +24,10 @@ export function BarraLateral({
   aoAlternar: () => void;
 }) {
   const pathname = usePathname();
-  const itensCore = itensNavegacao.filter((item) => item.grupo === "core");
+  const itensCore = itensNavegacao.filter(
+    (item) =>
+      item.grupo === "core" && item.id !== "empresas" && item.id !== "tickets"
+  );
   const itensAdmin = itensNavegacao.filter((item) => item.grupo === "admin");
 
   return (
@@ -52,14 +55,13 @@ export function BarraLateral({
         ) : (
           <>
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
-                VP
-              </div>
-              <div className="leading-tight">
-                <p className="text-sm font-semibold">VP CRM</p>
-                <p className="text-xs text-muted-foreground">Vertical Partners</p>
-              </div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-sm font-semibold text-primary">
+              VP
             </div>
+            <div className="leading-tight">
+              <p className="text-sm font-semibold">VP CRM</p>
+            </div>
+          </div>
             <Button
               variant="ghost"
               size="icon"

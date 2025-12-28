@@ -13,6 +13,7 @@ Acesse: http://localhost:3000
 ## Rotas desta etapa
 
 - `/app/painel`
+- `/app/inbox`
 
 Estados do painel (via query param):
 

@@ -1,55 +1,81 @@
+"use client";
+
+import { CartesianGrid, LabelList, Line, LineChart } from "recharts";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import type { SerieGrafico } from "@/lib/types";
 
+const diasChave = ["seg", "ter", "qua", "qui", "sex", "sab", "dom"];
+
+const diasLabel: Record<string, string> = {
+  seg: "Seg",
+  ter: "Ter",
+  qua: "Qua",
+  qui: "Qui",
+  sex: "Sex",
+  sab: "Sáb",
+  dom: "Dom",
+};
+
+const chartConfig = {
+  tendencia: {
+    label: "Conversas",
+    color: "var(--chart-2)",
+  },
+} satisfies ChartConfig;
+
 export function CartaoGraficoTendencia({ serie }: { serie: SerieGrafico }) {
-  const largura = 260;
-  const altura = 120;
-  const maximo = Math.max(...serie.valores, 1);
-  const minimo = Math.min(...serie.valores, 0);
-  const intervalo = maximo - minimo || 1;
-
-  const pontos = serie.valores.map((valor, index) => {
-    const x = (index / (serie.valores.length - 1 || 1)) * largura;
-    const y = altura - ((valor - minimo) / intervalo) * altura;
-    return { x, y };
-  });
-
-  const path = pontos
-    .map((ponto, index) => `${index === 0 ? "M" : "L"}${ponto.x},${ponto.y}`)
-    .join(" ");
+  const chartData = serie.valores.map((valor, index) => ({
+    dia: diasChave[index] ?? `d${index + 1}`,
+    tendencia: valor,
+  }));
 
   return (
     <Card className="shadow-none">
       <CardHeader className="pb-2">
         <p className="text-sm font-medium">{serie.titulo}</p>
-        <p className="text-xs text-muted-foreground">
-          Tendência de conversas (placeholder)
-        </p>
+        <p className="text-xs text-muted-foreground">Evolução semanal</p>
       </CardHeader>
       <CardContent>
-        <div className="rounded-lg border border-dashed border-border p-3">
-          <svg
-            viewBox={`0 0 ${largura} ${altura}`}
-            className="h-32 w-full text-primary"
-            aria-hidden
+        <ChartContainer config={chartConfig} className="h-[180px] w-full">
+          <LineChart
+            accessibilityLayer
+            data={chartData}
+            margin={{
+              top: 24,
+              left: 24,
+              right: 24,
+            }}
           >
-            <path
-              d={path}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="3"
+            <CartesianGrid stroke="var(--border)" strokeOpacity={0.35} />
+            <ChartTooltip
+              cursor={false}
+              content={<ChartTooltipContent hideLabel />}
             />
-            {pontos.map((ponto, index) => (
-              <circle
-                key={`${serie.id}-${index}`}
-                cx={ponto.x}
-                cy={ponto.y}
-                r={3}
-                fill="currentColor"
+            <Line
+              dataKey="tendencia"
+              type="natural"
+              stroke="var(--color-tendencia)"
+              strokeWidth={2}
+              dot={{ fill: "var(--color-tendencia)" }}
+              activeDot={{ r: 6 }}
+            >
+              <LabelList
+                position="top"
+                offset={12}
+                className="fill-foreground"
+                fontSize={12}
+                dataKey="dia"
+                formatter={(value) => diasLabel[String(value)] ?? String(value)}
               />
-            ))}
-          </svg>
-        </div>
+            </Line>
+          </LineChart>
+        </ChartContainer>
       </CardContent>
     </Card>
   );

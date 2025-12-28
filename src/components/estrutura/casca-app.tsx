@@ -35,7 +35,7 @@ function LayoutInterno({ children }: { children: React.ReactNode }) {
         colapsada={colapsada}
         aoAlternar={() => setColapsada((atual) => !atual)}
       />
-      <div className="flex min-h-screen flex-1 flex-col">
+      <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <BarraSuperior />
         <main className="flex-1 px-6 pb-10 pt-6">
           <div className="mx-auto w-full max-w-[1440px]">{children}</div>

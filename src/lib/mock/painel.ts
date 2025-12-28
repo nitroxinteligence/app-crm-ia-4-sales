@@ -21,14 +21,14 @@ export const kpisPainel: KPI[] = [
     titulo: "Conversas ativas",
     valor: formatarNumero(64),
     delta: "+4%",
-    descricao: "Inbox omnichannel",
+    descricao: "Conversas em andamento",
   },
   {
-    id: "kpi-deals",
-    titulo: "Deals em aberto",
-    valor: `${formatarMoeda(284000, "BRL")} / ${formatarMoeda(52000, "USD")}`,
-    delta: "+9%",
-    descricao: "Pipeline atual",
+    id: "kpi-conversao",
+    titulo: "Taxa de conversão",
+    valor: "32%",
+    delta: "+3%",
+    descricao: "Últimos 30 dias",
   },
 ];
 
@@ -86,20 +86,24 @@ export const acoesRapidas: AcaoRapida[] = [
     id: "acao-inbox",
     titulo: "Ir para Inbox",
     descricao: "Retomar conversas ativas.",
+    href: "/app/inbox",
   },
   {
     id: "acao-deal",
     titulo: "Criar Deal",
     descricao: "Registrar nova oportunidade.",
+    href: "/app/funil",
   },
   {
     id: "acao-agente",
     titulo: "Criar Agente",
     descricao: "Configurar assistente IA.",
+    href: "/app/agentes/novo",
   },
   {
     id: "acao-canal",
     titulo: "Conectar Canal",
     descricao: "Adicionar novo canal.",
+    href: "/app/canais",
   },
 ];

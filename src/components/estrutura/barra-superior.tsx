@@ -1,8 +1,11 @@
 "use client";
-import { Bell, ChevronDown } from "lucide-react";
+import * as React from "react";
+import { Bell, Building2, ChevronDown, Layers } from "lucide-react";
 import { BreadcrumbApp } from "@/components/estrutura/breadcrumb-app";
 import { MenuPerfil } from "@/components/estrutura/menu-perfil";
 import { useAutenticacao } from "@/lib/contexto-autenticacao";
+import { cn } from "@/lib/utils";
+import { IconeCanal } from "@/components/inbox/icone-canal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -19,22 +22,67 @@ const notificacoesMock = [
     id: "notif-1",
     titulo: "Novo lead qualificado",
     descricao: "Luiza Rocha entrou no funil.",
+    tempo: "Agora",
+    categoria: "Leads",
+    nova: true,
   },
   {
     id: "notif-2",
     titulo: "Agente sugeriu resposta",
     descricao: "Inbox: conversa com alta intenção.",
+    tempo: "12 min",
+    categoria: "Inbox",
+    nova: true,
   },
   {
     id: "notif-3",
     titulo: "Ticket prioridade alta",
     descricao: "Chamado #129 exige retorno hoje.",
+    tempo: "1h",
+    categoria: "Suporte",
+    nova: false,
+  },
+];
+
+const notificacoesExtras = [
+  {
+    id: "notif-4",
+    titulo: "Negociação atualizada",
+    descricao: "Etapa movida para Qualificado.",
+    tempo: "2h",
+    categoria: "Funil",
+    nova: false,
+  },
+  {
+    id: "notif-5",
+    titulo: "Novo contato importado",
+    descricao: "15 contatos adicionados ao CRM.",
+    tempo: "3h",
+    categoria: "Contatos",
+    nova: false,
+  },
+  {
+    id: "notif-6",
+    titulo: "Atividade agendada",
+    descricao: "Reunião com Rafaela Torres.",
+    tempo: "Hoje",
+    categoria: "Agenda",
+    nova: false,
   },
 ];
 
 export function BarraSuperior() {
   const { workspace, canais } = useAutenticacao();
   const canaisConectados = canais.filter((canal) => canal.conectado);
+  const [notificacoes, setNotificacoes] = React.useState(notificacoesMock);
+  const [indiceMais, setIndiceMais] = React.useState(0);
+  const podeCarregarMais = indiceMais < notificacoesExtras.length;
+  const handleCarregarMais = React.useCallback(() => {
+    if (!podeCarregarMais) return;
+    const proximos = notificacoesExtras.slice(indiceMais, indiceMais + 2);
+    setNotificacoes((atual) => [...atual, ...proximos]);
+    setIndiceMais((atual) => atual + proximos.length);
+  }, [indiceMais, podeCarregarMais]);
 
   return (
     <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
@@ -46,27 +94,42 @@ export function BarraSuperior() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="gap-2">
+                <Building2 className="h-4 w-4 text-muted-foreground" />
                 {workspace.nome}
                 <ChevronDown className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-64">
-              <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
+              <DropdownMenuLabel className="flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                Workspaces
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
               <DropdownMenuItem>{workspace.nome}</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
-          <div className="hidden items-center gap-2 lg:flex">
-            {canaisConectados.map((canal) => (
-              <Badge
-                key={canal.id}
-                variant="secondary"
-                className="border border-primary/20 bg-primary/10 text-primary"
-              >
-                {canal.nome}
-              </Badge>
-            ))}
-          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="gap-2">
+                <Layers className="h-4 w-4 text-muted-foreground" />
+                Canais ativos
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel>Canais conectados</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {canaisConectados.map((canal) => (
+                <DropdownMenuItem key={canal.id}>
+                  <div className="flex items-center gap-2">
+                    <IconeCanal canal={canal.id} className="h-3 w-3" />
+                    <span>{canal.nome}</span>
+                  </div>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -75,19 +138,63 @@ export function BarraSuperior() {
                 <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80">
-              <DropdownMenuLabel>Notificações</DropdownMenuLabel>
+            <DropdownMenuContent align="end" className="w-96 p-0">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-sm font-semibold">Notificações</p>
+                  <p className="text-xs text-muted-foreground">
+                    {notificacoes.filter((item) => item.nova).length} novas
+                  </p>
+                </div>
+                <Button variant="ghost" size="sm" className="h-7">
+                  Marcar tudo
+                </Button>
+              </div>
               <DropdownMenuSeparator />
-              {notificacoesMock.map((notificacao) => (
-                <DropdownMenuItem key={notificacao.id} className="flex flex-col">
-                  <span className="text-sm font-medium">
-                    {notificacao.titulo}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {notificacao.descricao}
-                  </span>
-                </DropdownMenuItem>
-              ))}
+              <div className="max-h-80 overflow-auto py-1">
+                {notificacoes.map((notificacao) => (
+                  <DropdownMenuItem
+                    key={notificacao.id}
+                    className="flex items-start gap-3 px-4 py-3 focus:bg-muted/40"
+                  >
+                    <span
+                      className={cn(
+                        "mt-2 h-2 w-2 rounded-full",
+                        notificacao.nova
+                          ? "bg-primary"
+                          : "bg-muted-foreground/40"
+                      )}
+                    />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium">
+                          {notificacao.titulo}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {notificacao.tempo}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {notificacao.descricao}
+                      </p>
+                      <Badge variant="outline" className="text-[10px]">
+                        {notificacao.categoria}
+                      </Badge>
+                    </div>
+                  </DropdownMenuItem>
+                ))}
+              </div>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                disabled={!podeCarregarMais}
+                onSelect={(event) => {
+                  event.preventDefault();
+                  handleCarregarMais();
+                }}
+                className="justify-center text-sm text-primary"
+              >
+                {podeCarregarMais ? "Carregar mais" : "Sem mais notificações"}
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
