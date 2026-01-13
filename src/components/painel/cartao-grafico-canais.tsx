@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/chart";
 import type { SerieGrafico } from "@/lib/types";
 
-const canais = ["WhatsApp", "Instagram", "Messenger", "Email", "LinkedIn"];
+const canais = ["WhatsApp", "Instagram"];
 
 const chartConfig = {
   humano: {
@@ -35,7 +35,7 @@ export function CartaoGraficoCanais({ serie }: { serie: SerieGrafico }) {
   });
 
   return (
-    <Card className="shadow-none">
+    <Card className="rounded-[6px] shadow-none">
       <CardHeader className="pb-2">
         <p className="text-sm font-medium">{serie.titulo}</p>
         <p className="text-xs text-muted-foreground">

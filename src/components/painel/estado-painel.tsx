@@ -40,9 +40,9 @@ export function EstadoPainel({ estado }: { estado: EstadoPainel }) {
 
   if (estado === "empty") {
     return (
-      <Card className="shadow-none">
+      <Card className="rounded-[6px] shadow-none">
         <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-          <div className="rounded-full bg-muted p-3">
+          <div className="rounded-[6px] bg-muted p-3">
             <AlertTriangle className="h-5 w-5 text-muted-foreground" />
           </div>
           <div>
@@ -59,9 +59,9 @@ export function EstadoPainel({ estado }: { estado: EstadoPainel }) {
 
   if (estado === "error") {
     return (
-      <Card className="shadow-none">
+      <Card className="rounded-[6px] shadow-none">
         <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-          <div className="rounded-full bg-destructive/10 p-3">
+          <div className="rounded-[6px] bg-destructive/10 p-3">
             <AlertTriangle className="h-5 w-5 text-destructive" />
           </div>
           <div>
@@ -77,9 +77,9 @@ export function EstadoPainel({ estado }: { estado: EstadoPainel }) {
   }
 
   return (
-    <Card className="shadow-none">
+    <Card className="rounded-[6px] shadow-none">
       <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-        <div className="rounded-full bg-muted p-3">
+        <div className="rounded-[6px] bg-muted p-3">
           <AlertTriangle className="h-5 w-5 text-muted-foreground" />
         </div>
         <div>

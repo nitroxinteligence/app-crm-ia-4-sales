@@ -1,5 +1,5 @@
-import { EditorAgente } from "@/components/agentes/editor-agente";
+import { SelecionarProviderAgente } from "@/components/agentes/selecionar-provider-agente";
 
 export default function Page() {
-  return <EditorAgente modo="criar" />;
+  return <SelecionarProviderAgente />;
 }

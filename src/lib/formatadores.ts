@@ -9,5 +9,9 @@ export function formatarMoeda(valor: number, moeda: "BRL" | "USD"): string {
 }
 
 export function formatarNumero(valor: number): string {
-  return new Intl.NumberFormat("pt-BR").format(valor);
+  const locale =
+    typeof document !== "undefined" && document.documentElement.lang
+      ? document.documentElement.lang
+      : "pt-BR";
+  return new Intl.NumberFormat(locale).format(valor);
 }

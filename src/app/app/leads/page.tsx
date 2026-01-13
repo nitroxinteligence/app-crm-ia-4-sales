@@ -1,5 +1,5 @@
-import { VisaoContatos } from "@/components/contatos/visao-contatos";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <VisaoContatos />;
+  redirect("/app/contatos");
 }

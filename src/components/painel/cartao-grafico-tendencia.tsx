@@ -36,7 +36,7 @@ export function CartaoGraficoTendencia({ serie }: { serie: SerieGrafico }) {
   }));
 
   return (
-    <Card className="shadow-none">
+    <Card className="rounded-[6px] shadow-none">
       <CardHeader className="pb-2">
         <p className="text-sm font-medium">{serie.titulo}</p>
         <p className="text-xs text-muted-foreground">Evolução semanal</p>

@@ -6,7 +6,7 @@ import type { AcaoRapida } from "@/lib/types";
 
 export function AcoesRapidas({ acoes }: { acoes: AcaoRapida[] }) {
   return (
-    <Card className="shadow-none">
+    <Card className="rounded-[6px] shadow-none">
       <CardHeader className="pb-2">
         <p className="text-sm font-medium">Ações rápidas</p>
         <p className="text-xs text-muted-foreground">
@@ -17,7 +17,7 @@ export function AcoesRapidas({ acoes }: { acoes: AcaoRapida[] }) {
         {acoes.map((acao) => (
           <div
             key={acao.id}
-            className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/40 p-3"
+            className="flex items-center justify-between rounded-[6px] border border-border/60 bg-muted/40 p-3"
           >
             <div>
               <p className="text-sm font-semibold">{acao.titulo}</p>

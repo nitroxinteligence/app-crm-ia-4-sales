@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+**/node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -32,6 +33,28 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+
+# python
+.venv/
+**/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# logs & local dumps
+/logs/
+*.log
+event,payload-*
+id,payload-*
+instance-*
+instance_id,payload-*
+
+# docs with secrets
+/docs/credenciais-env.md
+/docs/docs-testes/
+/docs/log-erros/
 
 # vercel
 .vercel

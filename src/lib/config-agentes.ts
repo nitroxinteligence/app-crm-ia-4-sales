@@ -1,8 +1,7 @@
-import { Bot, MessageSquare, Sparkles, Wand2 } from "lucide-react";
+import { Headset, LifeBuoy, Target, FileText } from "lucide-react";
 import type {
   CanalId,
   IdiomaAgente,
-  ModoAgente,
   StatusAgente,
   TipoAgente,
   TomAgente,
@@ -20,9 +19,7 @@ export const tiposAgente: { value: TipoAgente; label: string }[] = [
   { value: "sdr", label: "SDR" },
   { value: "atendimento", label: "Atendimento" },
   { value: "suporte", label: "Suporte" },
-  { value: "copiloto", label: "Copiloto" },
-  { value: "propostas", label: "Propostas" },
-  { value: "voice", label: "Voice" },
+  { value: "propostas", label: "Vendas" },
 ];
 
 export const tonsAgente: { value: TomAgente; label: string }[] = [
@@ -30,6 +27,7 @@ export const tonsAgente: { value: TomAgente; label: string }[] = [
   { value: "amigavel", label: "Amigável" },
   { value: "consultivo", label: "Consultivo" },
   { value: "direto", label: "Direto" },
+  { value: "outro", label: "Outro" },
 ];
 
 export const idiomasAgente: { value: IdiomaAgente; label: string }[] = [
@@ -40,72 +38,56 @@ export const idiomasAgente: { value: IdiomaAgente; label: string }[] = [
 export const horariosAgente: { value: string; label: string }[] = [
   { value: "comercial", label: "Horário comercial" },
   { value: "24x7", label: "24/7" },
-  { value: "personalizado", label: "Personalizado" },
-];
-
-export const modosAgente: { value: ModoAgente; label: string }[] = [
-  { value: "autonomo", label: "Autônomo" },
-  { value: "assistido", label: "Assistido" },
-  { value: "rascunho", label: "Somente rascunho" },
+  { value: "personalizado", label: "Outro" },
 ];
 
 export const canaisDisponiveis: CanalId[] = Object.keys(canaisDetalhes) as CanalId[];
 
 export const permissoesBase: PermissaoAgente[] = [
-  { id: "enviarMensagem", label: "Enviar mensagem", habilitado: true },
-  { id: "criarEditarLead", label: "Criar/editar lead", habilitado: true },
-  { id: "criarEditarDeal", label: "Criar/editar deal", habilitado: true },
-  { id: "moverEtapa", label: "Mover etapa", habilitado: true },
-  { id: "criarTicket", label: "Criar ticket", habilitado: true },
-  { id: "criarTarefa", label: "Criar tarefa", habilitado: false, bloqueado: true },
-  { id: "enviarEmail", label: "Enviar email", habilitado: true },
-  { id: "usarTemplateWhatsapp", label: "Usar template WhatsApp", habilitado: true },
-  { id: "transferirHumano", label: "Transferir para humano", habilitado: true },
-  { id: "bloquearContato", label: "Bloquear contato", habilitado: false, bloqueado: true },
-  { id: "excluir", label: "Excluir registros", habilitado: false, bloqueado: true },
+  { id: "enviar_mensagem", label: "Enviar mensagem", habilitado: true },
+  { id: "criar_contato", label: "Criar contato", habilitado: true },
+  { id: "editar_contato", label: "Editar contato", habilitado: true },
+  { id: "criar_deal", label: "Criar deal", habilitado: true },
+  { id: "editar_deal", label: "Editar deal", habilitado: true },
+  { id: "mover_etapa", label: "Mover estágios", habilitado: true },
+  { id: "aplicar_tag", label: "Aplicar tag", habilitado: true },
+  { id: "resolver_conversa", label: "Resolver conversa", habilitado: true },
+  { id: "marcar_spam", label: "Marcar como spam", habilitado: true },
+  { id: "calendar_criar", label: "Criar eventos", habilitado: true },
+  { id: "calendar_editar", label: "Editar eventos", habilitado: true },
+  { id: "calendar_cancelar", label: "Cancelar eventos", habilitado: true },
+  { id: "calendar_consultar", label: "Consultar eventos", habilitado: true },
 ];
 
 export const templatesAgente: {
   id: TipoAgente;
   nome: string;
   descricao: string;
-  icone: typeof Bot;
+  icone: typeof Target;
 }[] = [
   {
     id: "sdr",
     nome: "SDR",
     descricao: "Qualificação de leads e follow-ups comerciais.",
-    icone: Sparkles,
+    icone: Target,
   },
   {
     id: "atendimento",
     nome: "Atendimento",
     descricao: "Triagem e respostas rápidas em canais omnichannel.",
-    icone: MessageSquare,
+    icone: Headset,
   },
   {
     id: "suporte",
     nome: "Suporte",
-    descricao: "Resolução de tickets e suporte técnico.",
-    icone: Wand2,
-  },
-  {
-    id: "copiloto",
-    nome: "Copiloto",
-    descricao: "Apoio para times de vendas com insights e sugestões.",
-    icone: Bot,
+    descricao: "Resolução de duvidas e suporte técnico.",
+    icone: LifeBuoy,
   },
   {
     id: "propostas",
-    nome: "Propostas",
-    descricao: "Geração de propostas e respostas comerciais.",
-    icone: Sparkles,
-  },
-  {
-    id: "voice",
-    nome: "Voice",
-    descricao: "Atendimento por voz e transcrição automática.",
-    icone: MessageSquare,
+    nome: "Vendas",
+    descricao: "Conversas comerciais e fechamento de vendas.",
+    icone: FileText,
   },
 ];
 

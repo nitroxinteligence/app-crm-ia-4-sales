@@ -6,7 +6,7 @@ A seguir está um **documento completo (texto puro)** com o escopo do **VP CRM (
 
 ## 0) Objetivo do Produto
 
-VP CRM é um CRM **tudo-em-um** com **Inbox omnichannel** (WhatsApp, Instagram, Messenger, Email, LinkedIn) e **Agentes de IA** integrados em todo o sistema, capazes de atuar de forma autônoma (com regras definidas pelo usuário).
+VP CRM é um CRM **tudo-em-um** com **Inbox omnichannel** (WhatsApp e Instagram) e **Agentes de IA** integrados em todo o sistema, capazes de atuar de forma autônoma (com regras definidas pelo usuário).
 V1 é um **Web App** (desktop-first) totalmente responsivo (tablet), com mobile planejado para depois.
 
 ---
@@ -18,7 +18,7 @@ V1 é um **Web App** (desktop-first) totalmente responsivo (tablet), com mobile 
 * Ícones: **lucide-react**
 * Tema: **Light + Dark** (dark padrão com cores invertidas; mesma identidade)
 * Layout: Sidebar colapsável + Topbar fixa + conteúdo com **Side Panels** (Sheet) para detalhes
-* Dados: mock/placeholder (não implementar backend nesta etapa)
+* Dados: reais (Supabase + integrações)
 * Navegação: client-side (Next navigation)
 * Listas grandes: **infinite scroll**
 * Bulk actions: seleção múltipla (não precisa seleção persistente além da lista visível)
@@ -69,8 +69,7 @@ Elementos da esquerda para direita:
 
 * Breadcrumb/título da página (ex: “Inbox”)
 * Seletor de Workspace (dropdown)
-* Status de canais conectados (badges: WA, IG, MSG, Email, LI com indicador)
-* Botão “Copiloto IA” (abre modal/painel)
+* Status de canais conectados (badges: WA, IG com indicador)
 * Notificações (ícone sino com badge)
 * Perfil do usuário (avatar + menu)
 
@@ -78,7 +77,7 @@ Elementos da esquerda para direita:
 
 * Header da página (título + actions)
 * Conteúdo (listas, kanban, inbox, dashboards)
-* Side Panel à direita para detalhes (Lead/Deal/Ticket/Task/Company)
+* Side Panel à direita para detalhes (Lead/Deal/Task)
 * Em telas menores, Side Panel vira overlay (sheet)
 
 ---
@@ -157,7 +156,7 @@ Após criar conta, obrigatoriamente iniciar Onboarding Wizard.
 
 ## 7) Onboarding Wizard (obrigatório)
 
-Formato: wizard em etapas, não pulável.
+Formato: wizard em etapas, com opção de pular.
 
 Etapas:
 
@@ -175,13 +174,10 @@ Etapas:
 
    * WhatsApp (API oficial)
    * Instagram
-   * Messenger
-   * Email
-   * LinkedIn
-   * Usuário seleciona quais conectar e inicia “flow” de conexão (UI mock)
+   * Usuário seleciona quais conectar e inicia “flow” de conexão
 4. Criar 1º Agente
 
-   * Usuário escolhe template (SDR, Atendimento, Suporte, Copiloto, Propostas, Voice) ou “do zero”
+   * Usuário escolhe template (SDR, Atendimento, Suporte, Propostas, Voice) ou “do zero”
    * Configuração básica do agente (nome, função, canais, idioma, tom)
 5. Importar CSV
 
@@ -194,10 +190,7 @@ Etapas:
 
    * Checklist final + botão “Ir para Dashboard”
 
-Regra: onboarding exige pelo menos:
-
-* 1 canal conectado (no mínimo WhatsApp)
-* 1 agente criado
+Regra: onboarding nao bloqueia o app (etapas opcionais).
 * Convidar equipe pode ser opcional, mas a tela é obrigatória (usuário pode “pular convite” mas não pular etapa; pode avançar sem convidar)
 
 Após concluir, navega para Dashboard.
@@ -209,7 +202,7 @@ Após concluir, navega para Dashboard.
 ### Layout
 
 * Header: “Dashboard”
-* Filtros: período (Hoje/7d/30d), canal (Todos, WA, IG, MSG, Email, LI)
+* Filtros: período (Hoje/7d/30d), canal (Todos, WA, IG)
 
 ### Linha 1: 5 KPI Cards
 
@@ -283,7 +276,6 @@ Header:
   * transferir conversa (abre modal)
   * resolver / pendente
   * criar deal (modal)
-  * criar ticket (modal)
   * criar tarefa (modal)
 
 Timeline:
@@ -297,12 +289,7 @@ Composer:
 * anexos (upload)
 * templates (WhatsApp)
 * quick replies (por workspace)
-* botões de IA:
-
-  * sugerir resposta
-  * resumir conversa
-  * extrair dados (nome/email/necessidade)
-  * classificar intenção
+* botões de IA (adiados)
 
 Nota interna:
 
@@ -315,12 +302,10 @@ Nota interna:
 * Atalhos:
 
   * criar deal
-  * criar ticket
   * criar tarefa
 * Histórico:
 
   * deals associados
-  * tickets associados
   * atividades (tarefas)
 * Mascaramento para viewer
 
@@ -450,17 +435,7 @@ Tela/flow:
 
 ---
 
-## 12) Empresas
-
-* Lista (tabela + filtros + busca + bulk)
-* Detalhe (Side Panel)
-* Criar/editar empresa
-
-Empresa é opcional para lead.
-
----
-
-## 13) Tarefas / Calendário
+## 12) Tarefas / Calendário
 
 ### Calendário
 
@@ -476,7 +451,7 @@ Visual estilo Google Agenda:
 * Tipo: ligação, reunião, follow-up, email, outro
 * Data/hora
 * Responsável
-* Relacionar a lead/deal/ticket/conversa (opcional)
+* Relacionar a lead/deal/conversa/outro (opcional)
 * Lembretes via push/web
 
 Regra: tarefas são criadas apenas pelo usuário (não pelo agente) nesta V1.
@@ -496,7 +471,7 @@ Integrações:
 * Cards/lista com:
 
   * Nome
-  * Tipo (SDR/Atendimento/Suporte/Copiloto/Propostas/Voice)
+* Tipo (SDR/Atendimento/Suporte/Propostas/Voice)
   * Canais ativos
   * Status (ativo/pausado)
   * Uso (créditos/limites)
@@ -507,7 +482,7 @@ Regra V1: máximo de **2 agentes** por workspace (mostrar limite no UI)
 ### Criar agente
 
 * Opção: Template ou Do zero
-* Templates: SDR, Atendimento, Suporte, Copiloto, Propostas, Voice
+* Templates: SDR, Atendimento, Suporte, Propostas, Voice
 * Ao criar, abrir Editor do Agente
 
 ### Editor do Agente (abas)
@@ -519,7 +494,7 @@ Aba 1: Configuração
 * Tom de voz (select)
 * Idioma (PT/EN)
 * Horários de atuação (ex: comercial/24-7)
-* Canais onde atua (checkboxes: WA/IG/MSG/Email/LI)
+* Canais onde atua (checkboxes: WA/IG)
 * Regras de escalonamento para humano (UI placeholder)
 * Variáveis do workspace (nome empresa, proposta, etc.)
 
@@ -536,7 +511,6 @@ Aba 2: Ações permitidas (escopos + modos)
   * Criar/editar lead
   * Criar/editar deal
   * Mover etapa
-  * Criar ticket
   * Criar tarefa (pode existir no UI mas desabilitado na V1)
   * Enviar email
   * Usar template WhatsApp
@@ -582,48 +556,12 @@ Aba 5: Auditoria (logs)
 
   * data/hora
   * ação
-  * alvo (lead/deal/ticket)
+* alvo (lead/deal/conversa/outro)
   * resultado
 
 ---
 
-## 15) Tickets / Suporte (módulo separado)
-
-### Lista
-
-* Tabela com:
-
-  * ID
-  * Título/assunto
-  * Status (aberto/em andamento/resolvido)
-  * Prioridade (baixa/média/alta)
-  * Cliente (lead/empresa)
-  * Responsável
-  * Última atualização
-* Filtros: status, prioridade, responsável
-* Busca
-* Infinite scroll
-* Bulk actions:
-
-  * mudar status
-  * mudar prioridade
-  * atribuir responsável
-  * deletar (com modal)
-
-### Detalhe do ticket (Side Panel)
-
-Tabs:
-
-* Visão geral (status/prioridade/responsável)
-* Conversas (thread)
-* Notas internas
-* Arquivos
-* Auditoria
-* IA: sugerir solução/resumo (painel dentro do ticket)
-
----
-
-## 16) Relatórios / BI
+## 15) Relatórios / BI
 
 ### Visão geral
 
@@ -680,7 +618,7 @@ KPIs:
 
 ### 17.3 Canais e contas conectadas
 
-* Lista de integrações (WA/IG/MSG/Email/LI)
+* Lista de integrações (WA/IG)
 * Status: conectado / desconectado / erro
 * Botões: conectar, reconectar, desconectar
 * Selecionar quais contas (no caso IG/FB/LI)
@@ -747,16 +685,7 @@ Telas do Billing:
 
 ## 18) Copiloto IA Global (Topbar)
 
-Botão “Copiloto IA” abre um modal/sheet com:
-
-* Campo de chat: “Pergunte qualquer coisa sobre seu CRM”
-* Sugestões rápidas:
-
-  * “Resuma o status do funil”
-  * “Liste leads mais quentes”
-  * “Sugira próximos passos”
-* Resposta em cards
-* (UI apenas; sem implementação real)
+Copiloto IA adiado (nao implementar nesta etapa).
 
 ---
 
@@ -819,10 +748,8 @@ Estrutura:
 * /app/inbox
 * /app/pipeline
 * /app/leads
-* /app/companies
 * /app/calendar
 * /app/agents
-* /app/tickets
 * /app/reports
 * /app/settings
 
@@ -882,7 +809,6 @@ App:
 * Empresas (tabela + side panel)
 * Calendário (mês/semana/agenda + modal tarefa)
 * Agentes (lista + editor com abas + teste + auditoria + conhecimento)
-* Tickets (lista + side panel + IA)
 * Relatórios (visões + export csv)
 * Settings (perfil, equipe, canais, campos, billing, idioma, privacidade)
 
@@ -890,12 +816,12 @@ App:
 
 ## 24) Requisitos finais para o Codex
 
-* Implementar apenas frontend com dados mock (fixtures)
+* Usar dados reais (Supabase + integrações)
 * Usar componentes shadcn e layout consistente
 * Implementar theme toggle (light/dark)
 * Implementar navegação + estados de UI
 * Implementar side panels com tabs
-* Implementar infinite scroll (mock)
-* Implementar bulk selection e ações (mock)
+* Implementar infinite scroll
+* Implementar bulk selection e ações
 * Implementar masking para role Viewer
-* Implementar onboarding wizard obrigatório
+* Implementar onboarding wizard com opção de pular

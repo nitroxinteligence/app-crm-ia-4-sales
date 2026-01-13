@@ -1,5 +1,5 @@
-import { VisaoFunil } from "@/components/funil/visao-funil";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <VisaoFunil />;
+  redirect("/app/pipeline");
 }

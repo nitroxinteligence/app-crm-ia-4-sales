@@ -1,5 +1,5 @@
 VOCÊ É O CODEX. GERE UM FRONTEND COMPLETO (WEB APP) EM NEXT.JS (APP ROUTER) + TYPESCRIPT + TAILWIND + SHADCN/UI PARA UM CRM CHAMADO “VP CRM”.
-OBJETIVO: ENTREGAR APENAS FRONTEND (SEM BACKEND REAL), USANDO DADOS MOCK (FIXTURES).
+OBJETIVO: ENTREGAR APENAS FRONTEND (COM BACKEND REAL)
 O APP DEVE SER TOTALMENTE NAVEGÁVEL COM ROTAS, LAYOUT CONSISTENTE, LIGHT/DARK MODE, SIDEBAR COLAPSÁVEL, TOPBAR FIXA, E SIDE PANELS (SHEET) PARA DETALHES.
 A EXPERIÊNCIA É DESKTOP-FIRST (1440), RESPONSIVA PARA TABLET, MOBILE PODE SER SIMPLES (APENAS NÃO QUEBRAR).
 
@@ -15,7 +15,6 @@ A EXPERIÊNCIA É DESKTOP-FIRST (1440), RESPONSIVA PARA TABLET, MOBILE PODE SER 
 * Inter como fonte padrão
 * Implementar tema Light/Dark (dark padrão; cores invertidas). Adicionar toggle de tema no menu do usuário.
 * Proibir dependências extras desnecessárias.
-* Não usar backend. Use mocks estáticos em /src/lib/mock.
 * Todos os dados devem ser tipados (interfaces/types).
 * Todas as listas com muitos itens devem suportar infinite scroll (simulado no frontend).
 * Implementar estados de loading (skeleton), empty state, error state e permission denied.
@@ -46,15 +45,13 @@ Rotas Auth:
 
 Rotas App:
 
-* /onboarding  (wizard obrigatório após cadastro)
+* /onboarding  (wizard com opção de pular etapas)
 * /app/dashboard
 * /app/inbox
 * /app/pipeline
 * /app/leads
-* /app/companies
 * /app/calendar
 * /app/agents
-* /app/tickets
 * /app/reports
 * /app/settings
 * /app/settings/team
@@ -74,7 +71,7 @@ Crie um “fake auth state” no frontend:
 
 * Usuário atual (nome, email, role: ADMIN|MANAGER|MEMBER|VIEWER)
 * Workspace atual (multi-tenant)
-* Canais conectados do workspace (WA/IG/MSG/EMAIL/LI)
+* Canais conectados do workspace (WA/IG)
 * Plano atual (Essential|Premium|Pro), trial (7 dias), limites (1 user trial, 1 canal trial, max 2 agents)
   Armazenar em local state simples (React context) ou Zustand (se quiser, mas preferir sem libs extras). Pode usar Context API.
 
@@ -90,7 +87,6 @@ Implementar AppShell em /(app)/layout.tsx:
   * Breadcrumb/título
   * Seletor de workspace
   * Badges de status de canais conectados (WA/IG/MSG/EMAIL/LI)
-  * Botão “Copiloto IA” (abre modal/sheet)
   * Notificações (sininho com badge)
   * Avatar/Perfil (menu com theme toggle + logout)
 * Área principal com PageHeader + conteúdo
@@ -111,15 +107,13 @@ Etapas:
    * pipeline modelo estilo Kommo com etapas editáveis e reorder
 3. Conectar Canais:
 
-   * selecionar quais conectar e iniciar “flow” (UI mock)
    * onboarding exige pelo menos 1 canal conectado (preferir WhatsApp)
 4. Criar 1º Agente:
 
-   * escolher template (SDR/Atendimento/Suporte/Copiloto/Propostas/Voice) ou do zero
+   * escolher template (SDR/Atendimento/Suporte/Propostas/Voice) ou do zero
    * exige criação de pelo menos 1 agente
 5. Importar CSV:
 
-   * upload + mapear colunas + preview (mock)
 6. Convidar equipe:
 
    * convidar por email, escolher role
@@ -152,7 +146,7 @@ Após conclusão, redirecionar para /app/dashboard.
   * Linha tendência 7/30 dias
     (Gráficos podem ser placeholders visuais, sem chart lib; apenas UI)
 * Linha 3: Alertas + Quick actions:
-  Alertas: leads sem resposta, intenção alta, tickets alta prioridade, tarefas do dia
+  Alertas: leads sem resposta, intenção alta, tarefas do dia
   Ações rápidas: Ir Inbox, Criar Deal, Criar Agente, Conectar Canal
 * Estados: skeleton loading, empty, error
 
@@ -172,7 +166,7 @@ Coluna 1: Lista de conversas
 Coluna 2: Chat
 
 * Header: nome + canal + status
-* Ações rápidas: tag, transferir, resolver/pender, criar deal, criar ticket, criar tarefa
+* Ações rápidas: tag, transferir, resolver/pender, criar deal, criar tarefa
 * Timeline mensagens + mídia (image/pdf/audio preview)
 * Composer:
 
@@ -180,15 +174,15 @@ Coluna 2: Chat
   * anexos
   * templates WhatsApp
   * quick replies (por workspace)
-  * menu IA: sugerir resposta, resumir, extrair dados, classificar intenção
+  * menu IA (adiado)
 * Nota interna (somente equipe)
 
 Coluna 3: Painel do contato
 
 * dados: nome, telefone, email, empresa
 * tags + status + owner
-* atalhos: criar deal/ticket/tarefa
-* histórico: deals, tickets, atividades
+* atalhos: criar deal/tarefa
+* histórico: deals, atividades
 * mascaramento para viewer
 
 Regra de agente:
@@ -199,7 +193,7 @@ Regra de agente:
 Modais:
 
 * Transferir conversa
-* Criar deal/ticket/tarefa a partir do chat
+* Criar deal/tarefa a partir do chat
 * Confirmar spam/bloquear
 
 ========================
@@ -239,25 +233,15 @@ Tela/flow “Editar etapas do funil”:
 Mascaramento para role VIEWER.
 
 ========================
-12) EMPRESAS
-============
-
-/app/companies:
-
-* DataTable + filtros + busca + bulk
-* SidePanel Company com tabs padrão
-* Criar/editar empresa
-
-========================
-13) CALENDÁRIO/TAREFAS
+12) CALENDÁRIO/TAREFAS
 ======================
 
 /app/calendar:
 
 * Visão mês, semana, agenda list (tabs)
 * Criar tarefa (modal)
-  Campos: título, tipo (ligação/reunião/follow-up/email/outro), data/hora, responsável, relacionamento opcional (lead/deal/ticket/conversa)
-* Integrações (UI mock): conectar Google Calendar / Outlook
+  Campos: título, tipo (ligação/reunião/follow-up/email/outro), data/hora, responsável, relacionamento opcional (lead/deal/conversa/outro)
+* Integrações: conectar Google Calendar / Outlook
 
 Regra V1: tarefas criadas apenas pelo usuário (não pelo agente). Ainda assim, permitir exibir “criado por agente” desativado.
 
@@ -280,7 +264,7 @@ Regra V1: tarefas criadas apenas pelo usuário (não pelo agente). Ainda assim, 
 
      * modos: Autônomo / Assistido / Somente rascunho
      * toggles de ações:
-       enviar msg, criar/editar lead, criar/editar deal, mover etapa, criar ticket, enviar email, usar template WhatsApp, transferir humano, bloquear contato (default off), excluir (bloqueado)
+       enviar msg, criar/editar lead, criar/editar deal, mover etapa, enviar email, usar template WhatsApp, transferir humano, bloquear contato (default off), excluir (bloqueado)
      * guardrails: limite ações/minuto/dia (UI)
   3. Conhecimento:
 
@@ -294,20 +278,7 @@ Regra V1: tarefas criadas apenas pelo usuário (não pelo agente). Ainda assim, 
      * logs filtráveis (período/canal/ação)
 
 ========================
-15) TICKETS / SUPORTE
-=====================
-
-/app/tickets:
-
-* DataTable: ID, assunto, status, prioridade, cliente, responsável, última atualização
-* filtros: status, prioridade, responsável
-* bulk actions: status, prioridade, responsável, delete (confirm)
-* SidePanel Ticket:
-  tabs: Visão geral, Conversas, Notas, Arquivos, Auditoria
-  seção IA dentro do ticket: sugerir solução / resumo (UI)
-
-========================
-16) RELATÓRIOS / BI
+15) RELATÓRIOS / BI
 ===================
 
 /app/reports:
@@ -350,12 +321,7 @@ Regra V1: tarefas criadas apenas pelo usuário (não pelo agente). Ainda assim, 
 18) COPILOTO IA GLOBAL (TOPBAR)
 ===============================
 
-Botão “Copiloto IA” abre modal/sheet com:
-
-* chat input
-* sugestões rápidas
-* respostas em cards
-  UI apenas.
+Copiloto IA adiado (nao implementar nesta etapa).
 
 ========================
 19) SIDE PANEL (COMPONENTE GLOBAL)
@@ -369,25 +335,10 @@ Estrutura:
 * Tabs fixas: Visão geral, Conversas, Atividades, Notas, Arquivos, Auditoria
 * Body scrollável
 * Footer opcional (Salvar/Cancelar)
-  Usar para Lead, Deal, Ticket, Company, Task.
+  Usar para Lead, Deal e Task.
 
 ========================
-20) DADOS MOCK (FIXTURES)
-=========================
-
-Criar listas mock com volume suficiente para infinite scroll:
-
-* leads: 300
-* deals: 200
-* conversations: 200 (mensagens simuladas)
-* tickets: 150
-* tasks: 120
-* agents: 2
-* users: 5-10
-* reports: números fake derivados dos mocks (ou fixos)
-
-========================
-21) QUALIDADE
+20) QUALIDADE
 =============
 
 * Layout consistente

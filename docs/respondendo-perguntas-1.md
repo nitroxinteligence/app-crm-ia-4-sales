@@ -29,7 +29,7 @@ Eu só alterei o nome para pt-br, apenas isso.
 Sim! Em pt-br
   - Configurações: 1) /app/settings/... 2) /app/configuracoes/...?
 Sim! Em pt-br
-  - Pipeline/leads/companies/calendar/agents/tickets/reports: prefere PT-BR? (funil, leads/contatos, empresas, calendario/agenda, agentes, tickets/suporte, relatorios)
+  - Pipeline/leads/calendar/agents/reports: prefere PT-BR? (funil, leads/contatos, calendario/agenda, agentes, relatorios)
 Sim, pt-br
   - Confirmo usar ASCII sem acentos nos paths/arquivos? Ex: configuracoes, recuperar-senha?
 Sim!
@@ -57,9 +57,9 @@ Inclui appshell completo também
 Etapas futuras.
   - Quer estados do dashboard (loading/empty/error/denied) alternáveis por query param ou toggle no UI?
 Escolha voce, o que mais for recomendado.
-  - Dados do dashboard: mock derivado de fixtures ou valores estáticos?
-Mockados
-  - “Copiloto IA” já nesta etapa (sheet/modal mock)?
+  - Dados do dashboard: reais ou valores estáticos?
+Dados reais (Supabase).
+  - “Copiloto IA” já nesta etapa (sheet/modal)?
 Nao
   - AppShell deve aplicar em todas as rotas /app/* já nesta etapa?
 Nao sei. Escolha voce, o que mais for recomendado.
@@ -70,8 +70,8 @@ Nao sei. Escolha voce, o que mais for recomendado.
 Escolha voce, o que mais for recomendado.
   - Breadcrumb real ou apenas título da página na topbar?
 Breadcrumb real.
-  - Quantos workspaces mockados e quais nomes?
-Central Vertical Partners
+  - Quantos workspaces e quais nomes?
+Workspace real.
   - Badges de canais: mostrar status conectado/desconectado já no dashboard?
 Sim! Mostrar apenas o que está conectado.
   - Menu de perfil além de tema + logout (ex: “Perfil”)?
@@ -81,10 +81,10 @@ Dropdown
   - Sidebar com separadores “Core” e “Admin” visuais?
 Sim!
 
-  Dados mock & estado
+  Dados reais & estado
 
-  - Mocks em JSON fixo ou gerados por função (seed) em src/lib/mock?
-Escolha voce, o que mais for recomendado.
+  - Dados estáticos em JSON ou apenas Supabase?
+Apenas Supabase.
   - src/lib/types.ts com todas entidades já agora ou só as do dashboard?
 Escolha voce, o que mais for recomendado.
   - Fake auth state (Context) já na etapa 1? Qual role padrão?
@@ -101,7 +101,7 @@ Sim!
   - Conteúdo limitado a max-w-[1440px] ou full-width?
 Escolha voce, o que mais for recomendado.
   - PageHeader do dashboard terá ações (ex: export/refresh) já agora?
-Os dados do dashboard devem ser em tempo real, mas por enquanto que estamos usando dados mockados nao precisamos nos importar com isso. Sobre o export é bom ter também.
+Os dados do dashboard devem ser em tempo real. Sobre o export é bom ter também.
   - Placeholder de gráficos: estilo minimalista ou mais detalhado?
 Use gráficos do shadcnblocks, na verdade TUDO voce deve usar do shadcn e shadcn blocks
   - Alertas: lista simples ou cards com ícones/badges?

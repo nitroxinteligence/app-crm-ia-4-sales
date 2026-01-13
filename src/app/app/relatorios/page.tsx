@@ -1,5 +1,5 @@
-import { VisaoRelatorios } from "@/components/relatorios/visao-relatorios";
+import { RelatoriosCliente } from "@/components/relatorios/relatorios-cliente";
 
 export default function Page() {
-  return <VisaoRelatorios />;
+  return <RelatoriosCliente />;
 }

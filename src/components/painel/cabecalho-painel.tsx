@@ -1,48 +1,100 @@
-import { Download } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+"use client";
 
-export function CabecalhoPainel() {
+import * as React from "react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import type { DateRange } from "react-day-picker";
+import { CalendarDays, RotateCcw } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+
+export function CabecalhoPainel({
+  periodo,
+  diasSelecionados,
+  aoAlterarPeriodo,
+  aoResetarPeriodo,
+  mostrarTitulo = true,
+}: {
+  periodo?: DateRange;
+  diasSelecionados: number;
+  aoAlterarPeriodo: (periodo?: DateRange) => void;
+  aoResetarPeriodo: () => void;
+  ultimaAtualizacao?: string | null;
+  mostrarTitulo?: boolean;
+}) {
+  const periodoTexto = periodo?.from
+    ? periodo.to
+      ? `${format(periodo.from, "dd MMM yyyy", { locale: ptBR })} - ${format(
+          periodo.to,
+          "dd MMM yyyy",
+          { locale: ptBR }
+        )}`
+      : format(periodo.from, "dd MMM yyyy", { locale: ptBR })
+    : "Selecione o período";
+
+  const seletorPeriodo = (
+    <div className="flex flex-wrap items-center gap-3 rounded-[6px] border border-border/60 bg-card/40 px-3 py-2">
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <CalendarDays className="h-4 w-4 text-muted-foreground" />
+        <span>Período</span>
+      </div>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            data-empty={!periodo?.from}
+            className={cn(
+              "h-9 w-[260px] justify-start rounded-[6px] text-left font-normal data-[empty=true]:text-muted-foreground"
+            )}
+          >
+            {periodoTexto}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="end">
+          <Calendar
+            mode="range"
+            numberOfMonths={2}
+            defaultMonth={periodo?.from}
+            selected={periodo}
+            onSelect={aoAlterarPeriodo}
+            weekStartsOn={1}
+            locale={ptBR}
+            initialFocus
+          />
+        </PopoverContent>
+      </Popover>
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={aoResetarPeriodo}
+        aria-label="Resetar período"
+      >
+        <RotateCcw className="h-4 w-4" />
+      </Button>
+      <span className="text-xs text-muted-foreground">
+        {diasSelecionados} dias
+      </span>
+    </div>
+  );
+
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 className="text-2xl font-semibold">Visão Geral</h1>
-      </div>
-      <div className="flex flex-wrap items-center gap-3">
-        <Select defaultValue="7d">
-          <SelectTrigger className="w-[140px]">
-            <SelectValue placeholder="Período" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="hoje">Hoje</SelectItem>
-            <SelectItem value="7d">Últimos 7 dias</SelectItem>
-            <SelectItem value="30d">Últimos 30 dias</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select defaultValue="todos">
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Canal" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="todos">Todos os canais</SelectItem>
-            <SelectItem value="whatsapp">WhatsApp</SelectItem>
-            <SelectItem value="instagram">Instagram</SelectItem>
-            <SelectItem value="messenger">Messenger</SelectItem>
-            <SelectItem value="email">Email</SelectItem>
-            <SelectItem value="linkedin">LinkedIn</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button variant="outline" className="gap-2">
-          <Download className="h-4 w-4" />
-          Exportar
-        </Button>
-      </div>
+    <div className="space-y-3">
+      {mostrarTitulo ? (
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h1 className="text-2xl font-semibold">Visão Geral</h1>
+          {seletorPeriodo}
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {seletorPeriodo}
+        </div>
+      )}
     </div>
   );
 }

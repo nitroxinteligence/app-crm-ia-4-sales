@@ -46,7 +46,7 @@ export function SomAlerta({ ativo }: { ativo: boolean }) {
   }, [somAtivo, ativo]);
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border px-3 py-2">
+    <div className="flex items-center justify-between gap-3 rounded-[6px] border border-dashed border-border px-3 py-2">
       <div>
         <p className="text-sm font-medium">Som de alertas</p>
         <p className="text-xs text-muted-foreground">

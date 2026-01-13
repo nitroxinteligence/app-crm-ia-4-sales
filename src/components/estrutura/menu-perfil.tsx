@@ -1,11 +1,18 @@
 "use client";
+import * as React from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { LogOut, Moon, Settings, Sun, User } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useAutenticacao } from "@/lib/contexto-autenticacao";
+import { texto } from "@/lib/idioma";
+import { supabaseClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -14,10 +21,25 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Switch } from "@/components/ui/switch";
 
-export function MenuPerfil() {
-  const { usuario } = useAutenticacao();
+export function MenuPerfil({
+  align = "end",
+  side = "bottom",
+  className,
+  mostrarNome = false,
+}: {
+  align?: "start" | "center" | "end";
+  side?: "top" | "right" | "bottom" | "left";
+  className?: string;
+  mostrarNome?: boolean;
+}) {
+  const { usuario, idioma } = useAutenticacao();
   const { theme, setTheme } = useTheme();
+  const router = useRouter();
   const temaEscuro = (theme ?? "dark") === "dark";
+  const [montado, setMontado] = React.useState(false);
+  React.useEffect(() => {
+    setMontado(true);
+  }, []);
 
   const iniciais = usuario.nome
     .split(" ")
@@ -26,14 +48,49 @@ export function MenuPerfil() {
     .join("")
     .toUpperCase();
 
+  const handleSair = async () => {
+    await supabaseClient.auth.signOut();
+    router.push("/entrar");
+  };
+
+  if (!montado) {
+    return (
+      <Button
+        variant="ghost"
+        size={mostrarNome ? "default" : "icon"}
+        className={cn(
+          "h-10",
+          mostrarNome ? "w-full justify-start gap-3 px-3" : "w-10",
+          className
+        )}
+        aria-label={texto(idioma, "Abrir menu do usuário", "Open user menu")}
+        disabled
+      >
+        <Avatar className="h-9 w-9">
+          {usuario.avatarUrl && (
+            <AvatarImage src={usuario.avatarUrl} alt={usuario.nome} />
+          )}
+          <AvatarFallback>{iniciais}</AvatarFallback>
+        </Avatar>
+        {mostrarNome && (
+          <span className="truncate text-sm font-medium">{usuario.nome}</span>
+        )}
+      </Button>
+    );
+  }
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          size="icon"
-          className="h-10 w-10"
-          aria-label="Abrir menu do usuário"
+          size={mostrarNome ? "default" : "icon"}
+          className={cn(
+            "h-10",
+            mostrarNome ? "w-full justify-start gap-3 px-3" : "w-10",
+            className
+          )}
+          aria-label={texto(idioma, "Abrir menu do usuário", "Open user menu")}
         >
           <Avatar className="h-9 w-9">
             {usuario.avatarUrl && (
@@ -41,17 +98,17 @@ export function MenuPerfil() {
             )}
             <AvatarFallback>{iniciais}</AvatarFallback>
           </Avatar>
+          {mostrarNome && (
+            <span className="truncate text-sm font-medium">{usuario.nome}</span>
+          )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="flex items-center gap-2">
-          <User className="h-4 w-4" />
-          Conta
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem className="flex items-center gap-2">
-          <Settings className="h-4 w-4" />
-          Configurações
+      <DropdownMenuContent align={align} side={side} className="w-64">
+        <DropdownMenuItem asChild>
+          <Link href="/app/configuracoes/perfil" className="flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            {texto(idioma, "Configurações", "Settings")}
+          </Link>
         </DropdownMenuItem>
         <DropdownMenuItem className="flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -60,7 +117,7 @@ export function MenuPerfil() {
             ) : (
               <Sun className="h-4 w-4" />
             )}
-            <span>Tema escuro</span>
+            <span>{texto(idioma, "Tema escuro", "Dark mode")}</span>
           </div>
           <Switch
             checked={temaEscuro}
@@ -68,9 +125,12 @@ export function MenuPerfil() {
           />
         </DropdownMenuItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem className="flex items-center gap-2 text-destructive focus:text-destructive">
+        <DropdownMenuItem
+          className="flex items-center gap-2 text-destructive focus:text-destructive"
+          onClick={handleSair}
+        >
           <LogOut className="h-4 w-4" />
-          Sair
+          {texto(idioma, "Sair", "Sign out")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
