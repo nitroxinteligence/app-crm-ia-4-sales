@@ -35,6 +35,7 @@ import { nomeCanal } from "@/lib/canais";
 import { useAutenticacao } from "@/lib/contexto-autenticacao";
 import { adicionarNotificacao } from "@/lib/notificacoes";
 import { supabaseClient } from "@/lib/supabase/client";
+import { deleteR2Object, uploadFileToR2 } from "@/lib/r2/browser";
 import {
   horariosAgente,
   permissoesBase,
@@ -66,6 +67,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Tooltip,
   TooltipContent,
@@ -81,6 +84,12 @@ type EditorAgenteProps = {
 };
 
 type ProviderAgente = "whatsapp_oficial" | "whatsapp_baileys";
+
+type GrupoBaileys = {
+  id: string;
+  subject?: string | null;
+  size?: number | null;
+};
 
 type MensagemTeste = {
   id: string;
@@ -220,6 +229,11 @@ export function EditorAgente({
   >([]);
   const [sincronizandoTemplates, setSincronizandoTemplates] =
     React.useState(false);
+
+  const obterToken = React.useCallback(async () => {
+    const { data } = await supabaseClient.auth.getSession();
+    return data.session?.access_token ?? null;
+  }, []);
   const [erroTemplates, setErroTemplates] = React.useState<string | null>(null);
   const [agendasDisponiveis, setAgendasDisponiveis] = React.useState<
     AgendaAgente[]
@@ -251,6 +265,15 @@ export function EditorAgente({
   const [tagEmSelecao, setTagEmSelecao] = React.useState("");
   const [etapaEmSelecao, setEtapaEmSelecao] = React.useState("");
   const [pausarHumano, setPausarHumano] = React.useState(true);
+  const [enviarParaGrupos, setEnviarParaGrupos] = React.useState(false);
+  const [gruposPermitidos, setGruposPermitidos] = React.useState<string[] | null>(
+    null
+  );
+  const [gruposBaileys, setGruposBaileys] = React.useState<GrupoBaileys[]>([]);
+  const [carregandoGrupos, setCarregandoGrupos] = React.useState(false);
+  const [erroGrupos, setErroGrupos] = React.useState<string | null>(null);
+  const [popoverGruposAberto, setPopoverGruposAberto] = React.useState(false);
+  const [filtroGrupo, setFiltroGrupo] = React.useState("");
   const [timezone, setTimezone] = React.useState("America/Sao_Paulo");
   const [tempoResposta, setTempoResposta] = React.useState(30);
   const [horarioPersonalizado, setHorarioPersonalizado] = React.useState("");
@@ -613,6 +636,17 @@ export function EditorAgente({
             setHorarioPersonalizado(
               (configuracao.horario_customizado as string) ?? ""
             );
+            setEnviarParaGrupos(Boolean(configuracao.enviar_para_grupos));
+            const gruposConfig = configuracao.grupos_permitidos;
+            if (Array.isArray(gruposConfig)) {
+              setGruposPermitidos(
+                gruposConfig
+                  .map((item) => (typeof item === "string" ? item : ""))
+                  .filter(Boolean)
+              );
+            } else {
+              setGruposPermitidos(null);
+            }
             setCanalSelecionado(canalConfig);
             setNumeroSelecionado(agente.integration_account_id ?? null);
             const contaAtual = numeros.find(
@@ -747,6 +781,75 @@ export function EditorAgente({
     providerBaileys,
   ]);
 
+  const gruposFiltrados = React.useMemo(() => {
+    const filtro = filtroGrupo.trim().toLowerCase();
+    if (!filtro) return gruposBaileys;
+    return gruposBaileys.filter((grupo) => {
+      const nome = (grupo.subject ?? "").toLowerCase();
+      const id = (grupo.id ?? "").toLowerCase();
+      return nome.includes(filtro) || id.includes(filtro);
+    });
+  }, [filtroGrupo, gruposBaileys]);
+
+  React.useEffect(() => {
+    if (!providerBaileys) return;
+    if (!enviarParaGrupos) return;
+    if (!workspace?.id) return;
+    if (!numeroSelecionado) return;
+
+    let ativo = true;
+    setCarregandoGrupos(true);
+    setErroGrupos(null);
+
+    const carregar = async () => {
+      const { data } = await supabaseClient.auth.getSession();
+      const session = data.session;
+      if (!session) {
+        throw new Error("Sessão expirada.");
+      }
+
+      const response = await fetch(
+        `/api/integrations/whatsapp-baileys/groups?workspaceId=${workspace.id}&integrationAccountId=${numeroSelecionado}`,
+        {
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const detalhe = await response.text().catch(() => "");
+        throw new Error(detalhe || "Falha ao carregar grupos.");
+      }
+
+      const payload = (await response.json()) as {
+        groups?: GrupoBaileys[];
+      };
+
+      const grupos = payload.groups ?? [];
+      if (ativo) {
+        setGruposBaileys(grupos);
+        setFiltroGrupo("");
+        setErroGrupos(null);
+        setCarregandoGrupos(false);
+        setGruposPermitidos((atual) => {
+          if (atual !== null) return atual;
+          return grupos.map((item) => item.id);
+        });
+      }
+    };
+
+    carregar().catch((error) => {
+      if (!ativo) return;
+      setErroGrupos(error?.message ?? "Falha ao carregar grupos.");
+      setCarregandoGrupos(false);
+    });
+
+    return () => {
+      ativo = false;
+    };
+  }, [enviarParaGrupos, numeroSelecionado, providerBaileys, workspace?.id]);
+
   React.useEffect(() => {
     if (!numeroSelecionado) return;
     const contaAtual = numerosWhatsapp.find(
@@ -879,7 +982,7 @@ export function EditorAgente({
     setSalvando(true);
     setErro(null);
 
-    const configuracao = {
+    const configuracao: Record<string, unknown> = {
       tom: formAgente.tom,
       tom_custom: formAgente.tom === "outro" ? tomPersonalizado : null,
       horario: formAgente.horario,
@@ -888,7 +991,11 @@ export function EditorAgente({
       canais: [canalSelecionado],
       faq,
       prompt: promptAgente,
+      enviar_para_grupos: enviarParaGrupos,
     };
+    if (providerBaileys && enviarParaGrupos && gruposPermitidos !== null) {
+      configuracao.grupos_permitidos = gruposPermitidos;
+    }
 
     const contaSelecionada = numeroSelecionado;
 
@@ -1134,6 +1241,12 @@ export function EditorAgente({
         return;
       }
 
+      const token = await obterToken();
+      if (!token) {
+        setErro("Sessao expirada.");
+        return;
+      }
+
       for (const arquivo of arquivosSelecionados) {
         if (arquivo.size > tamanhoMaximo) {
           setErro("Arquivo acima de 5MB. Envie um arquivo menor.");
@@ -1141,10 +1254,15 @@ export function EditorAgente({
         }
         const nomeArquivo = normalizarNomeArquivo(arquivo.name);
         const storagePath = `${agenteIdUpload}/${Date.now()}-${nomeArquivo}`;
-        const upload = await supabaseClient.storage
-          .from("agent-knowledge")
-          .upload(storagePath, arquivo, { upsert: false });
-        if (upload.error) {
+        try {
+          await uploadFileToR2({
+            token,
+            bucket: "agent-knowledge",
+            key: storagePath,
+            file: arquivo,
+            scopeId: agenteIdUpload,
+          });
+        } catch (error) {
           setErro("Nao foi possivel enviar o arquivo.");
           continue;
         }
@@ -1242,7 +1360,7 @@ export function EditorAgente({
     const arquivos = Array.from(event.target.files ?? []);
     if (!arquivos.length) return;
     const novos = arquivos.map((file) => {
-      const tipo = file.type.startsWith("image/")
+      const tipo: "imagem" | "audio" | "arquivo" = file.type.startsWith("image/")
         ? "imagem"
         : file.type.startsWith("audio/")
           ? "audio"
@@ -1317,9 +1435,12 @@ export function EditorAgente({
       setGravandoAudio(true);
     } catch (error) {
       adicionarNotificacao({
+        id: `audio-record-${Date.now()}`,
         titulo: "Nao foi possivel gravar audio.",
         descricao: "Verifique a permissao do microfone e tente novamente.",
+        tempo: "Agora",
         categoria: "Agentes",
+        nova: true,
       });
     }
   };
@@ -1329,9 +1450,14 @@ export function EditorAgente({
     setArquivosConhecimento((atual) => atual.filter((item) => item.id !== id));
     await supabaseClient.from("agent_knowledge_files").delete().eq("id", id);
     if (arquivo?.storagePath) {
-      await supabaseClient.storage
-        .from("agent-knowledge")
-        .remove([arquivo.storagePath]);
+      const token = await obterToken();
+      if (!token) return;
+      await deleteR2Object({
+        token,
+        bucket: "agent-knowledge",
+        key: arquivo.storagePath,
+        scopeId: arquivo.storagePath.split("/")[0],
+      });
     }
   };
 
@@ -2487,6 +2613,146 @@ export function EditorAgente({
                       <p className="text-xs font-semibold uppercase text-muted-foreground">
                         {grupo.titulo}
                       </p>
+                      {grupo.titulo === "Inbox" && (
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">Enviar para grupos</p>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex text-muted-foreground">
+                                      <CircleHelp className="h-3.5 w-3.5" />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                    Permite que o agente responda em conversas de grupo.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                            </div>
+                            <Switch
+                              checked={enviarParaGrupos}
+                              onCheckedChange={setEnviarParaGrupos}
+                              disabled={!providerBaileys}
+                            />
+                          </div>
+                          {providerBaileys && enviarParaGrupos && (
+                            <div className="rounded-[6px] border border-border/60 bg-background/70 p-3">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-medium">
+                                    Grupos autorizados
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    Selecione quais grupos podem receber respostas do agente.
+                                  </p>
+                                </div>
+                                <Popover
+                                  open={popoverGruposAberto}
+                                  onOpenChange={setPopoverGruposAberto}
+                                >
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      disabled={carregandoGrupos || !numeroSelecionado}
+                                    >
+                                      {carregandoGrupos
+                                        ? "Carregando..."
+                                        : `Selecionar (${(gruposPermitidos ?? []).length}/${gruposBaileys.length})`}
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent className="w-[340px] p-3" align="end">
+                                    {erroGrupos && (
+                                      <p className="text-xs text-rose-600">
+                                        {erroGrupos}
+                                      </p>
+                                    )}
+                                    <div className="mt-2 space-y-2">
+                                      <Input
+                                        value={filtroGrupo}
+                                        onChange={(event) =>
+                                          setFiltroGrupo(event.target.value)
+                                        }
+                                        placeholder="Buscar grupo..."
+                                      />
+                                      <div className="flex items-center justify-between">
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() =>
+                                            setGruposPermitidos(
+                                              gruposBaileys.map((item) => item.id)
+                                            )
+                                          }
+                                          disabled={gruposBaileys.length === 0}
+                                        >
+                                          Selecionar todos
+                                        </Button>
+                                        <Button
+                                          type="button"
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={() => setGruposPermitidos([])}
+                                          disabled={(gruposPermitidos ?? []).length === 0}
+                                        >
+                                          Limpar
+                                        </Button>
+                                      </div>
+                                      <ScrollArea className="h-56 rounded-[6px] border border-border/60 p-2">
+                                        <div className="space-y-2">
+                                          {gruposFiltrados.map((grupo) => {
+                                            const marcado = (gruposPermitidos ?? []).includes(
+                                              grupo.id
+                                            );
+                                            return (
+                                              <label
+                                                key={grupo.id}
+                                                className="flex cursor-pointer items-start gap-2 rounded-[6px] px-2 py-1 text-sm hover:bg-muted/40"
+                                              >
+                                                <Checkbox
+                                                  checked={marcado}
+                                                  onCheckedChange={(checked) => {
+                                                    setGruposPermitidos((atual) => {
+                                                      const base = atual ?? [];
+                                                      if (checked) {
+                                                        return base.includes(grupo.id)
+                                                          ? base
+                                                          : [...base, grupo.id];
+                                                      }
+                                                      return base.filter((id) => id !== grupo.id);
+                                                    });
+                                                  }}
+                                                />
+                                                <span className="flex-1">
+                                                  <span className="block font-medium">
+                                                    {grupo.subject || "Grupo sem nome"}
+                                                  </span>
+                                                  <span className="block text-xs text-muted-foreground">
+                                                    {grupo.id}
+                                                  </span>
+                                                </span>
+                                              </label>
+                                            );
+                                          })}
+                                          {!gruposFiltrados.length && (
+                                            <p className="px-2 py-3 text-xs text-muted-foreground">
+                                              Nenhum grupo encontrado.
+                                            </p>
+                                          )}
+                                        </div>
+                                      </ScrollArea>
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                       <div className="space-y-2">
                         {grupo.ids.map((id) => {
                           const permissao = permissoesMap.get(id);
@@ -2988,6 +3254,7 @@ export function EditorAgente({
       titulo: "Calendário",
       ids: [
         "calendar_criar",
+        "calendar_disponibilidade",
         "calendar_editar",
         "calendar_cancelar",
         "calendar_consultar",
@@ -3008,6 +3275,8 @@ export function EditorAgente({
     mover_etapa: "Move o negocio entre etapas da pipeline.",
     aplicar_tag: "Aplica tags em contatos ou deals.",
     calendar_criar: "Cria eventos no calendario conectado.",
+    calendar_disponibilidade:
+      "Consulta disponibilidade de datas e horários antes de criar ou reagendar eventos.",
     calendar_editar: "Atualiza eventos existentes no calendario.",
     calendar_cancelar: "Cancela eventos no calendario.",
     calendar_consultar: "Consulta detalhes de eventos no calendario.",
@@ -4036,6 +4305,144 @@ export function EditorAgente({
                               <p className="text-xs font-semibold uppercase text-muted-foreground">
                                 {grupo.titulo}
                               </p>
+                              {grupo.titulo === "Inbox" && (
+                                <div className="space-y-2">
+                                  <div className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm">
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <p className="font-medium">Enviar para grupos</p>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <span className="inline-flex text-muted-foreground">
+                                              <CircleHelp className="h-3.5 w-3.5" />
+                                            </span>
+                                          </TooltipTrigger>
+                                          <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                            Permite que o agente responda em conversas de grupo.
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </div>
+                                    </div>
+                                    <Switch
+                                      checked={enviarParaGrupos}
+                                      onCheckedChange={setEnviarParaGrupos}
+                                      disabled={!providerBaileys}
+                                    />
+                                  </div>
+                                  {providerBaileys && enviarParaGrupos && (
+                                    <div className="rounded-[6px] border border-border/60 bg-background/70 p-3">
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <div>
+                                          <p className="text-sm font-medium">Grupos autorizados</p>
+                                          <p className="text-xs text-muted-foreground">
+                                            Selecione quais grupos podem receber respostas do agente.
+                                          </p>
+                                        </div>
+                                        <Popover
+                                          open={popoverGruposAberto}
+                                          onOpenChange={setPopoverGruposAberto}
+                                        >
+                                          <PopoverTrigger asChild>
+                                            <Button
+                                              type="button"
+                                              variant="outline"
+                                              size="sm"
+                                              disabled={carregandoGrupos || !numeroSelecionado}
+                                            >
+                                              {carregandoGrupos
+                                                ? "Carregando..."
+                                                : `Selecionar (${(gruposPermitidos ?? []).length}/${gruposBaileys.length})`}
+                                            </Button>
+                                          </PopoverTrigger>
+                                          <PopoverContent className="w-[340px] p-3" align="end">
+                                            {erroGrupos && (
+                                              <p className="text-xs text-rose-600">{erroGrupos}</p>
+                                            )}
+                                            <div className="mt-2 space-y-2">
+                                              <Input
+                                                value={filtroGrupo}
+                                                onChange={(event) =>
+                                                  setFiltroGrupo(event.target.value)
+                                                }
+                                                placeholder="Buscar grupo..."
+                                              />
+                                              <div className="flex items-center justify-between">
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  onClick={() =>
+                                                    setGruposPermitidos(
+                                                      gruposBaileys.map((item) => item.id)
+                                                    )
+                                                  }
+                                                  disabled={gruposBaileys.length === 0}
+                                                >
+                                                  Selecionar todos
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  size="sm"
+                                                  onClick={() => setGruposPermitidos([])}
+                                                  disabled={(gruposPermitidos ?? []).length === 0}
+                                                >
+                                                  Limpar
+                                                </Button>
+                                              </div>
+                                              <ScrollArea className="h-56 rounded-[6px] border border-border/60 p-2">
+                                                <div className="space-y-2">
+                                                  {gruposFiltrados.map((grupo) => {
+                                                    const marcado = (gruposPermitidos ?? []).includes(
+                                                      grupo.id
+                                                    );
+                                                    return (
+                                                      <label
+                                                        key={grupo.id}
+                                                        className="flex cursor-pointer items-start gap-2 rounded-[6px] px-2 py-1 text-sm hover:bg-muted/40"
+                                                      >
+                                                        <Checkbox
+                                                          checked={marcado}
+                                                          onCheckedChange={(checked) => {
+                                                            setGruposPermitidos((atual) => {
+                                                              const base = atual ?? [];
+                                                              if (checked) {
+                                                                return base.includes(grupo.id)
+                                                                  ? base
+                                                                  : [...base, grupo.id];
+                                                              }
+                                                              return base.filter(
+                                                                (id) => id !== grupo.id
+                                                              );
+                                                            });
+                                                          }}
+                                                        />
+                                                        <span className="flex-1">
+                                                          <span className="block font-medium">
+                                                            {grupo.subject || "Grupo sem nome"}
+                                                          </span>
+                                                          <span className="block text-xs text-muted-foreground">
+                                                            {grupo.id}
+                                                          </span>
+                                                        </span>
+                                                      </label>
+                                                    );
+                                                  })}
+                                                  {!gruposFiltrados.length && (
+                                                    <p className="px-2 py-3 text-xs text-muted-foreground">
+                                                      Nenhum grupo encontrado.
+                                                    </p>
+                                                  )}
+                                                </div>
+                                              </ScrollArea>
+                                            </div>
+                                          </PopoverContent>
+                                        </Popover>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                               <div className="space-y-2">
                                 {grupo.ids.map((id) => {
                                   const permissao = permissoesMap.get(id);
@@ -4572,9 +4979,16 @@ export function EditorAgente({
                 >
                   Voltar
                 </Button>
-                {passoFinal ? (
+                {!modoCriacao ? (
                   <Button
-                    onClick={() => handleSalvarAgente(false)}
+                    onClick={() => void handleSalvarAgente(false)}
+                    disabled={nomeInvalido || consentimentoInvalido || salvando}
+                  >
+                    {salvando ? "Salvando..." : "Salvar"}
+                  </Button>
+                ) : passoFinal ? (
+                  <Button
+                    onClick={() => void handleSalvarAgente(false)}
                     disabled={
                       !validacoesWizard.identidade ||
                       !validacoesWizard.canais ||
@@ -4630,7 +5044,7 @@ export function EditorAgente({
                   Cancelar
                 </Button>
                 <Button
-                  onClick={handleSalvarAgente}
+                  onClick={() => void handleSalvarAgente()}
                   disabled={nomeInvalido || consentimentoInvalido || salvando}
                 >
                   {salvando ? "Salvando..." : "Salvar alterações"}

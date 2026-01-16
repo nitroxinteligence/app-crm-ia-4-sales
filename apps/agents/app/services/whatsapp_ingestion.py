@@ -4,7 +4,14 @@ from pathlib import Path
 from typing import Any
 
 from app.clients.supabase import get_supabase_client
+from app.clients.r2_client import build_r2_key, get_r2_client
+from app.config import settings
 from app.clients.whatsapp_client import download_media, fetch_media_metadata
+from app.services.realtime import (
+    emit_attachment_created,
+    emit_conversation_updated,
+    emit_message_created,
+)
 from app.services.workspaces import is_workspace_not_expired
 
 
@@ -243,14 +250,14 @@ def _store_attachment(
     media_id: str | None,
     message_type: str,
     filename: str | None,
-) -> None:
+) -> dict | None:
     if not access_token or not message_row_id or not media_id:
-        return
+        return None
 
     metadata = fetch_media_metadata(access_token, media_id)
     media_url = metadata.get("url")
     if not media_url:
-        return
+        return None
 
     mime_type = metadata.get("mime_type")
     file_size = metadata.get("file_size")
@@ -259,15 +266,16 @@ def _store_attachment(
     extension = _resolve_extension(mime_type, filename, message_type)
     storage_path = f"{workspace_id}/{conversation_id}/{message_row_id}-{media_id}{extension}"
 
-    supabase = get_supabase_client()
-    storage = supabase.storage.from_("inbox-attachments")
-    storage.upload(
-        storage_path,
-        content,
-        file_options={
-            "content-type": mime_type or "application/octet-stream",
-        },
+    r2 = get_r2_client()
+    object_key = build_r2_key("inbox-attachments", storage_path)
+    r2.put_object(
+        Bucket=settings.r2_bucket_inbox_attachments,
+        Key=object_key,
+        Body=content,
+        ContentType=mime_type or "application/octet-stream",
     )
+
+    supabase = get_supabase_client()
 
     existing = (
         supabase.table("attachments")
@@ -279,10 +287,10 @@ def _store_attachment(
         .data
     )
     if existing:
-        return
+        return None
 
     tamanho = int(file_size) if file_size else len(content)
-    supabase.table("attachments").insert(
+    insert_response = supabase.table("attachments").insert(
         {
             "workspace_id": workspace_id,
             "message_id": message_row_id,
@@ -291,6 +299,16 @@ def _store_attachment(
             "tamanho_bytes": tamanho,
         }
     ).execute()
+    data = insert_response.data or []
+    attachment = data[0] if isinstance(data, list) and data else data
+    if not attachment or not isinstance(attachment, dict):
+        return None
+    return {
+        "id": attachment.get("id"),
+        "storage_path": storage_path,
+        "tipo": message_type,
+        "tamanho_bytes": tamanho,
+    }
 
 
 def _safe_get_payload(payload: Any) -> dict:
@@ -397,11 +415,34 @@ def process_whatsapp_event(event_id: str, process_media: bool = True) -> dict:
                         sender_id=wa_id,
                         sender_name=name,
                     )
+                    if message_row_id:
+                        emit_message_created(
+                            workspace_id,
+                            conversation["id"],
+                            {
+                                "id": message_row_id,
+                                "autor": "contato",
+                                "tipo": mapped["tipo"],
+                                "conteudo": mapped["conteudo"],
+                                "created_at": created_at,
+                                "sender_id": wa_id,
+                                "sender_nome": name,
+                            },
+                        )
+                        emit_conversation_updated(
+                            workspace_id,
+                            conversation["id"],
+                            {
+                                "status": conversation.get("status", "aberta"),
+                                "ultima_mensagem": mapped["conteudo"],
+                                "ultima_mensagem_em": created_at,
+                            },
+                        )
 
                     media_id = mapped.get("media_id")
                     if media_id and process_media:
                         try:
-                            _store_attachment(
+                            attachment = _store_attachment(
                                 access_token=access_token,
                                 workspace_id=workspace_id,
                                 conversation_id=conversation["id"],
@@ -410,6 +451,13 @@ def process_whatsapp_event(event_id: str, process_media: bool = True) -> dict:
                                 message_type=mapped.get("media_tipo") or mapped["tipo"],
                                 filename=mapped.get("filename"),
                             )
+                            if attachment and message_row_id:
+                                emit_attachment_created(
+                                    workspace_id,
+                                    conversation["id"],
+                                    message_row_id,
+                                    attachment,
+                                )
                         except Exception:
                             pass
     except Exception:

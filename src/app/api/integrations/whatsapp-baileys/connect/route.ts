@@ -191,22 +191,30 @@ export async function POST(request: Request) {
     headers["X-API-KEY"] = baileysApiKey;
   }
 
-  const response = await fetch(`${baileysApiUrl}/sessions`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      integrationAccountId,
-      workspaceId,
-      forceNew,
-    }),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baileysApiUrl}/sessions`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        integrationAccountId,
+        workspaceId,
+        forceNew,
+      }),
+    });
+  } catch (error) {
+    console.error("Baileys connect fetch failed:", error);
+    return new Response("Falha ao acessar a API do Baileys.", {
+      status: 502,
+    });
+  }
 
   if (!response.ok) {
     const detalhe = await response.text().catch(() => "");
     return new Response(
       detalhe || "Falha ao iniciar sessão da API não oficial.",
       {
-      status: 502,
+        status: 502,
       }
     );
   }

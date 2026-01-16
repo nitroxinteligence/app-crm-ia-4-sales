@@ -27,6 +27,8 @@ import { podeVerDadosSensiveis } from "@/lib/permissoes";
 import { useAutenticacao } from "@/lib/contexto-autenticacao";
 import { cn } from "@/lib/utils";
 import { supabaseClient } from "@/lib/supabase/client";
+import { buildR2PublicUrl } from "@/lib/r2/public";
+import { deleteR2Object, uploadFileToR2 } from "@/lib/r2/browser";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -63,6 +65,16 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 
 const LIMITE_INICIAL = 8;
+const CORES_TAGS = [
+  "#2563eb",
+  "#16a34a",
+  "#ea580c",
+  "#7c3aed",
+  "#0ea5e9",
+  "#db2777",
+  "#14b8a6",
+  "#e11d48",
+];
 
 const apenasNumeros = (valor: string) => valor.replace(/\D/g, "");
 
@@ -105,7 +117,11 @@ const formatarBytes = (bytes?: number) => {
 
 const formatarTelefone = (valor?: string) => {
   if (!valor) return "";
-  const numeros = apenasNumeros(valor).slice(0, 11);
+  let numeros = apenasNumeros(valor);
+  if (numeros.length > 11 && numeros.startsWith("55")) {
+    numeros = numeros.slice(2);
+  }
+  numeros = numeros.slice(0, 11);
   if (numeros.length === 0) return "";
   if (numeros.length < 3) return `(${numeros}`;
   const ddd = numeros.slice(0, 2);
@@ -115,11 +131,20 @@ const formatarTelefone = (valor?: string) => {
   if (resto.length <= 8) {
     return `(${ddd}) ${resto.slice(0, 4)}-${resto.slice(4)}`;
   }
-  const digito = resto.slice(0, 1);
-  const meio = resto.slice(1, 5);
-  const final = resto.slice(5, 9);
-  return `(${ddd}) ${digito}.${meio}-${final}`;
+  return `(${ddd}) ${resto.slice(0, 5)}-${resto.slice(5, 9)}`;
 };
+
+const gerarCorTag = () => {
+  const indice = Math.floor(Math.random() * CORES_TAGS.length);
+  return CORES_TAGS[indice];
+};
+
+const normalizarTexto = (valor: string) =>
+  valor
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 
 const classeTextoEtapa = (cor?: string) => {
   if (!cor) {
@@ -150,6 +175,12 @@ type FunilConfig = {
   etapas?: EtapaFunil[];
 };
 
+type TagDisponivel = {
+  id: string;
+  nome: string;
+  cor?: string | null;
+};
+
 type NotaContato = {
   id: string;
   conteudo: string;
@@ -176,18 +207,21 @@ type LogAuditoriaContato = {
 };
 
 export function VisaoFunil() {
-  const { usuario } = useAutenticacao();
+  const { usuario, session } = useAutenticacao();
   const podeVerValores = podeVerDadosSensiveis(usuario.role);
-
-  const [session, setSession] = React.useState<Session | null>(null);
-  const [carregandoSessao, setCarregandoSessao] = React.useState(true);
   const [workspaceId, setWorkspaceId] = React.useState<string | null>(null);
   const [carregando, setCarregando] = React.useState(true);
   const [carregandoDeals, setCarregandoDeals] = React.useState(false);
   const [erroDados, setErroDados] = React.useState<string | null>(null);
   const [pipelineAtivoId, setPipelineAtivoId] = React.useState<string>("");
 
+  const obterToken = React.useCallback(async () => {
+    const { data } = await supabaseClient.auth.getSession();
+    return data.session?.access_token ?? null;
+  }, []);
+
   const [deals, setDeals] = React.useState<DealFunil[]>([]);
+  const [tagsDisponiveis, setTagsDisponiveis] = React.useState<TagDisponivel[]>([]);
   const [coresTags, setCoresTags] = React.useState<Record<string, string>>({});
   const [etapas, setEtapas] = React.useState<EtapaFunil[]>([]);
   const [funisDisponiveis, setFunisDisponiveis] =
@@ -240,6 +274,11 @@ export function VisaoFunil() {
     React.useState<EtapaFunil | null>(null);
   const [dialogExcluirEtapaAberto, setDialogExcluirEtapaAberto] =
     React.useState(false);
+  const [dialogExcluirPipelineAberto, setDialogExcluirPipelineAberto] =
+    React.useState(false);
+  const [pipelineParaExcluir, setPipelineParaExcluir] =
+    React.useState<FunilConfig | null>(null);
+  const [excluindoPipeline, setExcluindoPipeline] = React.useState(false);
   const [novaTagDeal, setNovaTagDeal] = React.useState("");
   const [tagRapidaId, setTagRapidaId] = React.useState<string | null>(null);
   const [tagRapidaValor, setTagRapidaValor] = React.useState("");
@@ -366,26 +405,7 @@ export function VisaoFunil() {
     return null;
   };
 
-  React.useEffect(() => {
-    let ativo = true;
-    supabaseClient.auth.getSession().then(({ data }) => {
-      if (!ativo) return;
-      setSession(data.session ?? null);
-      setCarregandoSessao(false);
-    });
 
-    const {
-      data: { subscription },
-    } = supabaseClient.auth.onAuthStateChange((_event, currentSession) => {
-      setSession(currentSession);
-      setCarregandoSessao(false);
-    });
-
-    return () => {
-      ativo = false;
-      subscription.unsubscribe();
-    };
-  }, []);
 
   const carregarWorkspace = React.useCallback(async (sessao: Session) => {
     const { data, error } = await supabaseClient
@@ -401,6 +421,29 @@ export function VisaoFunil() {
     }
 
     setWorkspaceId(data.workspace_id);
+  }, []);
+
+  const carregarTagsDisponiveis = React.useCallback(async (wsId: string) => {
+    const { data, error } = await supabaseClient
+      .from("tags")
+      .select("id, nome, cor")
+      .eq("workspace_id", wsId)
+      .order("nome", { ascending: true });
+
+    if (error || !data) {
+      return;
+    }
+
+    setTagsDisponiveis(data);
+    setCoresTags((atual) => {
+      const atualizado = { ...atual };
+      data.forEach((tag) => {
+        if (tag.nome) {
+          atualizado[tag.nome] = tag.cor ?? "#94a3b8";
+        }
+      });
+      return atualizado;
+    });
   }, []);
 
   const carregarDeals = React.useCallback(
@@ -600,7 +643,8 @@ export function VisaoFunil() {
   React.useEffect(() => {
     if (!workspaceId) return;
     carregarPipelines(workspaceId).catch(() => null);
-  }, [carregarPipelines, workspaceId]);
+    carregarTagsDisponiveis(workspaceId).catch(() => null);
+  }, [carregarPipelines, carregarTagsDisponiveis, workspaceId]);
 
   React.useEffect(() => {
     if (!workspaceId || !pipelineAtivoId) {
@@ -652,9 +696,7 @@ export function VisaoFunil() {
       const arquivosComUrl =
         arquivos?.map((arquivo) => ({
           ...arquivo,
-          publicUrl: supabaseClient.storage
-            .from("contact-files")
-            .getPublicUrl(arquivo.storage_path).data.publicUrl,
+          publicUrl: buildR2PublicUrl("contact-files", arquivo.storage_path),
         })) ?? [];
 
       setNotasDeal(notas ?? []);
@@ -679,6 +721,45 @@ export function VisaoFunil() {
       const existe = etapasPipeline.some((etapa) => etapa.id === atual);
       return existe ? atual : "todas";
     });
+  };
+
+  const handleAbrirExcluirPipeline = (pipeline: FunilConfig, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setPipelineParaExcluir(pipeline);
+    setDialogExcluirPipelineAberto(true);
+  };
+
+  const handleExcluirPipeline = async () => {
+    if (!pipelineParaExcluir || !workspaceId) return;
+
+    setExcluindoPipeline(true);
+
+    const { error } = await supabaseClient
+      .from("pipelines")
+      .delete()
+      .eq("id", pipelineParaExcluir.id)
+      .eq("workspace_id", workspaceId);
+
+    if (error) {
+      setExcluindoPipeline(false);
+      return;
+    }
+
+    // Se a pipeline excluída era a ativa, selecionar outra
+    if (pipelineParaExcluir.id === pipelineAtivoId) {
+      const outraPipeline = funisDisponiveis.find(
+        (f) => f.id !== pipelineParaExcluir.id
+      );
+      if (outraPipeline) {
+        handleSelecionarPipeline(outraPipeline.id);
+      }
+    }
+
+    await carregarPipelines(workspaceId, false);
+    setExcluindoPipeline(false);
+    setDialogExcluirPipelineAberto(false);
+    setPipelineParaExcluir(null);
   };
 
   const atualizarPipelines = React.useCallback(async () => {
@@ -713,6 +794,19 @@ export function VisaoFunil() {
     const todos = new Set(deals.flatMap((deal) => deal.tags));
     return ["todas", ...Array.from(todos)];
   }, [deals]);
+
+  const tagsDisponiveisDeal = React.useMemo(() => {
+    if (!dealAtivo) return [];
+    const termo = novaTagDeal.trim().toLowerCase();
+    return tagsDisponiveis.filter((tag) => {
+      const jaSelecionada = dealAtivo.tags.some(
+        (item) => normalizarTexto(item) === normalizarTexto(tag.nome)
+      );
+      if (jaSelecionada) return false;
+      if (!termo) return true;
+      return tag.nome.toLowerCase().includes(termo);
+    });
+  }, [dealAtivo, novaTagDeal, tagsDisponiveis]);
 
   const origens = React.useMemo(() => {
     const todos = new Set(deals.map((deal) => deal.origem));
@@ -754,7 +848,7 @@ export function VisaoFunil() {
     filtroSomenteComTags,
   ].filter(Boolean).length;
 
-  const obterDataDeal = (deal: DealFunil) => {
+  const obterDataDeal = React.useCallback((deal: DealFunil) => {
     if (filtroDataCampo === "criado-em") return deal.criadoEm;
     if (filtroDataCampo === "ganho-perdido-em") return deal.ganhoPerdidoEm;
     if (filtroDataCampo === "previsao-fechamento")
@@ -762,9 +856,9 @@ export function VisaoFunil() {
     if (filtroDataCampo === "ultima-mudanca") return deal.ultimaMudancaEtapa;
     if (filtroDataCampo === "campo-customizado") return deal.customizadoEm;
     return undefined;
-  };
+  }, [filtroDataCampo]);
 
-  const dentroDoPeriodo = (data?: string) => {
+  const dentroDoPeriodo = React.useCallback((data?: string) => {
     if (!data) {
       return false;
     }
@@ -778,7 +872,7 @@ export function VisaoFunil() {
     if (filtroDataPeriodo === "30d") return diffDias <= 30;
     if (filtroDataPeriodo === "90d") return diffDias <= 90;
     return true;
-  };
+  }, [filtroDataPeriodo]);
 
   const dealsFiltrados = React.useMemo(() => {
     return deals.filter((deal) => {
@@ -855,6 +949,7 @@ export function VisaoFunil() {
   }, [
     busca,
     deals,
+    dentroDoPeriodo,
     filtroCanal,
     filtroDataCampo,
     filtroDataPeriodo,
@@ -862,6 +957,7 @@ export function VisaoFunil() {
     filtroMotivoPerda,
     filtroOrigem,
     filtroOwner,
+    obterDataDeal,
     filtroProduto,
     filtroSomenteComEmpresa,
     filtroSomenteComTags,
@@ -941,14 +1037,204 @@ export function VisaoFunil() {
     setDealAtivo(deal);
   };
 
-  const handleAplicarTag = (tag: string) => {
-    if (!tag || selecionados.length === 0) return;
+  const encontrarTagDisponivel = React.useCallback(
+    (tag: string) =>
+      tagsDisponiveis.find(
+        (item) => normalizarTexto(item.nome) === normalizarTexto(tag)
+      ) ?? null,
+    [tagsDisponiveis]
+  );
+
+  const garantirTagDisponivel = React.useCallback(
+    async (tag: string) => {
+      const nomeTag = tag.trim();
+      if (!nomeTag || !workspaceId) return null;
+      const existente = encontrarTagDisponivel(nomeTag);
+      if (existente) {
+        return {
+          ...existente,
+          cor: existente.cor ?? "#94a3b8",
+        };
+      }
+
+      const cor = gerarCorTag();
+      const { data, error } = await supabaseClient
+        .from("tags")
+        .insert({ workspace_id: workspaceId, nome: nomeTag, cor })
+        .select("id, nome, cor")
+        .single();
+
+      if (error || !data) {
+        setErroDados("Não foi possível criar a tag.");
+        return null;
+      }
+
+      setTagsDisponiveis((atual) => {
+        const jaExiste = atual.some(
+          (item) => normalizarTexto(item.nome) === normalizarTexto(data.nome)
+        );
+        if (jaExiste) return atual;
+        return [...atual, data];
+      });
+      setCoresTags((atual) => ({
+        ...atual,
+        [data.nome]: data.cor ?? cor,
+      }));
+      return { ...data, cor: data.cor ?? cor };
+    },
+    [encontrarTagDisponivel, workspaceId]
+  );
+
+  const aplicarTagAoDeal = React.useCallback(
+    async (dealId: string, tag: string) => {
+      const nomeTag = tag.trim();
+      if (!nomeTag || !workspaceId) return false;
+      setErroDados(null);
+
+      const tagResolvida = await garantirTagDisponivel(nomeTag);
+      if (!tagResolvida?.id) return false;
+
+      const { error } = await supabaseClient
+        .from("contact_tags")
+        .upsert(
+          {
+            workspace_id: workspaceId,
+            contact_id: dealId,
+            tag_id: tagResolvida.id,
+          },
+          { onConflict: "contact_id,tag_id" }
+        );
+
+      if (error) {
+        setErroDados("Não foi possível vincular a tag.");
+        return false;
+      }
+
+      setCoresTags((atual) => ({
+        ...atual,
+        [tagResolvida.nome]: tagResolvida.cor ?? "#94a3b8",
+      }));
+
+      setDeals((atual) =>
+        atual.map((deal) => {
+          if (deal.id !== dealId) return deal;
+          const tagsAtualizadas = Array.from(
+            new Set([...deal.tags, tagResolvida.nome])
+          );
+          return { ...deal, tags: tagsAtualizadas };
+        })
+      );
+      setDealAtivo((atual) => {
+        if (!atual || atual.id !== dealId) return atual;
+        const tagsAtualizadas = Array.from(
+          new Set([...atual.tags, tagResolvida.nome])
+        );
+        return { ...atual, tags: tagsAtualizadas };
+      });
+
+      return true;
+    },
+    [garantirTagDisponivel, workspaceId]
+  );
+
+  const removerTagDoDeal = React.useCallback(
+    async (dealId: string, tag: string) => {
+      const nomeTag = tag.trim();
+      if (!nomeTag || !workspaceId) return false;
+      setErroDados(null);
+
+      let tagId = encontrarTagDisponivel(nomeTag)?.id ?? null;
+      if (!tagId) {
+        const { data } = await supabaseClient
+          .from("tags")
+          .select("id")
+          .eq("workspace_id", workspaceId)
+          .eq("nome", nomeTag)
+          .maybeSingle();
+        tagId = data?.id ?? null;
+      }
+
+      if (!tagId) {
+        setErroDados("Tag não encontrada.");
+        return false;
+      }
+
+      const { error } = await supabaseClient
+        .from("contact_tags")
+        .delete()
+        .eq("workspace_id", workspaceId)
+        .eq("contact_id", dealId)
+        .eq("tag_id", tagId);
+
+      if (error) {
+        setErroDados("Não foi possível remover a tag.");
+        return false;
+      }
+
+      setDeals((atual) =>
+        atual.map((deal) =>
+          deal.id === dealId
+            ? {
+              ...deal,
+              tags: deal.tags.filter((item) => item !== nomeTag),
+            }
+            : deal
+        )
+      );
+      setDealAtivo((atual) =>
+        atual && atual.id === dealId
+          ? { ...atual, tags: atual.tags.filter((item) => item !== nomeTag) }
+          : atual
+      );
+
+      return true;
+    },
+    [encontrarTagDisponivel, workspaceId]
+  );
+
+  const handleAplicarTag = async (tag: string) => {
+    if (!tag || selecionados.length === 0 || !workspaceId) return;
+    setErroDados(null);
+
+    const tagResolvida = await garantirTagDisponivel(tag);
+    if (!tagResolvida?.id) return;
+
+    const payload = selecionados.map((dealId) => ({
+      workspace_id: workspaceId,
+      contact_id: dealId,
+      tag_id: tagResolvida.id,
+    }));
+
+    const { error } = await supabaseClient
+      .from("contact_tags")
+      .upsert(payload, { onConflict: "contact_id,tag_id" });
+
+    if (error) {
+      setErroDados("Não foi possível aplicar a tag.");
+      return;
+    }
+
+    setCoresTags((atual) => ({
+      ...atual,
+      [tagResolvida.nome]: tagResolvida.cor ?? "#94a3b8",
+    }));
     setDeals((atual) =>
       atual.map((deal) =>
         selecionados.includes(deal.id)
-          ? { ...deal, tags: Array.from(new Set([...deal.tags, tag])) }
+          ? {
+            ...deal,
+            tags: Array.from(new Set([...deal.tags, tagResolvida.nome])),
+          }
           : deal
       )
+    );
+    setDealAtivo((atual) =>
+      atual && selecionados.includes(atual.id)
+        ? {
+          ...atual,
+          tags: Array.from(new Set([...atual.tags, tagResolvida.nome])),
+        }
+        : atual
     );
   };
 
@@ -1001,13 +1287,14 @@ export function VisaoFunil() {
     setDialogEditarDealAberto(false);
   };
 
-  const handleAdicionarTagDeal = () => {
-    if (!dealAtivo || !novaTagDeal.trim()) return;
+  const handleAdicionarTagDeal = async () => {
+    if (!dealAtivo) return;
     const tag = novaTagDeal.trim();
-    atualizarDeal(dealAtivo.id, {
-      tags: Array.from(new Set([...dealAtivo.tags, tag])),
-    });
-    setNovaTagDeal("");
+    if (!tag) return;
+    const ok = await aplicarTagAoDeal(dealAtivo.id, tag);
+    if (ok) {
+      setNovaTagDeal("");
+    }
   };
 
   const handleAbrirTagRapida = (dealId: string) => {
@@ -1015,23 +1302,19 @@ export function VisaoFunil() {
     setTagRapidaValor("");
   };
 
-  const handleSalvarTagRapida = (dealId: string) => {
+  const handleSalvarTagRapida = async (dealId: string) => {
     const tag = tagRapidaValor.trim();
     if (!tag) return;
-    const deal = deals.find((item) => item.id === dealId);
-    if (!deal) return;
-    atualizarDeal(dealId, {
-      tags: Array.from(new Set([...deal.tags, tag])),
-    });
-    setTagRapidaId(null);
-    setTagRapidaValor("");
+    const ok = await aplicarTagAoDeal(dealId, tag);
+    if (ok) {
+      setTagRapidaId(null);
+      setTagRapidaValor("");
+    }
   };
 
-  const handleRemoverTagDeal = (tag: string) => {
+  const handleRemoverTagDeal = async (tag: string) => {
     if (!dealAtivo) return;
-    atualizarDeal(dealAtivo.id, {
-      tags: dealAtivo.tags.filter((item) => item !== tag),
-    });
+    await removerTagDoDeal(dealAtivo.id, tag);
   };
 
   const handleAbrirGanho = () => {
@@ -1210,14 +1493,22 @@ export function VisaoFunil() {
     const nomeSeguro = arquivo.name.replace(/[^\w.-]/g, "_");
     const caminho = `${workspaceId}/${dealAtivo.id}/${Date.now()}-${nomeSeguro}`;
 
-    const { error: uploadErro } = await supabaseClient.storage
-      .from("contact-files")
-      .upload(caminho, arquivo, {
-        contentType: arquivo.type || undefined,
-        upsert: false,
-      });
+    const token = await obterToken();
+    if (!token) {
+      setErroDados("Sessão expirada.");
+      setEnviandoArquivoDeal(false);
+      event.target.value = "";
+      return;
+    }
 
-    if (uploadErro) {
+    try {
+      await uploadFileToR2({
+        token,
+        bucket: "contact-files",
+        key: caminho,
+        file: arquivo,
+      });
+    } catch (error) {
       setErroDados("Não foi possível enviar o arquivo.");
       setEnviandoArquivoDeal(false);
       event.target.value = "";
@@ -1245,11 +1536,12 @@ export function VisaoFunil() {
       return;
     }
 
-    const publicUrl = supabaseClient.storage
-      .from("contact-files")
-      .getPublicUrl(caminho).data.publicUrl;
+    const publicUrl = buildR2PublicUrl("contact-files", caminho);
 
-    setArquivosDeal((atual) => [{ ...registro, publicUrl }, ...atual]);
+    setArquivosDeal((atual) => [
+      { ...registro, publicUrl: publicUrl ?? undefined },
+      ...atual,
+    ]);
     await registrarAuditoria({
       contatoId: dealAtivo.id,
       acao: "Arquivo enviado",
@@ -1264,9 +1556,24 @@ export function VisaoFunil() {
 
     setArquivoExcluindoId(arquivo.id);
 
-    const { error: storageErro } = await supabaseClient.storage
-      .from("contact-files")
-      .remove([arquivo.storage_path]);
+    const token = await obterToken();
+    if (!token) {
+      setErroDados("Sessão expirada.");
+      setArquivoExcluindoId(null);
+      return;
+    }
+
+    try {
+      await deleteR2Object({
+        token,
+        bucket: "contact-files",
+        key: arquivo.storage_path,
+      });
+    } catch (error) {
+      setErroDados("Não foi possível excluir o arquivo.");
+      setArquivoExcluindoId(null);
+      return;
+    }
 
     const { error: bancoErro } = await supabaseClient
       .from("contact_files")
@@ -1274,7 +1581,7 @@ export function VisaoFunil() {
       .eq("id", arquivo.id)
       .eq("workspace_id", workspaceId);
 
-    if (storageErro || bancoErro) {
+    if (bancoErro) {
       setErroDados("Não foi possível excluir o arquivo.");
       setArquivoExcluindoId(null);
       return;
@@ -1720,9 +2027,9 @@ export function VisaoFunil() {
   const classeItemFiltro =
     "pl-2 data-[state=checked]:pl-8 data-[state=checked]:text-primary data-[state=checked]:[&>span>svg]:text-primary";
 
-  const exibirSkeletonDeals = carregandoSessao || carregando || carregandoDeals;
+  const exibirSkeletonDeals = carregando || carregandoDeals;
 
-  if (!session && !carregandoSessao) {
+  if (!session) {
     return null;
   }
 
@@ -1741,21 +2048,45 @@ export function VisaoFunil() {
       )}
 
       <div className="flex flex-wrap items-center gap-3">
-        <Select
-          value={pipelineAtivoId}
-          onValueChange={handleSelecionarPipeline}
-        >
-          <SelectTrigger className="w-[220px]">
-            <SelectValue placeholder="Selecione a pipeline" />
-          </SelectTrigger>
-          <SelectContent>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="w-[220px] justify-between">
+              <span className="text-blue-600 font-medium">
+                {funisDisponiveis.find((f) => f.id === pipelineAtivoId)?.nome ?? "Selecione a pipeline"}
+              </span>
+              <ArrowDown className="h-4 w-4 opacity-50" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-[220px]">
+            <DropdownMenuLabel>Pipelines</DropdownMenuLabel>
+            <DropdownMenuSeparator />
             {funisDisponiveis.map((funil) => (
-              <SelectItem key={funil.id} value={funil.id}>
-                {funil.nome}
-              </SelectItem>
+              <DropdownMenuItem
+                key={funil.id}
+                className={cn(
+                  "group flex items-center justify-between cursor-pointer",
+                  funil.id === pipelineAtivoId && "bg-accent"
+                )}
+                onClick={() => handleSelecionarPipeline(funil.id)}
+              >
+                <span className={cn(
+                  funil.id === pipelineAtivoId && "text-blue-600 font-medium"
+                )}>
+                  {funil.nome}
+                </span>
+                {funisDisponiveis.length > 1 && (
+                  <button
+                    onClick={(e) => handleAbrirExcluirPipeline(funil, e)}
+                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-destructive/10 rounded"
+                    title="Excluir pipeline"
+                  >
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                  </button>
+                )}
+              </DropdownMenuItem>
             ))}
-          </SelectContent>
-        </Select>
+          </DropdownMenuContent>
+        </DropdownMenu>
         <div className="relative min-w-[240px] flex-1">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input
@@ -2252,245 +2583,245 @@ export function VisaoFunil() {
         <div className="flex min-w-max gap-4">
           {exibirSkeletonDeals
             ? Array.from({ length: 4 }).map((_, index) => (
+              <div
+                key={`skeleton-${index}`}
+                className={cn(
+                  "flex h-[calc(100vh-360px)] min-h-[540px] w-[280px] flex-col rounded-[6px] border border-border/60 bg-card/40",
+                  "sm:w-[300px]"
+                )}
+              >
+                <div className="flex items-center justify-between border-b border-border/60 px-3 py-3">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-28" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                  <Skeleton className="h-6 w-10" />
+                </div>
+                <div className="flex-1 space-y-3 px-3 py-3">
+                  {Array.from({ length: 3 }).map((_, cardIndex) => (
+                    <Skeleton key={`skeleton-card-${cardIndex}`} className="h-24 w-full" />
+                  ))}
+                </div>
+              </div>
+            ))
+            : etapas.map((etapa) => {
+              const dealsDaEtapa = dealsPorEtapa[etapa.id] ?? [];
+              const limite = limites[etapa.id] ?? LIMITE_INICIAL;
+              const visiveis = dealsDaEtapa.slice(0, limite);
+              const textoEtapa = classeTextoEtapa(etapa.cor);
+              const textoEscuro = textoEtapa === "text-slate-900";
+
+              return (
                 <div
-                  key={`skeleton-${index}`}
+                  key={etapa.id}
                   className={cn(
                     "flex h-[calc(100vh-360px)] min-h-[540px] w-[280px] flex-col rounded-[6px] border border-border/60 bg-card/40",
-                    "sm:w-[300px]"
+                    "sm:w-[300px]",
+                    colunaEmHover === etapa.id && "border-primary/40 bg-primary/5"
                   )}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                    setColunaEmHover(etapa.id);
+                  }}
+                  onDragLeave={() => setColunaEmHover(null)}
+                  onDrop={handleDrop(etapa.id)}
                 >
-                  <div className="flex items-center justify-between border-b border-border/60 px-3 py-3">
-                    <div className="space-y-2">
-                      <Skeleton className="h-4 w-28" />
-                      <Skeleton className="h-3 w-16" />
+                  <div
+                    className={cn(
+                      "flex items-center justify-between rounded-t-[6px] border-b px-3 py-3",
+                      textoEtapa,
+                      textoEscuro ? "border-black/15" : "border-white/20"
+                    )}
+                    style={{
+                      backgroundColor: etapa.cor ?? "hsl(var(--primary))",
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "h-2 w-2 rounded-full",
+                          textoEscuro ? "bg-slate-900/70" : "bg-white/80"
+                        )}
+                      />
+                      <p className="text-sm font-semibold">{etapa.nome}</p>
                     </div>
-                    <Skeleton className="h-6 w-10" />
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        "border border-transparent",
+                        textoEscuro
+                          ? "bg-white/70 text-slate-900"
+                          : "bg-white/20 text-white"
+                      )}
+                    >
+                      {dealsDaEtapa.length}
+                    </Badge>
                   </div>
-                  <div className="flex-1 space-y-3 px-3 py-3">
-                    {Array.from({ length: 3 }).map((_, cardIndex) => (
-                      <Skeleton key={`skeleton-card-${cardIndex}`} className="h-24 w-full" />
-                    ))}
+                  <div
+                    className="flex-1 space-y-3 overflow-y-auto px-3 py-3"
+                    onScroll={handleScrollColuna(etapa.id)}
+                  >
+                    {visiveis.length === 0 ? (
+                      <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
+                        Nenhum negócio nesta etapa.
+                      </div>
+                    ) : (
+                      visiveis.map((deal) => (
+                        <Card
+                          key={deal.id}
+                          role="button"
+                          tabIndex={0}
+                          draggable={!modoSelecao}
+                          onDragStart={handleDragStart(deal.id)}
+                          onDragEnd={() => setArrastandoId(null)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              handleAbrirDeal(deal);
+                            }
+                          }}
+                          onClick={() => handleAbrirDeal(deal)}
+                          className={cn(
+                            "cursor-pointer border border-border/60 bg-background/80 transition hover:border-primary/40 hover:bg-primary/5 py-0 gap-0 justify-start",
+                            arrastandoId === deal.id && "opacity-60",
+                            selecionados.includes(deal.id) && "border-primary/60"
+                          )}
+                        >
+                          <CardContent className="space-y-3 p-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-3">
+                                <Avatar className="h-9 w-9">
+                                  <AvatarImage
+                                    src={
+                                      deal.avatarUrl ?? "/avatars/contato-placeholder.svg"
+                                    }
+                                    alt={deal.nome}
+                                  />
+                                  <AvatarFallback>
+                                    {iniciaisDeal(deal.nome)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <p className="text-sm font-semibold">{deal.nome}</p>
+                              </div>
+                              {modoSelecao && (
+                                <Checkbox
+                                  checked={selecionados.includes(deal.id)}
+                                  onCheckedChange={() =>
+                                    handleToggleSelecionado(deal.id)
+                                  }
+                                  onClick={(event) => event.stopPropagation()}
+                                />
+                              )}
+                            </div>
+                            <div className="space-y-2 text-xs text-muted-foreground">
+                              <div className="flex items-center gap-2">
+                                <User className="h-3.5 w-3.5" />
+                                <span>{deal.owner}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Package className="h-3.5 w-3.5" />
+                                <span>
+                                  {podeVerValores
+                                    ? formatarMoeda(deal.valor, deal.moeda)
+                                    : "Valor restrito"}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <CalendarDays className="h-3.5 w-3.5" />
+                                <span>{formatarDataCurta(deal.criadoEm)}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {deal.tags.length === 0 ? (
+                                  <Button
+                                    type="button"
+                                    size="icon-sm"
+                                    variant="ghost"
+                                    className="h-6 w-6"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      handleAbrirTagRapida(deal.id);
+                                    }}
+                                    aria-label="Adicionar tag"
+                                  >
+                                    <Tag className="h-3.5 w-3.5" />
+                                  </Button>
+                                ) : (
+                                  <>
+                                    <Tag className="h-3.5 w-3.5" />
+                                    <div className="flex flex-wrap gap-1">
+                                      {deal.tags.map((tag) => (
+                                        <Badge
+                                          key={tag}
+                                          className="text-[10px] text-white"
+                                          style={{
+                                            backgroundColor:
+                                              coresTags[tag] ?? "#94a3b8",
+                                          }}
+                                        >
+                                          {tag}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                              {tagRapidaId === deal.id && (
+                                <div
+                                  className="flex items-center gap-2"
+                                  onClick={(event) => event.stopPropagation()}
+                                >
+                                  <Input
+                                    value={tagRapidaValor}
+                                    onChange={(event) =>
+                                      setTagRapidaValor(event.target.value)
+                                    }
+                                    placeholder="Adicionar tag"
+                                    className="h-8 text-xs"
+                                    onKeyDown={(event) => {
+                                      if (event.key === "Enter") {
+                                        event.preventDefault();
+                                        event.stopPropagation();
+                                        void handleSalvarTagRapida(deal.id);
+                                      }
+                                    }}
+                                  />
+                                  <Button
+                                    type="button"
+                                    size="icon-sm"
+                                    variant="secondary"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      void handleSalvarTagRapida(deal.id);
+                                    }}
+                                    aria-label="Salvar tag"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
+                    {limite < dealsDaEtapa.length && (
+                      <Button
+                        variant="ghost"
+                        className="w-full"
+                        onClick={() =>
+                          setLimites((atual) => ({
+                            ...atual,
+                            [etapa.id]:
+                              (atual[etapa.id] ?? LIMITE_INICIAL) + LIMITE_INICIAL,
+                          }))
+                        }
+                      >
+                        Carregar mais
+                      </Button>
+                    )}
                   </div>
                 </div>
-              ))
-            : etapas.map((etapa) => {
-                const dealsDaEtapa = dealsPorEtapa[etapa.id] ?? [];
-                const limite = limites[etapa.id] ?? LIMITE_INICIAL;
-                const visiveis = dealsDaEtapa.slice(0, limite);
-                const textoEtapa = classeTextoEtapa(etapa.cor);
-                const textoEscuro = textoEtapa === "text-slate-900";
-
-                return (
-                  <div
-                    key={etapa.id}
-                    className={cn(
-                      "flex h-[calc(100vh-360px)] min-h-[540px] w-[280px] flex-col rounded-[6px] border border-border/60 bg-card/40",
-                      "sm:w-[300px]",
-                      colunaEmHover === etapa.id && "border-primary/40 bg-primary/5"
-                    )}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      setColunaEmHover(etapa.id);
-                    }}
-                    onDragLeave={() => setColunaEmHover(null)}
-                    onDrop={handleDrop(etapa.id)}
-                  >
-                    <div
-                      className={cn(
-                        "flex items-center justify-between rounded-t-[6px] border-b px-3 py-3",
-                        textoEtapa,
-                        textoEscuro ? "border-black/15" : "border-white/20"
-                      )}
-                      style={{
-                        backgroundColor: etapa.cor ?? "hsl(var(--primary))",
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            "h-2 w-2 rounded-full",
-                            textoEscuro ? "bg-slate-900/70" : "bg-white/80"
-                          )}
-                        />
-                        <p className="text-sm font-semibold">{etapa.nome}</p>
-                      </div>
-                      <Badge
-                        variant="secondary"
-                        className={cn(
-                          "border border-transparent",
-                          textoEscuro
-                            ? "bg-white/70 text-slate-900"
-                            : "bg-white/20 text-white"
-                        )}
-                      >
-                        {dealsDaEtapa.length}
-                      </Badge>
-                    </div>
-                    <div
-                      className="flex-1 space-y-3 overflow-y-auto px-3 py-3"
-                      onScroll={handleScrollColuna(etapa.id)}
-                    >
-                      {visiveis.length === 0 ? (
-                        <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                          Nenhum negócio nesta etapa.
-                        </div>
-                      ) : (
-                        visiveis.map((deal) => (
-                          <Card
-                            key={deal.id}
-                            role="button"
-                            tabIndex={0}
-                            draggable={!modoSelecao}
-                            onDragStart={handleDragStart(deal.id)}
-                            onDragEnd={() => setArrastandoId(null)}
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                handleAbrirDeal(deal);
-                              }
-                            }}
-                            onClick={() => handleAbrirDeal(deal)}
-                            className={cn(
-                              "cursor-pointer border border-border/60 bg-background/80 transition hover:border-primary/40 hover:bg-primary/5 py-0 gap-0 justify-start",
-                              arrastandoId === deal.id && "opacity-60",
-                              selecionados.includes(deal.id) && "border-primary/60"
-                            )}
-                          >
-                            <CardContent className="space-y-3 p-3">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="flex items-center gap-3">
-                                  <Avatar className="h-9 w-9">
-                                    <AvatarImage
-                                      src={
-                                        deal.avatarUrl ?? "/avatars/contato-placeholder.svg"
-                                      }
-                                      alt={deal.nome}
-                                    />
-                                    <AvatarFallback>
-                                      {iniciaisDeal(deal.nome)}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <p className="text-sm font-semibold">{deal.nome}</p>
-                                </div>
-                                {modoSelecao && (
-                                  <Checkbox
-                                    checked={selecionados.includes(deal.id)}
-                                    onCheckedChange={() =>
-                                      handleToggleSelecionado(deal.id)
-                                    }
-                                    onClick={(event) => event.stopPropagation()}
-                                  />
-                                )}
-                              </div>
-                              <div className="space-y-2 text-xs text-muted-foreground">
-                                <div className="flex items-center gap-2">
-                                  <User className="h-3.5 w-3.5" />
-                                  <span>{deal.owner}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Package className="h-3.5 w-3.5" />
-                                  <span>
-                                    {podeVerValores
-                                      ? formatarMoeda(deal.valor, deal.moeda)
-                                      : "Valor restrito"}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <CalendarDays className="h-3.5 w-3.5" />
-                                  <span>{formatarDataCurta(deal.criadoEm)}</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {deal.tags.length === 0 ? (
-                                    <Button
-                                      type="button"
-                                      size="icon-sm"
-                                      variant="ghost"
-                                      className="h-6 w-6"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        handleAbrirTagRapida(deal.id);
-                                      }}
-                                      aria-label="Adicionar tag"
-                                    >
-                                      <Tag className="h-3.5 w-3.5" />
-                                    </Button>
-                                  ) : (
-                                    <>
-                                      <Tag className="h-3.5 w-3.5" />
-                                      <div className="flex flex-wrap gap-1">
-                                        {deal.tags.map((tag) => (
-                                          <Badge
-                                            key={tag}
-                                            className="text-[10px] text-white"
-                                            style={{
-                                              backgroundColor:
-                                                coresTags[tag] ?? "#94a3b8",
-                                            }}
-                                          >
-                                            {tag}
-                                          </Badge>
-                                        ))}
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-                                {tagRapidaId === deal.id && (
-                                  <div
-                                    className="flex items-center gap-2"
-                                    onClick={(event) => event.stopPropagation()}
-                                  >
-                                    <Input
-                                      value={tagRapidaValor}
-                                      onChange={(event) =>
-                                        setTagRapidaValor(event.target.value)
-                                      }
-                                      placeholder="Adicionar tag"
-                                      className="h-8 text-xs"
-                                      onKeyDown={(event) => {
-                                        if (event.key === "Enter") {
-                                          event.preventDefault();
-                                          event.stopPropagation();
-                                          handleSalvarTagRapida(deal.id);
-                                        }
-                                      }}
-                                    />
-                                    <Button
-                                      type="button"
-                                      size="icon-sm"
-                                      variant="secondary"
-                                      onClick={(event) => {
-                                        event.stopPropagation();
-                                        handleSalvarTagRapida(deal.id);
-                                      }}
-                                      aria-label="Salvar tag"
-                                    >
-                                      <Plus className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
-                                )}
-                              </div>
-                            </CardContent>
-                          </Card>
-                        ))
-                      )}
-                      {limite < dealsDaEtapa.length && (
-                        <Button
-                          variant="ghost"
-                          className="w-full"
-                          onClick={() =>
-                            setLimites((atual) => ({
-                              ...atual,
-                              [etapa.id]:
-                                (atual[etapa.id] ?? LIMITE_INICIAL) + LIMITE_INICIAL,
-                            }))
-                          }
-                        >
-                          Carregar mais
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
+              );
+            })}
         </div>
       </div>
 
@@ -2791,6 +3122,43 @@ export function VisaoFunil() {
       </Dialog>
 
       <Dialog
+        open={dialogExcluirPipelineAberto}
+        onOpenChange={(aberto) => {
+          setDialogExcluirPipelineAberto(aberto);
+          if (!aberto) {
+            setPipelineParaExcluir(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Excluir pipeline {pipelineParaExcluir ? `"${pipelineParaExcluir.nome}"` : ""}?
+            </DialogTitle>
+            <DialogDescription>
+              Esta ação é irreversível. Todos os contatos e negócios vinculados a esta pipeline serão excluídos permanentemente.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDialogExcluirPipelineAberto(false)}
+              disabled={excluindoPipeline}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleExcluirPipeline}
+              disabled={excluindoPipeline}
+            >
+              {excluindoPipeline ? "Excluindo..." : "Confirmar exclusão"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
         open={Boolean(dealAtivo)}
         onOpenChange={(aberto) => {
           if (!aberto) setDealAtivo(null);
@@ -2951,7 +3319,7 @@ export function VisaoFunil() {
                             {tag}
                             <button
                               type="button"
-                              onClick={() => handleRemoverTagDeal(tag)}
+                              onClick={() => void handleRemoverTagDeal(tag)}
                               className="rounded-full p-0.5 text-white/80 transition hover:text-white"
                               aria-label={`Remover tag ${tag}`}
                             >
@@ -2961,13 +3329,28 @@ export function VisaoFunil() {
                         ))
                       )}
                     </div>
+                    {tagsDisponiveisDeal.length > 0 && (
+                      <div className="mt-3 flex flex-wrap gap-2 rounded-[6px] border border-border/60 bg-muted/30 p-2">
+                        {tagsDisponiveisDeal.map((tag) => (
+                          <button
+                            key={tag.id}
+                            type="button"
+                            onClick={() => void aplicarTagAoDeal(dealAtivo.id, tag.nome)}
+                            className="rounded-[6px] px-2 py-1 text-xs text-white"
+                            style={{ backgroundColor: tag.cor ?? "#94a3b8" }}
+                          >
+                            {tag.nome}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="mt-3 flex items-center gap-2">
                       <Input
                         value={novaTagDeal}
                         onChange={(event) => setNovaTagDeal(event.target.value)}
                         placeholder="Adicionar tag"
                       />
-                      <Button size="sm" onClick={handleAdicionarTagDeal}>
+                      <Button size="sm" onClick={() => void handleAdicionarTagDeal()}>
                         Adicionar
                       </Button>
                     </div>
@@ -3228,7 +3611,7 @@ export function VisaoFunil() {
                                       {arquivo.file_name}
                                     </p>
                                     <p className="text-[10px] text-muted-foreground">
-                                      {formatarBytes(arquivo.tamanho_bytes)} ·{" "}
+                                      {formatarBytes(arquivo.tamanho_bytes ?? undefined)} ·{" "}
                                       {formatarDataHora(arquivo.created_at)}
                                     </p>
                                   </div>

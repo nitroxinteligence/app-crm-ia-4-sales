@@ -231,13 +231,19 @@ export function VisaoCobrancaConfiguracoes({
     setPlanoSelecionando(null);
   };
 
+  const [agora, setAgora] = React.useState<number>(0);
+  React.useEffect(() => {
+    setAgora(Date.now());
+  }, []);
+
   const diasTrial = React.useMemo(() => {
     if (!trialEndsAt) return null;
+    if (!agora) return null;
     const diff = Math.ceil(
-      (new Date(trialEndsAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+      (new Date(trialEndsAt).getTime() - agora) / (1000 * 60 * 60 * 24)
     );
     return diff > 0 ? diff : 0;
-  }, [trialEndsAt]);
+  }, [agora, trialEndsAt]);
   const isAdmin = usuario.role === "ADMIN";
   const planoSelecionado = Boolean(workspace?.planoSelecionadoEm);
   const exibirCabecalho = layout === "app";

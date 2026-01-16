@@ -1,4 +1,6 @@
 from dataclasses import dataclass, field
+import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from langdetect import detect
@@ -20,7 +22,13 @@ from app.services.metrics import increment_agent_metrics
 from app.services.llm import get_last_fallback_llm, get_primary_llm, get_secondary_llm
 from app.services.media import extract_message_media_text
 from app.services.workspaces import is_workspace_not_expired
-from app.tools.calendar import create_calendar_event, delete_calendar_event, get_calendar_event, update_calendar_event
+from app.tools.calendar import (
+    create_calendar_event,
+    delete_calendar_event,
+    get_calendar_availability,
+    get_calendar_event,
+    update_calendar_event,
+)
 from app.tools.crm import (
     apply_tag,
     create_contact,
@@ -40,6 +48,8 @@ from app.tools.inbox import (
     update_conversation_status,
 )
 
+logger = logging.getLogger("uvicorn.error")
+
 
 @dataclass
 class AgentContext:
@@ -51,6 +61,7 @@ class AgentContext:
     phone: str | None
     canal: str
     provider: str
+    timezone: str | None = None
     sent_by_tool: bool = False
     outside_window: bool = False
     default_pipeline_id: str | None = None
@@ -92,6 +103,31 @@ def _resolve_provider(agent: dict) -> str:
     return account.get("provider") if account and account.get("provider") else "whatsapp_oficial"
 
 
+def _agent_allows_groups(agent: dict) -> bool:
+    cfg = agent.get("configuracao") or {}
+    try:
+        return bool(cfg.get("enviar_para_grupos", False))
+    except Exception:
+        return False
+
+
+def _agent_group_allowlist(agent: dict) -> set[str] | None:
+    cfg = agent.get("configuracao") or {}
+    if not isinstance(cfg, dict) or "grupos_permitidos" not in cfg:
+        return None
+    raw = cfg.get("grupos_permitidos")
+    if not isinstance(raw, list):
+        return set()
+    values = {str(item).strip() for item in raw if isinstance(item, str) and item.strip()}
+    return values
+
+
+def _is_group_chat(phone: str | None) -> bool:
+    if not phone or not isinstance(phone, str):
+        return False
+    return phone.endswith("@g.us")
+
+
 def _get_default_template(workspace_id: str) -> dict | None:
     supabase = get_supabase_client()
     response = (
@@ -129,7 +165,7 @@ def _get_default_template(workspace_id: str) -> dict | None:
     return approved[0]
 
 
-def _load_permissions(agent_id: str) -> set[str]:
+def _load_permissions(agent_id: str) -> set[str] | None:
     supabase = get_supabase_client()
     response = (
         supabase.table("agent_permissions")
@@ -139,7 +175,7 @@ def _load_permissions(agent_id: str) -> set[str]:
     )
     data = response.data or []
     if not data:
-        return set()
+        return None
     return {item["acao"] for item in data if item.get("habilitado")}
 
 
@@ -207,6 +243,9 @@ def _ingest_text_messages(
     conversation_id: str,
     messages: list[dict],
 ) -> None:
+    inserted = 0
+    scanned = 0
+    max_new_messages = 10
     for message in messages:
         if message.get("tipo") != "texto":
             continue
@@ -218,8 +257,9 @@ def _ingest_text_messages(
         message_id = message.get("id")
         if not message_id:
             continue
+        scanned += 1
         try:
-            ingest_conversation_text(
+            result = ingest_conversation_text(
                 agent_id,
                 conversation_id,
                 message_id,
@@ -227,8 +267,20 @@ def _ingest_text_messages(
                 source="message",
                 metadata={"autor": message.get("autor")},
             )
+            if result:
+                inserted += 1
+                if inserted >= max_new_messages:
+                    break
         except Exception:
             continue
+    logger.info(
+        "rag_ingest_messages agent_id=%s conversation_id=%s scanned=%s inserted=%s capped=%s",
+        agent_id,
+        conversation_id,
+        scanned,
+        inserted,
+        inserted >= max_new_messages,
+    )
 
 
 def _resolve_pipeline_defaults(agent: dict) -> tuple[str | None, str | None]:
@@ -345,7 +397,44 @@ def _format_ids(ids: list[str], items: list[dict]) -> str:
     return ", ".join(formatted)
 
 
+def _sanitize_payload(action: str, payload: dict) -> dict:
+    if not payload:
+        return {}
+    redacted = dict(payload)
+    for key in ["texto", "content", "mensagem_texto", "prompt", "faq"]:
+        if key in redacted:
+            value = redacted.get(key)
+            redacted[key] = {"chars": len(str(value))} if value is not None else {"chars": 0}
+    if action in {"enviar_mensagem", "enviar_template"}:
+        if "texto" in redacted and isinstance(redacted.get("texto"), dict):
+            pass
+        if "nome_template" in redacted:
+            redacted["template"] = redacted.pop("nome_template")
+        if "idioma" in redacted:
+            redacted["idioma"] = str(redacted.get("idioma"))
+    if action in {"alterar_campo_customizado", "atualizar_campo_customizado"}:
+        if "valor" in redacted and isinstance(redacted.get("valor"), dict):
+            redacted["valor"] = {"keys": sorted(list(redacted["valor"].keys()))[:20]}
+    return redacted
+
+
 def _log_tool_call(ctx: AgentContext, action: str, payload: dict, result: str | None = None) -> None:
+    try:
+        result_text = (result or "").strip()
+        status = "ok"
+        if result_text.startswith("Erro") or result_text.startswith("erro") or "Erro ao" in result_text:
+            status = "error"
+        logger.info(
+            "agent_tool_call agent_id=%s conversation_id=%s action=%s status=%s payload=%s result=%s",
+            ctx.agent_id,
+            ctx.conversation_id,
+            action,
+            status,
+            json.dumps(_sanitize_payload(action, payload), ensure_ascii=False),
+            result_text[:200],
+        )
+    except Exception:
+        pass
     ctx.tool_calls.append(
         {
             "acao": action,
@@ -443,7 +532,7 @@ def _build_system_prompt(
     agent: dict,
     knowledge: list[dict],
     workspace_context: dict,
-    allowed_actions: set[str],
+    allowed_actions: set[str] | None,
     language: str | None,
     ctx: AgentContext,
 ) -> str:
@@ -457,7 +546,9 @@ def _build_system_prompt(
     prompt_extra = configuracao.get("prompt") or ""
     knowledge_text = "\n".join([item.get("content", "") for item in knowledge if item.get("content")])
 
-    actions_text = ", ".join(sorted(allowed_actions)) if allowed_actions else "todas"
+    actions_text = (
+        ", ".join(sorted(allowed_actions)) if allowed_actions is not None else "todas"
+    )
     pause_tags = agent.get("pausar_em_tags") or []
     pause_stages = agent.get("pausar_em_etapas") or []
 
@@ -573,9 +664,9 @@ def _build_sandbox_messages(messages: list[dict]) -> list:
     return output
 
 
-def _build_tools(ctx: AgentContext, allowed_actions: set[str]):
+def _build_tools(ctx: AgentContext, allowed_actions: set[str] | None):
     def is_allowed(action: str) -> bool:
-        return not allowed_actions or action in allowed_actions
+        return allowed_actions is None or action in allowed_actions
 
     @tool
     def enviar_mensagem(texto: str) -> str:
@@ -835,6 +926,47 @@ def _build_tools(ctx: AgentContext, allowed_actions: set[str]):
             _log_tool_call(ctx, "calendar_consultar", {"event_id": event_id}, result)
             return result
 
+    @tool
+    def consultar_disponibilidade_calendar(
+        inicio: str,
+        fim: str,
+        duracao_minutos: int | None = None,
+        calendar_ids: list[str] | None = None,
+        timezone: str | None = None,
+    ) -> str:
+        """Consulta disponibilidade em uma janela de tempo no Google Calendar."""
+        try:
+            response = get_calendar_availability(
+                ctx.agent_id,
+                inicio,
+                fim,
+                calendar_ids=calendar_ids,
+                time_zone=timezone or ctx.timezone,
+                duration_minutes=duracao_minutos,
+            )
+            _log_tool_call(
+                ctx,
+                "calendar_disponibilidade",
+                {
+                    "inicio": inicio,
+                    "fim": fim,
+                    "duracao_minutos": duracao_minutos,
+                    "calendar_ids": calendar_ids,
+                    "timezone": timezone,
+                },
+                "ok",
+            )
+            return json.dumps(response, ensure_ascii=False)
+        except Exception as error:
+            result = f"Erro ao consultar disponibilidade: {error}"
+            _log_tool_call(
+                ctx,
+                "calendar_disponibilidade",
+                {"inicio": inicio, "fim": fim, "duracao_minutos": duracao_minutos},
+                result,
+            )
+            return result
+
     tools = []
     if is_allowed("enviar_mensagem"):
         tools.append(enviar_mensagem)
@@ -870,6 +1002,8 @@ def _build_tools(ctx: AgentContext, allowed_actions: set[str]):
         tools.append(cancelar_evento_calendar)
     if is_allowed("calendar_consultar"):
         tools.append(consultar_evento_calendar)
+    if is_allowed("calendar_disponibilidade"):
+        tools.append(consultar_disponibilidade_calendar)
     return tools
 
 
@@ -881,21 +1015,50 @@ def run_agent(agent_id: str, conversation_id: str, input_text: str | None = None
     provider = _resolve_provider(agent)
     agent["provider"] = provider
     if provider == "whatsapp_nao_oficial":
+        logger.info(
+            "agent_run_skipped agent_id=%s conversation_id=%s reason=provider_disabled",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "paused", "reason": "provider_disabled"}
 
     if not is_workspace_not_expired(agent.get("workspace_id")):
+        logger.info(
+            "agent_run_skipped agent_id=%s conversation_id=%s reason=trial_expired",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "blocked", "reason": "trial_expired"}
 
     if agent.get("status") != "ativo":
+        logger.info(
+            "agent_run_skipped agent_id=%s conversation_id=%s reason=agent_inactive",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "paused", "reason": "agent_inactive"}
 
     conversation = get_conversation(conversation_id)
     if not conversation:
         raise ValueError("Conversation not found")
     if conversation.get("canal") != "whatsapp":
+        logger.info(
+            "agent_run_skipped agent_id=%s conversation_id=%s reason=channel_not_supported canal=%s",
+            agent_id,
+            conversation_id,
+            conversation.get("canal"),
+        )
         return {"status": "paused", "reason": "channel_not_supported"}
 
     messages = get_messages(conversation_id)
+    logger.info(
+        "agent_run_start agent_id=%s conversation_id=%s provider=%s messages=%s has_input=%s",
+        agent_id,
+        conversation_id,
+        provider,
+        len(messages),
+        bool(input_text and input_text.strip()),
+    )
     _ingest_text_messages(agent_id, conversation_id, messages)
     default_pipeline_id, default_stage_id = _resolve_pipeline_defaults(agent)
     conversation, lead_convertido = _ensure_contact_and_deal(
@@ -922,14 +1085,58 @@ def run_agent(agent_id: str, conversation_id: str, input_text: str | None = None
     update_conversation_state(agent_id, conversation, messages, paused, reason, language)
 
     if paused:
+        logger.info(
+            "agent_run_paused agent_id=%s conversation_id=%s reason=%s",
+            agent_id,
+            conversation_id,
+            reason,
+        )
         return {"status": "paused", "reason": reason}
+
+    phone = _resolve_phone(conversation)
+    if conversation.get("canal") == "whatsapp" and _is_group_chat(phone):
+        if provider != "whatsapp_baileys":
+            update_conversation_state(agent_id, conversation, messages, True, "group_disabled", language)
+            logger.info(
+                "agent_run_paused agent_id=%s conversation_id=%s reason=group_disabled",
+                agent_id,
+                conversation_id,
+            )
+            return {"status": "paused", "reason": "group_disabled"}
+        if not _agent_allows_groups(agent):
+            update_conversation_state(agent_id, conversation, messages, True, "group_disabled", language)
+            logger.info(
+                "agent_run_paused agent_id=%s conversation_id=%s reason=group_disabled",
+                agent_id,
+                conversation_id,
+            )
+            return {"status": "paused", "reason": "group_disabled"}
+        allowlist = _agent_group_allowlist(agent)
+        if allowlist is not None and (not phone or phone not in allowlist):
+            update_conversation_state(agent_id, conversation, messages, True, "group_not_allowed", language)
+            logger.info(
+                "agent_run_paused agent_id=%s conversation_id=%s reason=group_not_allowed",
+                agent_id,
+                conversation_id,
+            )
+            return {"status": "paused", "reason": "group_not_allowed"}
 
     if not has_agent_consent(agent_id):
         update_conversation_state(agent_id, conversation, messages, True, "no_consent", language)
+        logger.info(
+            "agent_run_paused agent_id=%s conversation_id=%s reason=no_consent",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "paused", "reason": "no_consent"}
 
     if get_remaining_credits(conversation["workspace_id"]) <= 0:
         update_conversation_state(agent_id, conversation, messages, True, "no_credits", language)
+        logger.info(
+            "agent_run_paused agent_id=%s conversation_id=%s reason=no_credits",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "paused", "reason": "no_credits"}
 
     last_user_message = last_contact_message.get("conteudo") if last_contact_message else None
@@ -955,9 +1162,16 @@ def run_agent(agent_id: str, conversation_id: str, input_text: str | None = None
         outside_window = False
     query = input_text or last_user_message or ""
     knowledge = retrieve_knowledge(agent_id, query, conversation_id) if query else []
+    logger.info(
+        "rag_retrieve agent_id=%s conversation_id=%s query_chars=%s hits=%s",
+        agent_id,
+        conversation_id,
+        len(query),
+        len(knowledge),
+    )
     workspace_context = _load_workspace_context(agent, default_pipeline_id)
     allowed_actions = _load_permissions(agent_id)
-    can_send_message = not allowed_actions or "enviar_mensagem" in allowed_actions
+    can_send_message = allowed_actions is None or "enviar_mensagem" in allowed_actions
 
     ctx = AgentContext(
         agent_id=agent_id,
@@ -965,9 +1179,10 @@ def run_agent(agent_id: str, conversation_id: str, input_text: str | None = None
         conversation_id=conversation_id,
         lead_id=conversation.get("lead_id"),
         contact_id=conversation.get("contact_id"),
-        phone=_resolve_phone(conversation),
+        phone=phone,
         canal=conversation.get("canal") or "whatsapp",
         provider=provider,
+        timezone=agent.get("timezone"),
         outside_window=outside_window,
         default_pipeline_id=default_pipeline_id,
         default_stage_id=default_stage_id,
@@ -1143,6 +1358,14 @@ def run_agent(agent_id: str, conversation_id: str, input_text: str | None = None
         except Exception:
             continue
 
+    duration_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
+    logger.info(
+        "agent_run_failed agent_id=%s conversation_id=%s run_id=%s duration_ms=%s",
+        agent_id,
+        conversation_id,
+        run_id,
+        duration_ms,
+    )
     supabase.table("agent_runs").update(
         {
             "status": "falhou",
@@ -1183,6 +1406,7 @@ def run_agent_sandbox(agent_id: str, messages: list[dict]) -> dict:
         phone=None,
         canal="whatsapp",
         provider=provider,
+        timezone=agent.get("timezone"),
         outside_window=False,
         default_pipeline_id=default_pipeline_id,
         default_stage_id=default_stage_id,

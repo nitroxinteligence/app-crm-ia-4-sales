@@ -355,6 +355,7 @@ export type ConversaInbox = {
   status: StatusConversa;
   ultimaMensagem: string;
   horario: string;
+  ultimaMensagemAutor?: "contato" | "equipe" | "agente";
   naoLidas: number;
   tags: string[];
   owner: string;

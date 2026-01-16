@@ -212,20 +212,25 @@ export function VisaoAgentes() {
     setExcluindo(false);
   };
 
-  const renderStatusBadge = (status: string) => (
-    <Badge
-      variant={statusBadge[status].variant}
-      className="inline-flex items-center gap-2 px-3 py-1 text-[11px]"
-    >
-      {status === "ativo" && (
-        <span className="relative flex h-2 w-2">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-[6px] bg-emerald-500/70 opacity-75" />
-          <span className="relative inline-flex h-2 w-2 rounded-[6px] bg-emerald-500" />
-        </span>
-      )}
-      {statusBadge[status].label}
-    </Badge>
-  );
+  const renderStatusBadge = (status: string) => {
+    type StatusAgente = keyof typeof statusBadge;
+    const key: StatusAgente = status in statusBadge ? (status as StatusAgente) : "pausado";
+    const badge = statusBadge[key];
+    return (
+      <Badge
+        variant={badge.variant}
+        className="inline-flex items-center gap-2 px-3 py-1 text-[11px]"
+      >
+        {key === "ativo" && (
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-[6px] bg-emerald-500/70 opacity-75" />
+            <span className="relative inline-flex h-2 w-2 rounded-[6px] bg-emerald-500" />
+          </span>
+        )}
+        {badge.label}
+      </Badge>
+    );
+  };
 
   return (
     <div className="space-y-6 [&_*]:rounded-[6px] [&_*]:shadow-none">

@@ -3,6 +3,7 @@ from datetime import datetime
 from app.clients.supabase import get_supabase_client
 from app.clients.whatsapp_client import WhatsAppClient
 from app.clients.baileys_client import BaileysClient
+from app.services.realtime import emit_conversation_updated, emit_message_created
 from app.clients.instagram_client import InstagramClient
 
 
@@ -164,7 +165,7 @@ def create_agent_message(
 ):
     supabase = get_supabase_client()
     now = datetime.utcnow().isoformat()
-    supabase.table("messages").insert(
+    insert_response = supabase.table("messages").insert(
         {
             "workspace_id": workspace_id,
             "conversation_id": conversation_id,
@@ -175,6 +176,20 @@ def create_agent_message(
             "created_at": now,
         }
     ).execute()
+    data = insert_response.data or []
+    message_row = data[0] if isinstance(data, list) and data else data
+    if message_row and isinstance(message_row, dict):
+        emit_message_created(
+            workspace_id,
+            conversation_id,
+            {
+                "id": message_row.get("id"),
+                "autor": "agente",
+                "tipo": message_type,
+                "conteudo": content,
+                "created_at": now,
+            },
+        )
 
     supabase.table("conversations").update(
         {
@@ -182,8 +197,32 @@ def create_agent_message(
             "ultima_mensagem_em": now,
         }
     ).eq("id", conversation_id).execute()
+    emit_conversation_updated(
+        workspace_id,
+        conversation_id,
+        {
+            "ultima_mensagem": content,
+            "ultima_mensagem_em": now,
+        },
+    )
 
 
 def update_conversation_status(conversation_id: str, status: str):
     supabase = get_supabase_client()
-    supabase.table("conversations").update({"status": status}).eq("id", conversation_id).execute()
+    response = (
+        supabase.table("conversations")
+        .update({"status": status})
+        .eq("id", conversation_id)
+        .select("id, workspace_id")
+        .execute()
+    )
+    data = response.data or []
+    conversa = data[0] if isinstance(data, list) and data else data
+    if conversa and isinstance(conversa, dict):
+        workspace_id = conversa.get("workspace_id")
+        if workspace_id:
+            emit_conversation_updated(
+                workspace_id,
+                conversation_id,
+                {"status": status},
+            )

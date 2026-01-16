@@ -35,6 +35,18 @@ start_agents() {
   pids+=("$!")
 }
 
+start_celery() {
+  echo "[dev] iniciando Celery..."
+  if [[ ! -x "$ROOT_DIR/apps/agents/.venv/bin/celery" ]]; then
+    echo "[dev] celery nao encontrado no venv. Instale requirements em apps/agents:"
+    echo "      cd apps/agents && source .venv/bin/activate && pip install -r requirements.txt"
+    exit 1
+  fi
+  (cd "$ROOT_DIR/apps/agents" && "$ROOT_DIR/apps/agents/.venv/bin/celery" -A app.workers.celery_app.celery_app worker --loglevel=INFO) \
+    >"$LOG_DIR/celery.log" 2>&1 &
+  pids+=("$!")
+}
+
 start_next() {
   echo "[dev] iniciando Next..."
   (cd "$ROOT_DIR" && npm run dev) \
@@ -44,7 +56,8 @@ start_next() {
 
 start_baileys
 start_agents
+start_celery
 start_next
 
-echo "[dev] logs: $LOG_DIR/baileys.log, $LOG_DIR/agents.log, $LOG_DIR/next.log"
+echo "[dev] logs: $LOG_DIR/baileys.log, $LOG_DIR/agents.log, $LOG_DIR/celery.log, $LOG_DIR/next.log"
 wait

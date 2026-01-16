@@ -155,7 +155,7 @@ export function PainelConteudo({
       ) : null}
 
       <section className="grid gap-4 lg:grid-cols-4">
-        {(carregando && !dados ? Array.from({ length: 4 }) : kpis).map(
+        {(carregando && !dados ? Array.from({ length: 4 }, () => null) : kpis).map(
           (kpi, index) =>
             kpi ? (
               <CartaoKpi key={kpi.id} kpi={kpi} />

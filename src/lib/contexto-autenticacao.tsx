@@ -13,6 +13,8 @@ import { normalizarPlano, planosConfig } from "@/lib/planos";
 import { supabaseClient } from "@/lib/supabase/client";
 
 type AuthContextValue = EstadoAutenticacao & {
+  session: Session | null;
+  carregandoSessao: boolean;
   recarregar: () => Promise<void>;
 };
 
@@ -62,16 +64,19 @@ export function ProvedorAutenticacao({
     estadoVazio(null)
   );
   const [session, setSession] = React.useState<Session | null>(null);
+  const [carregandoSessao, setCarregandoSessao] = React.useState(true);
 
   React.useEffect(() => {
     supabaseClient.auth.getSession().then(({ data }) => {
       setSession(data.session ?? null);
+      setCarregandoSessao(false);
     });
 
     const {
       data: { subscription },
     } = supabaseClient.auth.onAuthStateChange((_event, currentSession) => {
       setSession(currentSession);
+      setCarregandoSessao(false);
     });
 
     return () => {
@@ -157,12 +162,12 @@ export function ProvedorAutenticacao({
           nome: planoEfetivo,
           trialDiasRestantes: workspace?.trial_ends_at
             ? Math.max(
-                0,
-                Math.ceil(
-                  (Date.parse(workspace.trial_ends_at) - Date.now()) /
-                    (1000 * 60 * 60 * 24)
-                )
+              0,
+              Math.ceil(
+                (Date.parse(workspace.trial_ends_at) - Date.now()) /
+                (1000 * 60 * 60 * 24)
               )
+            )
             : 0,
           limites: planosConfig[planoEfetivo],
         },
@@ -188,9 +193,11 @@ export function ProvedorAutenticacao({
   const valor = React.useMemo(
     () => ({
       ...estado,
+      session,
+      carregandoSessao,
       recarregar,
     }),
-    [estado, recarregar]
+    [estado, session, carregandoSessao, recarregar]
   );
 
   return <AuthContext.Provider value={valor}>{children}</AuthContext.Provider>;

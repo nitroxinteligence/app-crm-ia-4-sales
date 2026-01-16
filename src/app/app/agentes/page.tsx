@@ -1,5 +1,6 @@
-import { VisaoAgentes } from "@/components/agentes/visao-agentes";
+import { redirect } from "next/navigation";
 
+// Página temporariamente desabilitada - redirecionar para painel
 export default function Page() {
-  return <VisaoAgentes />;
+  redirect("/app/painel");
 }

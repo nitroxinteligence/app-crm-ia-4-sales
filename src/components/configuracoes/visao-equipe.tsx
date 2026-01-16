@@ -286,13 +286,13 @@ export function VisaoEquipeConfiguracoes() {
       </div>
 
       {erro && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div className="rounded-[6px] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {erro}
         </div>
       )}
 
       {mensagem && (
-        <div className="rounded-xl border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        <div className="rounded-[6px] border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
           {mensagem}
         </div>
       )}
@@ -321,7 +321,7 @@ export function VisaoEquipeConfiguracoes() {
             membros.map((membro) => (
               <div
                 key={membro.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 p-3"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-background/80 p-3"
               >
                 <div>
                   <p className="text-sm font-medium">
@@ -353,10 +353,10 @@ export function VisaoEquipeConfiguracoes() {
                       ))}
                     </SelectContent>
                   </Select>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-8 w-8 text-destructive"
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-destructive"
                     onClick={() => {
                       setMemberExcluir(membro);
                       setDialogExcluirAberto(true);
@@ -403,7 +403,7 @@ export function VisaoEquipeConfiguracoes() {
             convites.map((invite) => (
               <div
                 key={invite.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-background/80 p-3"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-background/80 p-3"
               >
                 <div>
                   <p className="text-sm font-medium">{invite.email}</p>
@@ -490,7 +490,7 @@ export function VisaoEquipeConfiguracoes() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+            <div className="rounded-[6px] border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
               <div className="flex items-center gap-2">
                 <MailPlus className="h-4 w-4" />
                 {t(

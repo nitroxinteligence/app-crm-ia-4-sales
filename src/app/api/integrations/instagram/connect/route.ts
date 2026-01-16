@@ -127,7 +127,7 @@ async function resolveInstagramAccount(
       page.instagram_business_account ?? page.connected_instagram_account;
     return ig?.id && ig.id === instagramAccountId;
   };
-  let selected =
+  const selected =
     (pageId ? pages.find((page) => page.id === pageId) : undefined) ??
     (instagramAccountId ? pages.find(matchesInstagram) : undefined) ??
     pages.find(

@@ -2,8 +2,24 @@
 
 import * as React from "react";
 import type { Session } from "@supabase/supabase-js";
-import type { CanalId, ContatoInbox, ConversaInbox, StatusConversa } from "@/lib/types";
+import type {
+  CanalId,
+  ContatoInbox,
+  ConversaInbox,
+  MensagemInbox,
+  StatusConversa,
+} from "@/lib/types";
+import type Pusher from "pusher-js";
 import { supabaseClient } from "@/lib/supabase/client";
+import { useAutenticacao } from "@/lib/contexto-autenticacao";
+import { conversationChannel, workspaceChannel } from "@/lib/pusher/channels";
+import { createPusherClient } from "@/lib/pusher/client";
+import type {
+  PusherAttachmentPayload,
+  PusherConversationUpdatedPayload,
+  PusherMessagePayload,
+  PusherTagsUpdatedPayload,
+} from "@/lib/pusher/types";
 import { ListaConversas } from "@/components/inbox/lista-conversas";
 import { ChatConversa } from "@/components/inbox/chat-conversa";
 import { PainelContato } from "@/components/inbox/painel-contato";
@@ -22,7 +38,9 @@ const formatarHorario = (valor?: string | null) => {
   });
 };
 
-const normalizarAutor = (autor?: string | null) => {
+const normalizarAutor = (
+  autor?: string | null
+): "contato" | "equipe" | "agente" => {
   if (autor === "equipe" || autor === "agente") return autor;
   return "contato";
 };
@@ -45,10 +63,116 @@ const isNumeroGrupo = (valor?: string | null) => {
 };
 
 export function VisaoInbox() {
-  const [session, setSession] = React.useState<Session | null>(null);
-  const [carregandoSessao, setCarregandoSessao] = React.useState(true);
+  const { session } = useAutenticacao();
   const [workspaceId, setWorkspaceId] = React.useState<string | null>(null);
   const [conversas, setConversas] = React.useState<ConversaInbox[]>([]);
+  const [contagens, setContagens] = React.useState({
+    naoIniciados: 0,
+    aguardando: 0,
+    emAberto: 0,
+    agentes: 0,
+    finalizadas: 0,
+    spam: 0,
+  });
+
+  const resetarContagens = React.useCallback(() => {
+    setContagens({
+      naoIniciados: 0,
+      aguardando: 0,
+      emAberto: 0,
+      agentes: 0,
+      finalizadas: 0,
+      spam: 0,
+    });
+  }, []);
+
+  const verificarWhatsappConectado = React.useCallback(async () => {
+    if (!workspaceId) return true;
+    try {
+      const { data } = await supabaseClient.auth.getSession();
+      if (!data.session) return true;
+      const response = await fetch(
+        `/api/integrations/whatsapp-baileys/status?workspaceId=${workspaceId}`,
+        { headers: { Authorization: `Bearer ${data.session.access_token}` } }
+      );
+      if (!response.ok) return true;
+      const payload = (await response.json()) as {
+        accounts?: Array<{ status?: string | null }>;
+      };
+      const contas = payload.accounts ?? [];
+      if (contas.length === 0) return true;
+      return contas.some((conta) => conta.status === "conectado");
+    } catch {
+      return true;
+    }
+  }, [workspaceId]);
+
+  const carregarContagem = React.useCallback(async () => {
+    if (!workspaceId) return;
+    const whatsappConectado = await verificarWhatsappConectado();
+    if (!whatsappConectado) {
+      resetarContagens();
+      return;
+    }
+
+    const count = async (filter: object, notFilter?: object) => {
+      let query = supabaseClient
+        .from("conversations")
+        .select("*", { count: "exact", head: true })
+        .eq("workspace_id", workspaceId);
+      Object.entries(filter).forEach(([key, value]) => {
+        if (value === null) query = query.is(key, null);
+        else query = query.eq(key, value);
+      });
+      if (notFilter) {
+        Object.entries(notFilter).forEach(([key, value]) => {
+          if (value === "IS NOT NULL") query = query.not(key, "is", null);
+          else query = query.neq(key, value);
+        });
+      }
+      const { count } = await query;
+      return count ?? 0;
+    };
+
+    const [pendente, resolvida, spam, agentes, abertasComUltima] =
+      await Promise.all([
+        count({ status: "pendente" }),
+        count({ status: "resolvida" }),
+        count({ status: "spam" }),
+        count({ status: "aberta" }, { owner_id: "IS NOT NULL" }),
+        supabaseClient
+          .from("conversations")
+          .select("id, messages:messages(autor, created_at)")
+          .eq("workspace_id", workspaceId)
+          .eq("status", "aberta")
+          .order("created_at", { foreignTable: "messages", ascending: false })
+          .limit(1, { foreignTable: "messages" }),
+      ]);
+
+    const abertasData = abertasComUltima.data ?? [];
+    const aguardando = abertasData.filter(
+      (conversa) => conversa.messages?.[0]?.autor === "contato"
+    ).length;
+    const emAberto = Math.max(0, abertasData.length - aguardando);
+
+    setContagens({
+      naoIniciados: pendente,
+      aguardando,
+      emAberto,
+      finalizadas: resolvida,
+      spam: spam,
+      agentes: agentes,
+    });
+  }, [resetarContagens, verificarWhatsappConectado, workspaceId]);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => void carregarContagem(), 1000);
+    const interval = setInterval(() => void carregarContagem(), 15000);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [carregarContagem]);
   const [membrosEquipe, setMembrosEquipe] = React.useState<
     Array<{ id: string; userId: string; nome: string; avatarUrl?: string | null }>
   >([]);
@@ -88,28 +212,9 @@ export function VisaoInbox() {
   const [selecionadaId, setSelecionadaId] = React.useState<string | null>(null);
   const [colapsadaContato, setColapsadaContato] = React.useState(true);
   const refreshTimerRef = React.useRef<number | null>(null);
-  const ultimoEventoRef = React.useRef<number>(Date.now());
+  const pusherRef = React.useRef<Pusher | null>(null);
 
-  React.useEffect(() => {
-    let ativo = true;
-    supabaseClient.auth.getSession().then(({ data }) => {
-      if (!ativo) return;
-      setSession(data.session ?? null);
-      setCarregandoSessao(false);
-    });
 
-    const {
-      data: { subscription },
-    } = supabaseClient.auth.onAuthStateChange((_event, currentSession) => {
-      setSession(currentSession);
-      setCarregandoSessao(false);
-    });
-
-    return () => {
-      ativo = false;
-      subscription.unsubscribe();
-    };
-  }, []);
 
   React.useEffect(() => {
     if (!session) {
@@ -151,7 +256,11 @@ export function VisaoInbox() {
       setMembrosEquipe(payload.members ?? []);
     };
 
-    carregar().catch(() => undefined);
+    carregar().catch((error) => {
+      // Ignorar erros de abort quando o componente desmonta
+      if (error.name === 'AbortError') return;
+      console.error('Erro ao carregar membros da equipe:', error);
+    });
     return () => controller.abort();
   }, [session?.access_token]);
 
@@ -178,13 +287,89 @@ export function VisaoInbox() {
       "site",
       "data_nascimento",
     ];
-    const contactFields = contactFieldList.join(", ");
     const contactFieldsFallback = ["id", "nome", "telefone", "email", "empresa"].join(", ");
-    let data = null as Array<any> | null;
-    const full = await supabaseClient
+    type LeadResumo = {
+      id: string;
+      nome?: string | null;
+      telefone?: string | null;
+      email?: string | null;
+      avatar_url?: string | null;
+      whatsapp_wa_id?: string | null;
+    };
+    type AccountResumo = {
+      id: string;
+      numero?: string | null;
+      nome?: string | null;
+      provider?: string | null;
+      identificador?: string | null;
+      phone_number_id?: string | null;
+      avatar_url?: string | null;
+    };
+    type ContactResumo = {
+      id: string;
+      nome?: string | null;
+      telefone?: string | null;
+      email?: string | null;
+      avatar_url?: string | null;
+      empresa?: string | null;
+      site?: string | null;
+      documento?: string | null;
+      data_nascimento?: string | null;
+    };
+    type TagResumo = {
+      nome?: string | null;
+    };
+    type LeadTagRegistro = {
+      lead_id?: string | null;
+      tags?: TagResumo | TagResumo[] | null;
+    };
+    type ContactTagRegistro = {
+      contact_id?: string | null;
+      tags?: TagResumo | TagResumo[] | null;
+    };
+    type QueryListResponse<T> = {
+      data: T[] | null;
+      error?: { message?: string } | null;
+    };
+    const vazio: QueryListResponse<never> = { data: [], error: null };
+    type ConversaRegistro = {
+      id: string;
+      status: StatusConversa;
+      canal: CanalId;
+      owner_id?: string | null;
+      modo_atendimento_humano?: boolean | null;
+      ultima_mensagem?: string | null;
+      ultima_mensagem_em?: string | null;
+      lead_id?: string | null;
+      contact_id?: string | null;
+      integration_account_id?: string | null;
+      leads?: LeadResumo | null;
+      contacts?: ContactResumo | null;
+      integration_accounts?: AccountResumo | null;
+    };
+    let data: ConversaRegistro[] | null = null;
+    let query = supabaseClient
       .from("conversations")
       .select(baseSelect)
-      .eq("workspace_id", workspaceId)
+      .eq("workspace_id", workspaceId);
+
+    if (["nao-iniciados", "pendente"].includes(filtroBasico)) {
+      query = query.eq("status", "pendente");
+    } else if (filtroBasico === "em-aberto") {
+      query = query.eq("status", "aberta");
+    } else if (filtroBasico === "finalizadas") {
+      query = query.eq("status", "resolvida");
+    } else if (filtroBasico === "spam") {
+      query = query.eq("status", "spam");
+    } else {
+      query = query.eq("status", statusAtual);
+    }
+
+    if (filtroCanal !== "todos") query = query.eq("canal", filtroCanal);
+    if (filtroOwner !== "todos") query = query.eq("owner_id", filtroOwner);
+    if (filtroNumero !== "todos") query = query.eq("integration_account_id", filtroNumero);
+
+    const full = await query
       .order("ultima_mensagem_em", { ascending: false })
       .range(
         paginaAtual * LIMITE_CONVERSAS,
@@ -214,53 +399,57 @@ export function VisaoInbox() {
     const [leadResponse, accountResponse, contactResponse] = await Promise.all([
       leadIds.length
         ? supabaseClient
-            .from("leads")
-            .select("id, nome, telefone, email, avatar_url")
-            .in("id", leadIds)
-        : Promise.resolve({ data: [] }),
+          .from("leads")
+          .select("id, nome, telefone, email, avatar_url")
+          .in("id", leadIds)
+        : Promise.resolve(vazio),
       accountIds.length
         ? supabaseClient
-            .from("integration_accounts")
-            .select(
-              "id, numero, nome, provider, identificador, phone_number_id, avatar_url"
-            )
-            .in("id", accountIds)
-        : Promise.resolve({ data: [] }),
+          .from("integration_accounts")
+          .select(
+            "id, numero, nome, provider, identificador, phone_number_id, avatar_url"
+          )
+          .in("id", accountIds)
+        : Promise.resolve(vazio),
       contactIds.length
         ? supabaseClient
-            .from("contacts")
-            .select(
-              "id, nome, telefone, email, avatar_url, empresa, site, documento, data_nascimento"
-            )
-            .in("id", contactIds)
-        : Promise.resolve({ data: [] }),
-    ]);
+          .from("contacts")
+          .select(
+            "id, nome, telefone, email, avatar_url, empresa, site, documento, data_nascimento"
+          )
+          .in("id", contactIds)
+        : Promise.resolve(vazio),
+    ]) as [
+        QueryListResponse<LeadResumo>,
+        QueryListResponse<AccountResumo>,
+        QueryListResponse<ContactResumo>,
+      ];
 
-    let leads = leadResponse.data ?? [];
+    let leads: LeadResumo[] = leadResponse.data ?? [];
     if (leadResponse.error?.message?.includes("avatar_url") && leadIds.length) {
       const fallbackLeads = await supabaseClient
         .from("leads")
         .select("id, nome, telefone, email")
         .in("id", leadIds);
       if (!fallbackLeads.error && fallbackLeads.data) {
-        leads = fallbackLeads.data;
+        leads = (fallbackLeads.data ?? []) as LeadResumo[];
       }
     } else if (leadResponse.error) {
       console.error("Inbox leads error:", leadResponse.error.message);
     }
-    let accounts = accountResponse.data ?? [];
+    let accounts: AccountResumo[] = accountResponse.data ?? [];
     if (accountResponse.error?.message?.includes("avatar_url") && accountIds.length) {
       const fallbackAccounts = await supabaseClient
         .from("integration_accounts")
         .select("id, numero, nome, provider, identificador, phone_number_id")
         .in("id", accountIds);
       if (!fallbackAccounts.error && fallbackAccounts.data) {
-        accounts = fallbackAccounts.data;
+        accounts = (fallbackAccounts.data ?? []) as AccountResumo[];
       }
     } else if (accountResponse.error) {
       console.error("Inbox accounts error:", accountResponse.error.message);
     }
-    let contacts = contactResponse.data ?? [];
+    let contacts: ContactResumo[] = contactResponse.data ?? [];
     if (contactIds.length && contactResponse.error) {
       const errorMessage = contactResponse.error.message ?? "";
       const missingMatches = Array.from(
@@ -279,7 +468,7 @@ export function VisaoInbox() {
         .select(fallbackSelect)
         .in("id", contactIds);
       if (!fallbackContacts.error && fallbackContacts.data) {
-        contacts = fallbackContacts.data;
+        contacts = (fallbackContacts.data ?? []) as unknown as ContactResumo[];
       } else {
         console.error("Inbox contacts error:", contactResponse.error.message);
       }
@@ -295,6 +484,88 @@ export function VisaoInbox() {
       (accounts ?? []).map((account) => [account.id, account])
     );
 
+    const conversaIds = (data ?? []).map((item) => item.id);
+    const autoresUltimaMensagem = new Map<
+      string,
+      { autor?: string | null; avatar?: string | null }
+    >();
+
+    if (conversaIds.length > 0 && statusAtual === "aberta") {
+      await Promise.all(
+        conversaIds.map(async (conversationId) => {
+          const { data: ultimaMensagem } = await supabaseClient
+            .from("messages")
+            .select("autor, sender_avatar_url, created_at")
+            .eq("conversation_id", conversationId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (ultimaMensagem) {
+            autoresUltimaMensagem.set(conversationId, {
+              autor: ultimaMensagem.autor ?? null,
+              avatar: ultimaMensagem.sender_avatar_url ?? null,
+            });
+          }
+        })
+      );
+    }
+
+    const [leadTagsResponse, contactTagsResponse] = (await Promise.all([
+      leadIds.length
+        ? supabaseClient
+          .from("lead_tags")
+          .select("lead_id, tags (nome)")
+          .eq("workspace_id", workspaceId)
+          .in("lead_id", leadIds)
+        : Promise.resolve(vazio),
+      contactIds.length
+        ? supabaseClient
+          .from("contact_tags")
+          .select("contact_id, tags (nome)")
+          .eq("workspace_id", workspaceId)
+          .in("contact_id", contactIds)
+        : Promise.resolve(vazio),
+    ])) as [
+        QueryListResponse<LeadTagRegistro>,
+        QueryListResponse<ContactTagRegistro>,
+      ];
+
+    if (leadTagsResponse.error) {
+      console.error("Inbox lead tags error:", leadTagsResponse.error.message);
+    }
+    if (contactTagsResponse.error) {
+      console.error(
+        "Inbox contact tags error:",
+        contactTagsResponse.error.message
+      );
+    }
+
+    const tagsPorLead = new Map<string, string[]>();
+    (leadTagsResponse.data ?? []).forEach((registro) => {
+      if (!registro.lead_id) return;
+      const tagItem = Array.isArray(registro.tags)
+        ? registro.tags[0]
+        : registro.tags;
+      const nome = tagItem?.nome;
+      if (!nome) return;
+      const atual = tagsPorLead.get(registro.lead_id) ?? [];
+      atual.push(nome);
+      tagsPorLead.set(registro.lead_id, atual);
+    });
+
+    const tagsPorContato = new Map<string, string[]>();
+    (contactTagsResponse.data ?? []).forEach((registro) => {
+      if (!registro.contact_id) return;
+      const tagItem = Array.isArray(registro.tags)
+        ? registro.tags[0]
+        : registro.tags;
+      const nome = tagItem?.nome;
+      if (!nome) return;
+      const atual = tagsPorContato.get(registro.contact_id) ?? [];
+      atual.push(nome);
+      tagsPorContato.set(registro.contact_id, atual);
+    });
+
     const mapeadas = (data ?? [])
       .map((item) => {
         const lead = item.leads ?? leadMap.get(item.lead_id ?? "") ?? null;
@@ -305,122 +576,88 @@ export function VisaoInbox() {
           item.integration_accounts ??
           accountMap.get(item.integration_account_id ?? "") ??
           null;
-      const numeroCanal =
-        integrationAccount?.numero ??
-        integrationAccount?.identificador ??
-        integrationAccount?.phone_number_id ??
-        null;
-      const mensagensOrdenadas = (item.messages ?? [])
-        .slice()
-        .sort(
-          (a, b) =>
-            new Date(a.created_at ?? 0).getTime() -
-            new Date(b.created_at ?? 0).getTime()
-        );
-      const avatarUltimaMensagem = (() => {
-        for (let i = mensagensOrdenadas.length - 1; i >= 0; i -= 1) {
-          const avatar = mensagensOrdenadas[i]?.sender_avatar_url;
-          if (avatar) return avatar;
-        }
-        return null;
-      })();
-      const ultima = item.ultima_mensagem ?? "";
-      const ultimaData = item.ultima_mensagem_em ?? null;
+        const numeroCanal =
+          integrationAccount?.numero ??
+          integrationAccount?.identificador ??
+          integrationAccount?.phone_number_id ??
+          null;
+        const ultimaMensagemInfo = autoresUltimaMensagem.get(item.id);
+        const autorUltimaMensagem = ultimaMensagemInfo?.autor ?? null;
+        const ultimaMensagemAutor = autorUltimaMensagem
+          ? normalizarAutor(autorUltimaMensagem)
+          : undefined;
+        const avatarUltimaMensagem = ultimaMensagemInfo?.avatar ?? null;
+        const ultima = item.ultima_mensagem ?? "";
+        const ultimaData = item.ultima_mensagem_em ?? null;
 
-      const leadIsGrupo =
-        isNumeroGrupo(lead?.whatsapp_wa_id) || isNumeroGrupo(lead?.telefone);
-      const contactIsGrupo = isNumeroGrupo(contact?.telefone);
-      const isGrupo = leadIsGrupo || contactIsGrupo;
-      const contatoBase = isGrupo ? (lead ?? contact) : (contact ?? lead);
-      const nomeFallback =
-        contatoBase === contact ? lead?.nome : contact?.nome;
-      const nomeContato =
-        contatoBase?.nome ||
-        nomeFallback ||
-        contatoBase?.telefone ||
-        lead?.telefone ||
-        contact?.telefone ||
-        (isGrupo ? "Grupo" : "Contato sem nome");
-      const avatarContato =
-        contatoBase?.avatar_url ||
-        contact?.avatar_url ||
-        lead?.avatar_url ||
-        avatarUltimaMensagem ||
-        "/avatars/contato-placeholder.svg";
+        const leadIsGrupo =
+          isNumeroGrupo(lead?.whatsapp_wa_id) || isNumeroGrupo(lead?.telefone);
+        const contactIsGrupo = isNumeroGrupo(contact?.telefone);
+        const isGrupo = leadIsGrupo || contactIsGrupo;
+        const contatoBase = isGrupo ? (lead ?? contact) : (contact ?? lead);
+        const nomeFallback =
+          contatoBase === contact ? lead?.nome : contact?.nome;
+        const nomeContato =
+          contatoBase?.nome ||
+          nomeFallback ||
+          contatoBase?.telefone ||
+          lead?.telefone ||
+          contact?.telefone ||
+          (isGrupo ? "Grupo" : "Contato sem nome");
+        const avatarContato =
+          contatoBase?.avatar_url ||
+          contact?.avatar_url ||
+          lead?.avatar_url ||
+          avatarUltimaMensagem ||
+          "/avatars/contato-placeholder.svg";
+        const tagsContato = item.contact_id
+          ? tagsPorContato.get(item.contact_id) ?? []
+          : [];
+        const tagsLead = item.lead_id ? tagsPorLead.get(item.lead_id) ?? [] : [];
+        const tagsConversa = Array.from(new Set([...tagsContato, ...tagsLead]));
 
-      const mensagensMapeadas = mensagensOrdenadas.map((mensagem) => ({
-        id: mensagem.id,
-        autor: normalizarAutor(mensagem.autor),
-        conteudo: mensagem.conteudo ?? "",
-        tipo: mensagem.tipo,
-        horario: formatarHorario(mensagem.created_at),
-        dataHora: mensagem.created_at ?? undefined,
-        interno: mensagem.interno ?? false,
-        senderId: mensagem.sender_id ?? undefined,
-        senderNome: mensagem.sender_nome ?? undefined,
-        senderAvatarUrl: mensagem.sender_avatar_url ?? undefined,
-        resposta:
-          mensagem.quoted_message_id ||
-          mensagem.quoted_conteudo ||
-          mensagem.quoted_sender_nome
-            ? {
-                messageId: mensagem.quoted_message_id ?? undefined,
-                autor: mensagem.quoted_autor
-                  ? normalizarAutor(mensagem.quoted_autor)
-                  : undefined,
-                senderId: mensagem.quoted_sender_id ?? undefined,
-                senderNome: mensagem.quoted_sender_nome ?? undefined,
-                tipo: mensagem.quoted_tipo ?? undefined,
-                conteudo: mensagem.quoted_conteudo ?? undefined,
-              }
-            : undefined,
-        anexos: (mensagem.attachments ?? []).map((anexo) => ({
-          id: anexo.id,
-          storagePath: anexo.storage_path,
-          tipo: anexo.tipo,
-          tamanhoBytes: anexo.tamanho_bytes ?? undefined,
-        })),
-      }));
+        const mensagensMapeadas: MensagemInbox[] = [];
 
-      return {
-        id: item.id,
-        leadId: item.lead_id ?? undefined,
-        contactId: item.contact_id ?? undefined,
-        integrationAccountId: item.integration_account_id ?? undefined,
-        numeroCanal: numeroCanal ?? undefined,
-        nomeCanal: integrationAccount?.nome ?? undefined,
-        providerCanal: integrationAccount?.provider ?? undefined,
-        avatarCanal: integrationAccount?.avatar_url ?? undefined,
-        contato: {
-          id: lead?.id ?? item.lead_id ?? item.id,
-          nome: nomeContato,
-          telefone: contatoBase?.telefone ?? "",
-          email: contatoBase?.email ?? "",
-          avatarUrl: avatarContato,
-          isGrupo,
-          empresa: contatoBase?.empresa ?? undefined,
-          site: contatoBase?.site ?? undefined,
-          documento: contatoBase?.documento ?? undefined,
-          dataNascimento: contatoBase?.data_nascimento ?? undefined,
-          tags: [],
-          status: "Ativo",
+        return {
+          id: item.id,
+          leadId: item.lead_id ?? undefined,
+          contactId: item.contact_id ?? undefined,
+          integrationAccountId: item.integration_account_id ?? undefined,
+          numeroCanal: numeroCanal ?? undefined,
+          nomeCanal: integrationAccount?.nome ?? undefined,
+          providerCanal: integrationAccount?.provider ?? undefined,
+          avatarCanal: integrationAccount?.avatar_url ?? undefined,
+          contato: {
+            id: lead?.id ?? item.lead_id ?? item.id,
+            nome: nomeContato,
+            telefone: contatoBase?.telefone ?? "",
+            email: contatoBase?.email ?? "",
+            avatarUrl: avatarContato,
+            isGrupo,
+            empresa: contact?.empresa ?? undefined,
+            site: contact?.site ?? undefined,
+            documento: contact?.documento ?? undefined,
+            dataNascimento: contact?.data_nascimento ?? undefined,
+            tags: tagsConversa,
+            status: "Ativo",
+            owner: item.owner_id ?? "Equipe",
+          },
+          canal: item.canal,
+          status: item.status,
+          ultimaMensagem: ultima,
+          ultimaMensagemEm: ultimaData ?? undefined,
+          horario: formatarHorario(ultimaData),
+          ultimaMensagemAutor,
+          naoLidas: 0,
+          tags: tagsConversa,
           owner: item.owner_id ?? "Equipe",
-        },
-        canal: item.canal,
-        status: item.status,
-        ultimaMensagem: ultima,
-        ultimaMensagemEm: ultimaData ?? undefined,
-        horario: formatarHorario(ultimaData),
-        naoLidas: 0,
-        tags: [],
-        owner: item.owner_id ?? "Equipe",
-        modoAtendimentoHumano: item.modo_atendimento_humano ?? false,
-        mensagens: mensagensMapeadas,
-        mensagensCursor: mensagensMapeadas[0]?.dataHora ?? null,
-        mensagensHasMais: mensagensMapeadas.length >= LIMITE_MENSAGENS,
-        mensagensCarregando: false,
-      } satisfies ConversaInbox;
-    })
+          modoAtendimentoHumano: item.modo_atendimento_humano ?? false,
+          mensagens: mensagensMapeadas,
+          mensagensCursor: mensagensMapeadas[0]?.dataHora ?? null,
+          mensagensHasMais: mensagensMapeadas.length >= LIMITE_MENSAGENS,
+          mensagensCarregando: false,
+        } satisfies ConversaInbox;
+      })
       .filter(Boolean) as ConversaInbox[];
 
     const dedupeConversas = (lista: ConversaInbox[]) => {
@@ -443,15 +680,20 @@ export function VisaoInbox() {
       const anterioresMap = new Map(
         atuais.map((conversa) => [conversa.id, conversa])
       );
-      const base = options?.substituir || paginaAtual === 0 ? [] : atuais;
-      const combinadas = [...base, ...mapeadasUnicas];
-      const vistos = new Set<string>();
-      const combinadasUnicas = combinadas.filter((conversa) => {
-        if (vistos.has(conversa.id)) return false;
-        vistos.add(conversa.id);
-        return true;
+      // Apenas substituir completamente se explicitamente solicitado E não for refresh silencioso
+      const deveSubstituir = options?.substituir && !options?.silencioso;
+      const base = deveSubstituir ? [] : atuais;
+      // Mesclar novas conversas com as existentes
+      const novasIds = new Set(mapeadasUnicas.map((c) => c.id));
+      const existentesSemDuplicatas = base.filter((c) => !novasIds.has(c.id));
+      const combinadas = [...mapeadasUnicas, ...existentesSemDuplicatas];
+      // Ordenar por ultima_mensagem_em decrescente
+      combinadas.sort((a, b) => {
+        const dataA = a.ultimaMensagemEm ? new Date(a.ultimaMensagemEm).getTime() : 0;
+        const dataB = b.ultimaMensagemEm ? new Date(b.ultimaMensagemEm).getTime() : 0;
+        return dataB - dataA;
       });
-      const deduped = dedupeConversas(combinadasUnicas);
+      const deduped = dedupeConversas(combinadas);
       return deduped.map((conversa) => {
         const anterior = anterioresMap.get(conversa.id);
         if (!anterior) return conversa;
@@ -519,7 +761,7 @@ export function VisaoInbox() {
           id: mensagem.id,
           autor: normalizarAutor(mensagem.autor),
           conteudo: mensagem.conteudo ?? "",
-          tipo: mensagem.tipo,
+          tipo: mensagem.tipo as MensagemInbox["tipo"],
           horario: formatarHorario(mensagem.created_at),
           dataHora: mensagem.created_at ?? undefined,
           interno: mensagem.interno ?? false,
@@ -528,18 +770,18 @@ export function VisaoInbox() {
           senderAvatarUrl: mensagem.sender_avatar_url ?? undefined,
           resposta:
             mensagem.quoted_message_id ||
-            mensagem.quoted_conteudo ||
-            mensagem.quoted_sender_nome
+              mensagem.quoted_conteudo ||
+              mensagem.quoted_sender_nome
               ? {
-                  messageId: mensagem.quoted_message_id ?? undefined,
-                  autor: mensagem.quoted_autor
-                    ? normalizarAutor(mensagem.quoted_autor)
-                    : undefined,
-                  senderId: mensagem.quoted_sender_id ?? undefined,
-                  senderNome: mensagem.quoted_sender_nome ?? undefined,
-                  tipo: mensagem.quoted_tipo ?? undefined,
-                  conteudo: mensagem.quoted_conteudo ?? undefined,
-                }
+                messageId: mensagem.quoted_message_id ?? undefined,
+                autor: mensagem.quoted_autor
+                  ? normalizarAutor(mensagem.quoted_autor)
+                  : undefined,
+                senderId: mensagem.quoted_sender_id ?? undefined,
+                senderNome: mensagem.quoted_sender_nome ?? undefined,
+                tipo: mensagem.quoted_tipo ?? undefined,
+                conteudo: mensagem.quoted_conteudo ?? undefined,
+              }
               : undefined,
           anexos: (mensagem.attachments ?? []).map((anexo) => ({
             id: anexo.id,
@@ -595,205 +837,298 @@ export function VisaoInbox() {
         })
       );
     },
-    []
+    [
+      workspaceId,
+      filtroBasico,
+      filtroCanal,
+      filtroOwner,
+      filtroNumero,
+      statusAtual,
+    ]
   );
 
   const agendarRefresh = React.useCallback(() => {
     if (refreshTimerRef.current !== null) return;
     refreshTimerRef.current = window.setTimeout(() => {
       refreshTimerRef.current = null;
-      carregarConversas({ silencioso: true, pagina: 0, substituir: true });
-    }, 1500);
+      // Não usar substituir: true para evitar reset da lista durante sincronização
+      carregarConversas({ silencioso: true, pagina: 0 });
+    }, 3000);
   }, [carregarConversas]);
+
+  React.useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const atualizarConversa = React.useCallback(
+    (
+      conversationId: string,
+      atualizar: (conversa: ConversaInbox) => ConversaInbox,
+      moverParaTopo: boolean
+    ) => {
+      setConversas((atual) => {
+        const index = atual.findIndex((conversa) => conversa.id === conversationId);
+        if (index === -1) {
+          agendarRefresh();
+          return atual;
+        }
+
+        const conversa = atual[index];
+        const conversaAtualizada = atualizar(conversa);
+        if (!moverParaTopo) {
+          const lista = atual.slice();
+          lista[index] = conversaAtualizada;
+          return lista;
+        }
+
+        const resto = [...atual.slice(0, index), ...atual.slice(index + 1)];
+        return [conversaAtualizada, ...resto];
+      });
+    },
+    [agendarRefresh]
+  );
+
+  const handleMessageCreated = React.useCallback(
+    (payload: PusherMessagePayload) => {
+      if (!payload?.conversation_id || !payload.message?.id) return;
+
+      atualizarConversa(
+        payload.conversation_id,
+        (conversa) => {
+          if (conversa.mensagens.some((mensagem) => mensagem.id === payload.message.id)) {
+            return conversa;
+          }
+
+          const createdAt = payload.message.created_at;
+          const mensagemNova = {
+            id: payload.message.id,
+            autor: normalizarAutor(payload.message.autor),
+            tipo: payload.message.tipo,
+            conteudo: payload.message.conteudo ?? "",
+            horario: formatarHorario(createdAt),
+            dataHora: createdAt ?? undefined,
+            interno: payload.message.interno ?? false,
+            anexos: [] as MensagemInbox["anexos"],
+            senderId: payload.message.sender_id ?? undefined,
+            senderNome: payload.message.sender_nome ?? undefined,
+            senderAvatarUrl: payload.message.sender_avatar_url ?? undefined,
+            resposta:
+              payload.message.quoted_message_id ||
+                payload.message.quoted_conteudo ||
+                payload.message.quoted_sender_nome
+                ? {
+                  messageId: payload.message.quoted_message_id ?? undefined,
+                  autor: payload.message.quoted_autor
+                    ? normalizarAutor(payload.message.quoted_autor)
+                    : undefined,
+                  senderId: payload.message.quoted_sender_id ?? undefined,
+                  senderNome: payload.message.quoted_sender_nome ?? undefined,
+                  tipo: payload.message.quoted_tipo ?? undefined,
+                  conteudo: payload.message.quoted_conteudo ?? undefined,
+                }
+                : undefined,
+          };
+          const mensagensAtualizadas = [...conversa.mensagens, mensagemNova];
+          const isGrupo = Boolean(conversa.contato.isGrupo);
+          const deveAtualizarContato =
+            !isGrupo &&
+            isNomeGenerico(conversa.contato.nome) &&
+            (mensagemNova.senderNome || mensagemNova.senderAvatarUrl);
+
+          return {
+            ...conversa,
+            mensagens: mensagensAtualizadas,
+            mensagensCursor: conversa.mensagensCursor ?? mensagemNova.dataHora ?? null,
+            mensagensHasMais: conversa.mensagensHasMais ?? true,
+            ultimaMensagem: mensagemNova.conteudo,
+            ultimaMensagemEm: createdAt ?? conversa.ultimaMensagemEm,
+            ultimaMensagemAutor: mensagemNova.autor,
+            horario: mensagemNova.horario,
+            contato: deveAtualizarContato
+              ? {
+                ...conversa.contato,
+                nome: mensagemNova.senderNome ?? conversa.contato.nome,
+                avatarUrl: mensagemNova.senderAvatarUrl ?? conversa.contato.avatarUrl,
+              }
+              : conversa.contato,
+          };
+        },
+        true
+      );
+    },
+    [atualizarConversa]
+  );
+
+  const handleAttachmentCreated = React.useCallback(
+    (payload: PusherAttachmentPayload) => {
+      if (!payload?.conversation_id || !payload.message_id || !payload.attachment?.id) {
+        return;
+      }
+
+      setConversas((atual) => {
+        const index = atual.findIndex((conversa) => conversa.id === payload.conversation_id);
+        if (index === -1) {
+          agendarRefresh();
+          return atual;
+        }
+
+        const conversa = atual[index];
+        const mensagemIndex = conversa.mensagens.findIndex(
+          (mensagem) => mensagem.id === payload.message_id
+        );
+        if (mensagemIndex === -1) {
+          agendarRefresh();
+          return atual;
+        }
+
+        const alvo = conversa.mensagens[mensagemIndex];
+        const anexos = Array.isArray(alvo.anexos)
+          ? alvo.anexos
+          : ([] as NonNullable<MensagemInbox["anexos"]>);
+        if (anexos.some((item) => item.id === payload.attachment.id)) return atual;
+
+        const atualizado = {
+          ...alvo,
+          anexos: [
+            ...anexos,
+            {
+              id: payload.attachment.id,
+              storagePath: payload.attachment.storage_path,
+              tipo: payload.attachment.tipo,
+              tamanhoBytes: payload.attachment.tamanho_bytes ?? undefined,
+            },
+          ],
+        };
+        const mensagensAtualizadas = conversa.mensagens.slice();
+        mensagensAtualizadas[mensagemIndex] = atualizado;
+        const lista = atual.slice();
+        lista[index] = { ...conversa, mensagens: mensagensAtualizadas };
+        return lista;
+      });
+    },
+    [agendarRefresh]
+  );
+
+  const handleConversationUpdated = React.useCallback(
+    (payload: PusherConversationUpdatedPayload) => {
+      if (!payload?.conversation_id) return;
+      const moverParaTopo = Boolean(payload.ultima_mensagem_em);
+
+      atualizarConversa(
+        payload.conversation_id,
+        (conversa) => {
+          const tagsAtualizadas = payload.tags ?? conversa.tags;
+          const ultimaMensagemEm = payload.ultima_mensagem_em ?? conversa.ultimaMensagemEm;
+          const horario = payload.ultima_mensagem_em
+            ? formatarHorario(payload.ultima_mensagem_em)
+            : conversa.horario;
+          const ownerAtualizado = Object.prototype.hasOwnProperty.call(
+            payload,
+            "owner_id"
+          )
+            ? payload.owner_id || "Equipe"
+            : conversa.owner;
+
+          return {
+            ...conversa,
+            status: payload.status ?? conversa.status,
+            owner: ownerAtualizado,
+            ultimaMensagem: payload.ultima_mensagem ?? conversa.ultimaMensagem,
+            ultimaMensagemEm,
+            horario,
+            tags: tagsAtualizadas,
+            contato: { ...conversa.contato, tags: tagsAtualizadas },
+          };
+        },
+        moverParaTopo
+      );
+    },
+    [atualizarConversa]
+  );
+
+  const handleTagsUpdated = React.useCallback(
+    (payload: PusherTagsUpdatedPayload) => {
+      if (!payload?.conversation_id) return;
+      atualizarConversa(
+        payload.conversation_id,
+        (conversa) => ({
+          ...conversa,
+          tags: payload.tags,
+          contato: { ...conversa.contato, tags: payload.tags },
+        }),
+        false
+      );
+    },
+    [atualizarConversa]
+  );
+
+  const handleAtualizarTagsLocal = React.useCallback(
+    (conversationId: string, tags: string[]) => {
+      handleTagsUpdated({ conversation_id: conversationId, tags });
+    },
+    [handleTagsUpdated]
+  );
 
   React.useEffect(() => {
     if (!workspaceId) return;
     setPaginaConversas(0);
     setConversasHasMais(true);
     carregarConversas({ pagina: 0, substituir: true });
-
-    const channel = supabaseClient
-      .channel(`inbox-${workspaceId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "messages",
-          filter: `workspace_id=eq.${workspaceId}`,
-        },
-        (payload) => {
-          const evento = payload.eventType;
-          const novo = payload.new as
-            | {
-                id: string;
-                conversation_id: string;
-                autor: string;
-                tipo: string;
-                conteudo: string | null;
-                created_at: string;
-                sender_id?: string | null;
-                sender_nome?: string | null;
-                sender_avatar_url?: string | null;
-                quoted_message_id?: string | null;
-                quoted_conteudo?: string | null;
-                quoted_tipo?: string | null;
-                quoted_autor?: string | null;
-                quoted_sender_id?: string | null;
-                quoted_sender_nome?: string | null;
-              }
-            | null;
-
-          if (evento === "INSERT" && novo?.conversation_id) {
-            ultimoEventoRef.current = Date.now();
-            let atualizado = false;
-            setConversas((atual) => {
-              const index = atual.findIndex(
-                (conversa) => conversa.id === novo.conversation_id
-              );
-              if (index === -1) {
-                agendarRefresh();
-                return atual;
-              }
-
-              const conversa = atual[index];
-              if (
-                conversa.mensagens.some((mensagem) => mensagem.id === novo.id)
-              ) {
-                return atual;
-              }
-
-              atualizado = true;
-              const mensagemNova = {
-                id: novo.id,
-                autor: normalizarAutor(novo.autor),
-                tipo: novo.tipo,
-                conteudo: novo.conteudo ?? "",
-                horario: formatarHorario(novo.created_at),
-                dataHora: novo.created_at ?? undefined,
-                senderId: novo.sender_id ?? undefined,
-                senderNome: novo.sender_nome ?? undefined,
-                senderAvatarUrl: novo.sender_avatar_url ?? undefined,
-                resposta:
-                  novo.quoted_message_id ||
-                  novo.quoted_conteudo ||
-                  novo.quoted_sender_nome
-                    ? {
-                        messageId: novo.quoted_message_id ?? undefined,
-                        autor: novo.quoted_autor
-                          ? normalizarAutor(novo.quoted_autor)
-                          : undefined,
-                        senderId: novo.quoted_sender_id ?? undefined,
-                        senderNome: novo.quoted_sender_nome ?? undefined,
-                        tipo: novo.quoted_tipo ?? undefined,
-                        conteudo: novo.quoted_conteudo ?? undefined,
-                      }
-                    : undefined,
-              };
-              const mensagensAtualizadas = [
-                ...conversa.mensagens,
-                mensagemNova,
-              ];
-              const isGrupo = Boolean(conversa.contato.isGrupo);
-              const deveAtualizarContato =
-                !isGrupo &&
-                isNomeGenerico(conversa.contato.nome) &&
-                (mensagemNova.senderNome || mensagemNova.senderAvatarUrl);
-              const conversaAtualizada = {
-                ...conversa,
-                mensagens: mensagensAtualizadas,
-                mensagensCursor:
-                  conversa.mensagensCursor ?? mensagemNova.dataHora ?? null,
-                mensagensHasMais: conversa.mensagensHasMais ?? true,
-                ultimaMensagem: mensagemNova.conteudo,
-                ultimaMensagemEm: novo.created_at ?? conversa.ultimaMensagemEm,
-                horario: mensagemNova.horario,
-                contato: deveAtualizarContato
-                  ? {
-                      ...conversa.contato,
-                      nome: mensagemNova.senderNome ?? conversa.contato.nome,
-                      avatarUrl:
-                        mensagemNova.senderAvatarUrl ?? conversa.contato.avatarUrl,
-                    }
-                  : conversa.contato,
-              };
-              const resto = [
-                ...atual.slice(0, index),
-                ...atual.slice(index + 1),
-              ];
-              return [conversaAtualizada, ...resto];
-            });
-
-            if (!atualizado) {
-              agendarRefresh();
-            }
-          }
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "conversations",
-          filter: `workspace_id=eq.${workspaceId}`,
-        },
-        () => {
-          ultimoEventoRef.current = Date.now();
-          agendarRefresh();
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "integration_accounts",
-        },
-        () => {
-          ultimoEventoRef.current = Date.now();
-          agendarRefresh();
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "leads",
-          filter: `workspace_id=eq.${workspaceId}`,
-        },
-        () => agendarRefresh()
-      )
-      .subscribe();
-
-    return () => {
-      supabaseClient.removeChannel(channel);
-      if (refreshTimerRef.current !== null) {
-        window.clearTimeout(refreshTimerRef.current);
-        refreshTimerRef.current = null;
-      }
-    };
-  }, [agendarRefresh, carregarConversas, workspaceId]);
+  }, [carregarConversas, workspaceId]);
 
   React.useEffect(() => {
-    const intervalo = window.setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      agendarRefresh();
-    }, 6000);
-    return () => window.clearInterval(intervalo);
-  }, [agendarRefresh]);
+    if (!workspaceId || !session?.access_token) return;
+    const pusher = pusherRef.current ?? createPusherClient(session.access_token);
+    pusherRef.current = pusher;
+
+    const channelName = workspaceChannel(workspaceId);
+    const channel = pusher.subscribe(channelName);
+
+    channel.bind("conversation:updated", handleConversationUpdated);
+    channel.bind("tags:updated", handleTagsUpdated);
+
+    return () => {
+      channel.unbind("conversation:updated", handleConversationUpdated);
+      channel.unbind("tags:updated", handleTagsUpdated);
+      pusher.unsubscribe(channelName);
+      if (pusherRef.current === pusher) {
+        pusher.disconnect();
+        pusherRef.current = null;
+      }
+    };
+  }, [
+    handleConversationUpdated,
+    handleTagsUpdated,
+    session?.access_token,
+    workspaceId,
+  ]);
 
   const conversasFiltradas = React.useMemo(() => {
     const filtradas = conversas.filter((conversa) => {
       const ownerAtual = conversa.owner?.trim();
       const isNaoAtribuido =
         !ownerAtual || ownerAtual === "Equipe" || ownerAtual === "nao atribuido";
-      if (filtroBasico === "pendente") {
-        if (conversa.status !== "pendente") {
-          return false;
-        }
+      if (["nao-iniciados", "pendente"].includes(filtroBasico)) {
+        if (conversa.status !== "pendente") return false;
+      } else if (filtroBasico === "em-aberto") {
+        if (conversa.status !== "aberta") return false;
+      } else if (filtroBasico === "finalizadas") {
+        if (conversa.status !== "resolvida") return false;
+      } else if (filtroBasico === "spam") {
+        if (conversa.status !== "spam") return false;
       } else if (conversa.status !== statusAtual) {
+        return false;
+      }
+      if (
+        filtroBasico === "tudo" &&
+        statusAtual === "aberta" &&
+        conversa.ultimaMensagemAutor === "contato"
+      ) {
         return false;
       }
       if (filtroCanal !== "todos" && conversa.canal !== filtroCanal) {
@@ -826,7 +1161,10 @@ export function VisaoInbox() {
         return false;
       }
       if (filtroBasico === "nunca-respondidos") {
-        if (conversa.mensagens.length > 0 || conversa.ultimaMensagem) {
+        if (conversa.status !== "aberta") {
+          return false;
+        }
+        if (conversa.ultimaMensagemAutor !== "contato") {
           return false;
         }
       }
@@ -874,7 +1212,7 @@ export function VisaoInbox() {
     filtroTag,
     ordenacaoConversas,
     ocultarGrupos,
-    session?.user?.id,
+    session,
     somenteNaoLidas,
     statusAtual,
   ]);
@@ -887,6 +1225,33 @@ export function VisaoInbox() {
     );
   }, [conversasFiltradas, selecionadaId]);
 
+  React.useEffect(() => {
+    if (!workspaceId || !session?.access_token || !conversaSelecionada?.id) {
+      return;
+    }
+
+    const pusher = pusherRef.current ?? createPusherClient(session.access_token);
+    pusherRef.current = pusher;
+
+    const channelName = conversationChannel(conversaSelecionada.id);
+    const channel = pusher.subscribe(channelName);
+
+    channel.bind("message:created", handleMessageCreated);
+    channel.bind("attachment:created", handleAttachmentCreated);
+
+    return () => {
+      channel.unbind("message:created", handleMessageCreated);
+      channel.unbind("attachment:created", handleAttachmentCreated);
+      pusher.unsubscribe(channelName);
+    };
+  }, [
+    conversaSelecionada?.id,
+    handleAttachmentCreated,
+    handleMessageCreated,
+    session?.access_token,
+    workspaceId,
+  ]);
+
   const handleAtualizarConversasSilencioso = React.useCallback(() => {
     if (conversaSelecionada?.id) {
       carregarMensagens(conversaSelecionada.id);
@@ -897,8 +1262,7 @@ export function VisaoInbox() {
   }, [
     carregarConversas,
     carregarMensagens,
-    conversaSelecionada?.id,
-    conversaSelecionada?.mensagens.length,
+    conversaSelecionada,
   ]);
 
   const handleCarregarMaisMensagens = React.useCallback(() => {
@@ -910,31 +1274,10 @@ export function VisaoInbox() {
     carregarMensagens(conversaSelecionada.id, { before: cursor });
   }, [
     carregarMensagens,
-    conversaSelecionada?.id,
-    conversaSelecionada?.mensagensCarregando,
-    conversaSelecionada?.mensagensHasMais,
-    conversaSelecionada?.mensagensCursor,
+    conversaSelecionada,
   ]);
 
   const conversasVisiveis = conversasFiltradas;
-
-  React.useEffect(() => {
-    setPaginaConversas(0);
-    setConversasHasMais(true);
-    carregarConversas({ pagina: 0, substituir: true });
-  }, [
-    busca,
-    filtroAtribuicao,
-    filtroBasico,
-    filtroCanal,
-    filtroOwner,
-    filtroNumero,
-    filtroSemTags,
-    filtroTag,
-    somenteNaoLidas,
-    statusAtual,
-    carregarConversas,
-  ]);
 
   React.useEffect(() => {
     if (!selecionadaId) {
@@ -1001,28 +1344,41 @@ export function VisaoInbox() {
     );
   }, []);
 
-  const handleResolverConversa = React.useCallback(
-    async (id: string) => {
+  const handleAlterarStatus = React.useCallback(
+    async (id: string, status: StatusConversa) => {
       setConversas((atual) =>
         atual.map((conversa) =>
           conversa.id === id
             ? {
-                ...conversa,
-                status: "resolvida",
-                contato: { ...conversa.contato, status: "Ganho" },
-              }
+              ...conversa,
+              status,
+              contato:
+                status === "resolvida"
+                  ? { ...conversa.contato, status: "Ganho" }
+                  : conversa.contato,
+            }
             : conversa
         )
       );
+      const token = session?.access_token;
+      if (!token) return;
 
-      if (!workspaceId) return;
-      await supabaseClient
-        .from("conversations")
-        .update({ status: "resolvida" })
-        .eq("id", id)
-        .eq("workspace_id", workspaceId);
+      const response = await fetch(`/api/inbox/conversations/${id}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ status }),
+      });
+
+      if (!response.ok) {
+        agendarRefresh();
+      }
+
+      void carregarContagem();
     },
-    [workspaceId]
+    [agendarRefresh, carregarContagem, session?.access_token]
   );
 
   const handleAtualizarContato = React.useCallback(
@@ -1031,9 +1387,9 @@ export function VisaoInbox() {
         atual.map((conversa) =>
           conversa.contato.id === contatoId
             ? {
-                ...conversa,
-                contato: { ...conversa.contato, ...atualizacao },
-              }
+              ...conversa,
+              contato: { ...conversa.contato, ...atualizacao },
+            }
             : conversa
         )
       );
@@ -1061,11 +1417,11 @@ export function VisaoInbox() {
     [colapsadaContato]
   );
 
-  if (!session && !carregandoSessao) {
+  if (!session) {
     return null;
   }
 
-  if (carregando || carregandoSessao) {
+  if (carregando) {
     return (
       <div
         className="grid gap-5 lg:grid-cols-[var(--col-esq)_minmax(0,1fr)_var(--col-dir)]"
@@ -1115,10 +1471,11 @@ export function VisaoInbox() {
 
   return (
     <div
-      className="grid gap-5 lg:grid-cols-[var(--col-esq)_minmax(0,1fr)_var(--col-dir)] transition-[grid-template-columns] duration-300 ease-out"
+      className="grid h-[calc(100vh-56px)] min-h-0 gap-5 lg:grid-cols-[var(--col-esq)_minmax(0,1fr)_var(--col-dir)] transition-[grid-template-columns] duration-300 ease-out"
       style={estiloColunas}
     >
       <ListaConversas
+        contagens={contagens}
         conversas={conversasVisiveis}
         selecionadaId={conversaSelecionada?.id ?? null}
         aoSelecionar={setSelecionadaId}
@@ -1157,8 +1514,9 @@ export function VisaoInbox() {
         conversa={conversaSelecionada}
         contatoAberto={!colapsadaContato}
         aoAlternarContato={() => setColapsadaContato((valor) => !valor)}
-        aoResolverConversa={handleResolverConversa}
+        aoAlterarStatus={handleAlterarStatus}
         aoAtualizarConversa={handleAtualizarConversasSilencioso}
+        aoAtualizarTags={handleAtualizarTagsLocal}
         aoCarregarMaisMensagens={handleCarregarMaisMensagens}
       />
 

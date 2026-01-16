@@ -15,7 +15,6 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import type { CanalId, ConversaInbox, StatusConversa } from "@/lib/types";
-import { nomeCanal } from "@/lib/canais";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -63,15 +62,6 @@ const rotuloTipoMensagem = (tipo: string) => {
   return "Mensagem";
 };
 
-const estiloBadgeCanal = (canal: CanalId) => {
-  if (canal === "whatsapp") {
-    return "border-emerald-200/60 bg-emerald-500/10 text-emerald-700";
-  }
-  if (canal === "instagram") {
-    return "border-pink-200/60 bg-gradient-to-r from-amber-400/15 via-pink-500/15 to-purple-500/15 text-pink-700";
-  }
-  return "border-border/60 bg-muted/30 text-muted-foreground";
-};
 
 export function ListaConversas({
   conversas,
@@ -106,6 +96,7 @@ export function ListaConversas({
   aoAlterarOcultarGrupos,
   aoCarregarMais,
   temMais,
+  contagens: contagemTabs,
 }: {
   conversas: ConversaInbox[];
   selecionadaId: string | null;
@@ -116,17 +107,17 @@ export function ListaConversas({
   ordenacao: "recentes" | "antigas";
   aoAlterarOrdenacao: (valor: "recentes" | "antigas") => void;
   filtroBasico:
-    | "tudo"
-    | "nao-lidos"
-    | "meus"
-    | "seguindo"
-    | "pendente"
-    | "nao-atribuido"
-    | "atribuido"
-    | "sem-tags"
-    | "nunca-respondidos"
-    | "tag"
-    | "canal";
+  | "tudo"
+  | "nao-lidos"
+  | "meus"
+  | "seguindo"
+  | "pendente"
+  | "nao-atribuido"
+  | "atribuido"
+  | "sem-tags"
+  | "nunca-respondidos"
+  | "tag"
+  | "canal";
   aoAlterarFiltroBasico: (
     valor:
       | "tudo"
@@ -163,6 +154,14 @@ export function ListaConversas({
   aoAlterarOcultarGrupos: (valor: boolean) => void;
   aoCarregarMais: () => void;
   temMais: boolean;
+  contagens: {
+    naoIniciados: number;
+    aguardando: number;
+    emAberto: number;
+    agentes: number;
+    finalizadas: number;
+    spam: number;
+  };
 }) {
   const handleScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
@@ -194,48 +193,7 @@ export function ListaConversas({
     owner.nome.toLowerCase().includes(buscaOwner.trim().toLowerCase())
   );
 
-  const conversaAtribuida = (conversa: ConversaInbox) => {
-    const ownerAtual = conversa.owner?.trim();
-    return Boolean(
-      ownerAtual &&
-        ownerAtual !== "Equipe" &&
-        ownerAtual !== "nao atribuido"
-    );
-  };
-
-  const contagemTabs = React.useMemo(() => {
-    const base = {
-      naoIniciados: 0,
-      aguardando: 0,
-      emAberto: 0,
-      agentes: 0,
-      finalizadas: 0,
-      spam: 0,
-    };
-
-    conversas.forEach((conversa) => {
-      if (!conversa.ultimaMensagem && conversa.mensagens.length === 0) {
-        base.naoIniciados += 1;
-      }
-      if (conversa.status === "pendente") {
-        base.aguardando += 1;
-      }
-      if (conversa.status === "aberta") {
-        base.emAberto += 1;
-      }
-      if (conversa.status === "resolvida") {
-        base.finalizadas += 1;
-      }
-      if (conversa.status === "spam") {
-        base.spam += 1;
-      }
-      if (conversaAtribuida(conversa)) {
-        base.agentes += 1;
-      }
-    });
-
-    return base;
-  }, [conversas]);
+  // Contagem de abas recebida via props (backend)
   const limparFiltrosBasicos = React.useCallback(() => {
     aoAlterarSomenteNaoLidas(false);
     aoAlterarFiltroAtribuicao("todos");
@@ -302,11 +260,11 @@ export function ListaConversas({
       label: "Não iniciados",
       icon: Inbox,
       valor: contagemTabs.naoIniciados,
-      ativo: filtroBasico === "nunca-respondidos",
+      ativo: filtroBasico === "pendente",
       onClick: () => {
         limparFiltrosBasicos();
-        aoAlterarStatus("aberta");
-        aoAlterarFiltroBasico("nunca-respondidos");
+        aoAlterarStatus("pendente");
+        aoAlterarFiltroBasico("pendente");
       },
       cor: "text-amber-500",
     },
@@ -315,13 +273,13 @@ export function ListaConversas({
       label: "Aguardando",
       icon: Clock,
       valor: contagemTabs.aguardando,
-      ativo: filtroBasico === "pendente",
+      ativo: filtroBasico === "nunca-respondidos",
       onClick: () => {
         limparFiltrosBasicos();
-        aoAlterarStatus("pendente");
-        aoAlterarFiltroBasico("pendente");
+        aoAlterarStatus("aberta");
+        aoAlterarFiltroBasico("nunca-respondidos");
       },
-      cor: "text-amber-500",
+      cor: "text-orange-500",
     },
     {
       id: "em-aberto",
@@ -378,7 +336,7 @@ export function ListaConversas({
     },
   ];
   return (
-    <section className="flex h-auto flex-col overflow-hidden rounded-[6px] border border-border/50 bg-card/70 transition-all duration-300 lg:sticky lg:top-24 lg:h-[calc(100vh-96px)]">
+    <section className="flex h-[calc(100vh-56px)] flex-col overflow-hidden rounded-[6px] border border-border/50 bg-card/70 transition-all duration-300 lg:sticky lg:top-24">
       <div className="space-y-4 border-b border-border/50 bg-background/70 px-5 pb-4 pt-5 backdrop-blur-sm">
         <div className="flex items-center gap-3">
           <div className="relative flex-1">
@@ -470,201 +428,201 @@ export function ListaConversas({
                   >
                     Não atribuído
                   </DropdownMenuCheckboxItem>
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger
-                        className={cn(
-                          filtroBasico === "atribuido" &&
-                            "bg-accent text-accent-foreground"
-                        )}
-                      >
-                        Atribuído
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="w-64 p-3">
-                        <DropdownMenuLabel>Atribuído</DropdownMenuLabel>
-                        <Input
-                          value={buscaOwner}
-                          onChange={(event) => setBuscaOwner(event.target.value)}
-                          placeholder="Pesquisar..."
-                          className="h-8"
-                        />
-                        <div className="mt-3 max-h-[240px] space-y-1 overflow-auto pr-1">
-                          {ownersFiltrados.length === 0 ? (
-                            <p className="px-2 py-2 text-xs text-muted-foreground">
-                              Nenhum usuário encontrado.
-                            </p>
-                          ) : (
-                            ownersFiltrados.map((owner) => (
-                              <DropdownMenuCheckboxItem
-                                key={owner.userId}
-                                checked={
-                                  filtroBasico === "atribuido" &&
-                                  filtroAtribuicao === "atribuido" &&
-                                  filtroOwner === owner.userId
-                                }
-                                onCheckedChange={() => {
-                                  aoAlterarFiltroBasico("atribuido");
-                                  limparFiltrosBasicos();
-                                  aoAlterarFiltroAtribuicao("atribuido");
-                                  aoAlterarFiltroOwner(owner.userId);
-                                }}
-                                className={classeItemFiltro}
-                              >
-                                <div className="flex items-center gap-2">
-                                  <Avatar className="h-6 w-6">
-                                    {owner.avatarUrl && (
-                                      <AvatarImage
-                                        src={owner.avatarUrl}
-                                        alt={owner.nome}
-                                      />
-                                    )}
-                                    <AvatarFallback>
-                                      {iniciaisContato(owner.nome)}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span>{owner.nome}</span>
-                                </div>
-                              </DropdownMenuCheckboxItem>
-                            ))
-                          )}
-                        </div>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    <DropdownMenuCheckboxItem
-                      checked={filtroBasico === "sem-tags"}
-                      onCheckedChange={() =>
-                        handleSelecionarFiltroBasico("sem-tags")
-                      }
-                      className={classeItemFiltro}
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger
+                      className={cn(
+                        filtroBasico === "atribuido" &&
+                        "bg-accent text-accent-foreground"
+                      )}
                     >
-                      Sem tags
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuCheckboxItem
-                      checked={filtroBasico === "nunca-respondidos"}
-                      onCheckedChange={() =>
-                        handleSelecionarFiltroBasico("nunca-respondidos")
-                      }
-                      className={classeItemFiltro}
-                    >
-                      Nunca respondidos
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger
-                        className={cn(
-                          filtroBasico === "tag" &&
-                            "bg-accent text-accent-foreground"
-                        )}
-                      >
-                        Tag
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="w-64 p-3">
-                        <DropdownMenuLabel>Tag</DropdownMenuLabel>
-                        <Input
-                          value={buscaTag}
-                          onChange={(event) => setBuscaTag(event.target.value)}
-                          placeholder="Pesquisar..."
-                          className="h-8"
-                        />
-                        <div className="mt-3 max-h-[240px] space-y-1 overflow-auto pr-1">
-                          {tagsFiltradas.length === 0 ? (
-                            <p className="px-2 py-2 text-xs text-muted-foreground">
-                              Nenhuma tag encontrada.
-                            </p>
-                          ) : (
-                            tagsFiltradas.map((tag, index) => (
-                              <DropdownMenuCheckboxItem
-                                key={tag}
-                                checked={filtroBasico === "tag" && filtroTag === tag}
-                                onCheckedChange={() => {
-                                  aoAlterarFiltroBasico("tag");
-                                  limparFiltrosBasicos();
-                                  aoAlterarFiltroSemTags(false);
-                                  aoAlterarFiltroTag(tag);
-                                }}
-                                className={classeItemFiltro}
-                              >
-                                <span
-                                  className={cn(
-                                    "h-2 w-2 rounded-full",
-                                    tagCores[index % tagCores.length]
+                      Atribuído
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-64 p-3">
+                      <DropdownMenuLabel>Atribuído</DropdownMenuLabel>
+                      <Input
+                        value={buscaOwner}
+                        onChange={(event) => setBuscaOwner(event.target.value)}
+                        placeholder="Pesquisar..."
+                        className="h-8"
+                      />
+                      <div className="mt-3 max-h-[240px] space-y-1 overflow-auto pr-1">
+                        {ownersFiltrados.length === 0 ? (
+                          <p className="px-2 py-2 text-xs text-muted-foreground">
+                            Nenhum usuário encontrado.
+                          </p>
+                        ) : (
+                          ownersFiltrados.map((owner) => (
+                            <DropdownMenuCheckboxItem
+                              key={owner.userId}
+                              checked={
+                                filtroBasico === "atribuido" &&
+                                filtroAtribuicao === "atribuido" &&
+                                filtroOwner === owner.userId
+                              }
+                              onCheckedChange={() => {
+                                aoAlterarFiltroBasico("atribuido");
+                                limparFiltrosBasicos();
+                                aoAlterarFiltroAtribuicao("atribuido");
+                                aoAlterarFiltroOwner(owner.userId);
+                              }}
+                              className={classeItemFiltro}
+                            >
+                              <div className="flex items-center gap-2">
+                                <Avatar className="h-6 w-6">
+                                  {owner.avatarUrl && (
+                                    <AvatarImage
+                                      src={owner.avatarUrl}
+                                      alt={owner.nome}
+                                    />
                                   )}
-                                />
-                                <span>{tag}</span>
-                              </DropdownMenuCheckboxItem>
-                            ))
-                          )}
-                        </div>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    <DropdownMenuSub>
-                      <DropdownMenuSubTrigger
-                        className={cn(
-                          filtroBasico === "canal" &&
-                            filtroCanal !== "todos" &&
-                            "bg-accent text-accent-foreground"
+                                  <AvatarFallback>
+                                    {iniciaisContato(owner.nome)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span>{owner.nome}</span>
+                              </div>
+                            </DropdownMenuCheckboxItem>
+                          ))
                         )}
-                      >
-                        Canal
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent className="w-56 p-1">
-                        {canaisFiltro.map((canal) => (
-                          <DropdownMenuCheckboxItem
-                            key={canal.value}
-                            checked={filtroCanal === canal.value}
-                            onCheckedChange={(valor) => {
-                              if (!valor) return;
-                              aoAlterarFiltroBasico(
-                                canal.value === "todos" ? "tudo" : "canal"
-                              );
-                              limparFiltrosBasicos();
-                              aoAlterarFiltroCanal(canal.value);
-                            }}
-                            className={classeItemFiltro}
-                          >
-                            <div className="flex items-center gap-2">
-                              {canal.value !== "todos" && (
-                                <IconeCanal
-                                  canal={canal.value as CanalId}
-                                  className="h-3 w-3"
-                                />
-                              )}
-                              <span>{canal.label}</span>
-                            </div>
-                          </DropdownMenuCheckboxItem>
-                        ))}
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
-                    <DropdownMenuSeparator />
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
-                <DropdownMenuSeparator />
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger>
-                    <ArrowUpDown className="h-4 w-4" />
-                    Ordenar por
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-56 p-1">
-                    <DropdownMenuCheckboxItem
-                      checked={ordenacao === "recentes"}
-                      onCheckedChange={(valor) => {
-                        if (!valor) return;
-                        aoAlterarOrdenacao("recentes");
-                      }}
-                      className={classeItemFiltro}
+                      </div>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuCheckboxItem
+                    checked={filtroBasico === "sem-tags"}
+                    onCheckedChange={() =>
+                      handleSelecionarFiltroBasico("sem-tags")
+                    }
+                    className={classeItemFiltro}
+                  >
+                    Sem tags
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={filtroBasico === "nunca-respondidos"}
+                    onCheckedChange={() =>
+                      handleSelecionarFiltroBasico("nunca-respondidos")
+                    }
+                    className={classeItemFiltro}
+                  >
+                    Nunca respondidos
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger
+                      className={cn(
+                        filtroBasico === "tag" &&
+                        "bg-accent text-accent-foreground"
+                      )}
                     >
-                      Mais recentes primeiro
-                    </DropdownMenuCheckboxItem>
-                    <DropdownMenuCheckboxItem
-                      checked={ordenacao === "antigas"}
-                      onCheckedChange={(valor) => {
-                        if (!valor) return;
-                        aoAlterarOrdenacao("antigas");
-                      }}
-                      className={classeItemFiltro}
+                      Tag
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-64 p-3">
+                      <DropdownMenuLabel>Tag</DropdownMenuLabel>
+                      <Input
+                        value={buscaTag}
+                        onChange={(event) => setBuscaTag(event.target.value)}
+                        placeholder="Pesquisar..."
+                        className="h-8"
+                      />
+                      <div className="mt-3 max-h-[240px] space-y-1 overflow-auto pr-1">
+                        {tagsFiltradas.length === 0 ? (
+                          <p className="px-2 py-2 text-xs text-muted-foreground">
+                            Nenhuma tag encontrada.
+                          </p>
+                        ) : (
+                          tagsFiltradas.map((tag, index) => (
+                            <DropdownMenuCheckboxItem
+                              key={tag}
+                              checked={filtroBasico === "tag" && filtroTag === tag}
+                              onCheckedChange={() => {
+                                aoAlterarFiltroBasico("tag");
+                                limparFiltrosBasicos();
+                                aoAlterarFiltroSemTags(false);
+                                aoAlterarFiltroTag(tag);
+                              }}
+                              className={classeItemFiltro}
+                            >
+                              <span
+                                className={cn(
+                                  "h-2 w-2 rounded-full",
+                                  tagCores[index % tagCores.length]
+                                )}
+                              />
+                              <span>{tag}</span>
+                            </DropdownMenuCheckboxItem>
+                          ))
+                        )}
+                      </div>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger
+                      className={cn(
+                        filtroBasico === "canal" &&
+                        filtroCanal !== "todos" &&
+                        "bg-accent text-accent-foreground"
+                      )}
                     >
-                      Mais antigos primeiro
-                    </DropdownMenuCheckboxItem>
-                  </DropdownMenuSubContent>
-                </DropdownMenuSub>
+                      Canal
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent className="w-56 p-1">
+                      {canaisFiltro.map((canal) => (
+                        <DropdownMenuCheckboxItem
+                          key={canal.value}
+                          checked={filtroCanal === canal.value}
+                          onCheckedChange={(valor) => {
+                            if (!valor) return;
+                            aoAlterarFiltroBasico(
+                              canal.value === "todos" ? "tudo" : "canal"
+                            );
+                            limparFiltrosBasicos();
+                            aoAlterarFiltroCanal(canal.value);
+                          }}
+                          className={classeItemFiltro}
+                        >
+                          <div className="flex items-center gap-2">
+                            {canal.value !== "todos" && (
+                              <IconeCanal
+                                canal={canal.value as CanalId}
+                                className="h-3 w-3"
+                              />
+                            )}
+                            <span>{canal.label}</span>
+                          </div>
+                        </DropdownMenuCheckboxItem>
+                      ))}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                  <DropdownMenuSeparator />
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+              <DropdownMenuSeparator />
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <ArrowUpDown className="h-4 w-4" />
+                  Ordenar por
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-56 p-1">
+                  <DropdownMenuCheckboxItem
+                    checked={ordenacao === "recentes"}
+                    onCheckedChange={(valor) => {
+                      if (!valor) return;
+                      aoAlterarOrdenacao("recentes");
+                    }}
+                    className={classeItemFiltro}
+                  >
+                    Mais recentes primeiro
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={ordenacao === "antigas"}
+                    onCheckedChange={(valor) => {
+                      if (!valor) return;
+                      aoAlterarOrdenacao("antigas");
+                    }}
+                    className={classeItemFiltro}
+                  >
+                    Mais antigos primeiro
+                  </DropdownMenuCheckboxItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -686,7 +644,10 @@ export function ListaConversas({
                     )}
                   >
                     <tab.icon className={cn("h-4 w-4", tab.cor)} />
-                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                    <span className={cn(
+                      "text-[11px] tabular-nums",
+                      tab.ativo ? "text-foreground" : "text-foreground/70"
+                    )}>
                       {tab.valor}
                     </span>
                   </button>
@@ -769,7 +730,7 @@ function ConversaItem({
         "group w-full rounded-[6px] border border-border/40 bg-background/70 p-3.5 text-left transition",
         "hover:border-primary/30 hover:bg-primary/5",
         conversa.id === selecionadaId &&
-          "border-primary/40 bg-primary/10"
+        "border-primary/40 bg-primary/10"
       )}
     >
       <div className="flex items-start gap-3">
@@ -797,9 +758,8 @@ function ConversaItem({
                 if (ultimaMensagem.tipo === "texto") {
                   resumo = ultimaMensagem.conteudo;
                 } else {
-                  resumo = `${rotuloTipoMensagem(ultimaMensagem.tipo)}: ${
-                    ultimaMensagem.conteudo
-                  }`;
+                  resumo = `${rotuloTipoMensagem(ultimaMensagem.tipo)}: ${ultimaMensagem.conteudo
+                    }`;
                 }
               }
               const texto = String(resumo).replace(/\s+/g, " ").trim();
@@ -822,28 +782,6 @@ function ConversaItem({
               );
             })()}
           </p>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <Badge
-              variant="outline"
-              className={cn(
-                "h-5 rounded-full border px-2 text-[10px] font-semibold",
-                estiloBadgeCanal(conversa.canal)
-              )}
-            >
-              {nomeCanal(conversa.canal)}
-            </Badge>
-            <div className="flex flex-wrap items-center gap-1">
-              {conversa.tags.slice(0, 2).map((tag) => (
-                <Badge
-                  key={tag}
-                  variant="secondary"
-                  className="rounded-full bg-muted/50 text-[10px] text-muted-foreground"
-                >
-                  {tag}
-                </Badge>
-              ))}
-            </div>
-          </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-2">
           <div className="flex items-center gap-2 text-[11px] text-muted-foreground/80">

@@ -49,3 +49,20 @@ def delete_event(access_token: str, calendar_id: str, event_id: str) -> None:
 
 def get_event(access_token: str, calendar_id: str, event_id: str) -> dict:
     return fetch_google(access_token, f"/calendars/{calendar_id}/events/{event_id}")
+
+
+def query_freebusy(
+    access_token: str,
+    time_min: str,
+    time_max: str,
+    calendar_ids: list[str],
+    time_zone: str | None = None,
+) -> dict:
+    payload: dict = {
+        "timeMin": time_min,
+        "timeMax": time_max,
+        "items": [{"id": calendar_id} for calendar_id in calendar_ids],
+    }
+    if time_zone:
+        payload["timeZone"] = time_zone
+    return fetch_google(access_token, "/freeBusy", "POST", payload)

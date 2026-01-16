@@ -81,7 +81,6 @@ export function CartaoGraficoTempoResposta({
             <ChartTooltip
               content={
                 <ChartTooltipContent
-                  className="w-[160px]"
                   labelFormatter={(value) =>
                     new Date(value).toLocaleDateString("pt-BR", {
                       day: "2-digit",

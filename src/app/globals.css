@@ -47,7 +47,7 @@
 }
 
 :root {
-  --radius: 0.625rem;
+  --radius: 6px;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -119,7 +119,139 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground font-sans;
+  }
+}
+
+/* Loader Animation */
+.loader-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loader-animation {
+  --primary-color: oklch(0.58 0.22 255);
+  --primary-light: oklch(0.72 0.16 255);
+  --primary-dark: oklch(0.46 0.24 255);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100px;
+  height: 100px;
+}
+
+.loader-animation .box {
+  position: absolute;
+  background-color: var(--primary-color);
+  border-radius: 2px;
+  animation: loader-box-float 2s ease-in-out infinite;
+}
+
+.loader-animation .box div {
+  position: absolute;
+  background-color: var(--primary-light);
+}
+
+.loader-animation .box0 {
+  width: 14px;
+  height: 14px;
+  top: 10%;
+  left: 15%;
+  animation-delay: 0s;
+}
+
+.loader-animation .box1 {
+  width: 10px;
+  height: 10px;
+  top: 25%;
+  right: 20%;
+  animation-delay: 0.2s;
+}
+
+.loader-animation .box2 {
+  width: 16px;
+  height: 16px;
+  top: 45%;
+  left: 10%;
+  animation-delay: 0.4s;
+}
+
+.loader-animation .box3 {
+  width: 12px;
+  height: 12px;
+  top: 40%;
+  right: 15%;
+  animation-delay: 0.6s;
+}
+
+.loader-animation .box4 {
+  width: 8px;
+  height: 8px;
+  top: 60%;
+  left: 30%;
+  animation-delay: 0.8s;
+}
+
+.loader-animation .box5 {
+  width: 14px;
+  height: 14px;
+  top: 55%;
+  right: 25%;
+  animation-delay: 1s;
+}
+
+.loader-animation .box6 {
+  width: 10px;
+  height: 10px;
+  top: 75%;
+  left: 20%;
+  animation-delay: 1.2s;
+}
+
+.loader-animation .box7 {
+  width: 12px;
+  height: 12px;
+  top: 70%;
+  right: 30%;
+  animation-delay: 1.4s;
+}
+
+.loader-animation .ground {
+  position: absolute;
+  bottom: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 3px;
+  background-color: var(--primary-dark);
+  border-radius: 2px;
+  opacity: 0.3;
+}
+
+@keyframes loader-box-float {
+
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 1;
+  }
+
+  25% {
+    transform: translateY(-12px) rotate(5deg);
+    opacity: 0.85;
+  }
+
+  50% {
+    transform: translateY(-6px) rotate(-3deg);
+    opacity: 1;
+  }
+
+  75% {
+    transform: translateY(-18px) rotate(8deg);
+    opacity: 0.9;
   }
 }

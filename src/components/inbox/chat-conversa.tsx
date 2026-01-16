@@ -30,19 +30,21 @@ import {
   User,
   UserPlus,
   Trash2,
+  List,
+  CheckCircle2,
   X,
+  ChevronsUpDown,
+  Plus,
 } from "lucide-react";
 import data from "@emoji-mart/data";
 import type { ConversaInbox, MensagemInbox } from "@/lib/types";
-import { nomeCanal } from "@/lib/canais";
 import { supabaseClient } from "@/lib/supabase/client";
+import { getR2SignedUrl } from "@/lib/r2/browser";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { IconeCanal } from "@/components/inbox/icone-canal";
 import {
   Dialog,
   DialogContent,
@@ -53,10 +55,14 @@ import {
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -171,6 +177,7 @@ const formatarDataMensagem = (valor?: string) => {
 };
 
 const urlRegex = /(?:https?:\/\/|www\.)[^\s]+/gi;
+const corPadraoTag = "#94a3b8";
 
 const normalizarUrl = (valor: string) =>
   valor.startsWith("http://") || valor.startsWith("https://")
@@ -339,11 +346,11 @@ function EmojiPickerPadrao({
         };
       })
       .filter(Boolean) as Array<{
-      id: string;
-      name: string;
-      keywords: string[];
-      native: string;
-    }>;
+        id: string;
+        name: string;
+        keywords: string[];
+        native: string;
+      }>;
   }, []);
 
   const emojisFiltrados = React.useMemo(() => {
@@ -457,12 +464,12 @@ const OPUS_WEBM_WASM =
 
 let opusMediaRecorderPromise:
   | Promise<{
-      recorder: unknown;
-      workerOptions: {
-        OggOpusEncoderWasmPath: string;
-        WebMOpusEncoderWasmPath: string;
-      };
-    }>
+    recorder: unknown;
+    workerOptions: {
+      OggOpusEncoderWasmPath: string;
+      WebMOpusEncoderWasmPath: string;
+    };
+  }>
   | null = null;
 let consoleAssertPatched = false;
 
@@ -790,7 +797,7 @@ function VideoPlayer({
   );
 }
 
-type TagOpcao = { id: string; nome: string };
+type TagOpcao = { id: string; nome: string; cor?: string | null };
 type MembroOpcao = {
   id: string;
   userId: string;
@@ -817,22 +824,18 @@ type MidiaPreview = {
   nome?: string;
 };
 
-export function ChatConversa({
-  conversa,
-  contatoAberto,
-  aoAlternarContato,
-  aoResolverConversa,
-  aoAtualizarConversa,
-  aoCarregarMaisMensagens,
-}: {
+type ChatConversaProps = {
   conversa: ConversaInbox | null;
   contatoAberto?: boolean;
   aoAlternarContato?: () => void;
-  aoResolverConversa?: (id: string) => void;
+  aoAlterarStatus?: (id: string, status: StatusConversa) => void;
   aoAtualizarConversa?: () => void;
+  aoAtualizarTags?: (conversationId: string, tags: string[]) => void;
   aoCarregarMaisMensagens?: () => void;
-}) {
-  if (!conversa) {
+};
+
+export function ChatConversa(props: ChatConversaProps) {
+  if (!props.conversa) {
     return (
       <section className="flex h-[calc(100vh-96px)] min-h-0 flex-col items-center justify-center rounded-[6px] border border-dashed border-border/60 bg-card/60 p-6 text-center text-sm text-muted-foreground">
         Selecione uma conversa para visualizar o chat.
@@ -840,6 +843,18 @@ export function ChatConversa({
     );
   }
 
+  return <ChatConversaConteudo {...props} conversa={props.conversa} />;
+}
+
+function ChatConversaConteudo({
+  conversa,
+  contatoAberto,
+  aoAlternarContato,
+  aoAlterarStatus,
+  aoAtualizarConversa,
+  aoAtualizarTags,
+  aoCarregarMaisMensagens,
+}: Omit<ChatConversaProps, "conversa"> & { conversa: ConversaInbox }) {
   const [dialogTagAberto, setDialogTagAberto] = React.useState(false);
   const [dialogTransferirAberto, setDialogTransferirAberto] = React.useState(false);
   const [dialogNotaAberto, setDialogNotaAberto] = React.useState(false);
@@ -849,10 +864,10 @@ export function ChatConversa({
   const [dialogBloquearAberto, setDialogBloquearAberto] = React.useState(false);
   const [mensagemAtual, setMensagemAtual] = React.useState("");
   const [erroEnvio, setErroEnvio] = React.useState<string | null>(null);
-  const [enviando, setEnviando] = React.useState(false);
+  const [enviosPendentes, setEnviosPendentes] = React.useState(0);
+  const enviando = enviosPendentes > 0;
   const [erroAcao, setErroAcao] = React.useState<string | null>(null);
   const [carregandoAcoes, setCarregandoAcoes] = React.useState(false);
-  const [tagSelecionada, setTagSelecionada] = React.useState("");
   const [transferirSelecionado, setTransferirSelecionado] = React.useState("");
   const [notaInterna, setNotaInterna] = React.useState("");
   const [dealTitulo, setDealTitulo] = React.useState("");
@@ -877,6 +892,18 @@ export function ChatConversa({
   const [tempoGravacao, setTempoGravacao] = React.useState(0);
   const [duracaoAudio, setDuracaoAudio] = React.useState(0);
   const [erroAudio, setErroAudio] = React.useState<string | null>(null);
+
+  const fecharTodosDialogs = React.useCallback(() => {
+    setDialogTagAberto(false);
+    setDialogTransferirAberto(false);
+    setDialogNotaAberto(false);
+    setDialogDealAberto(false);
+    setDialogTarefaAberto(false);
+    setDialogSpamAberto(false);
+    setDialogBloquearAberto(false);
+    setDialogQuickReplyAberto(false);
+    setDialogTemplateAberto(false);
+  }, []);
   const mediaRecorderRef = React.useRef<MediaRecorder | null>(null);
   const audioStreamRef = React.useRef<MediaStream | null>(null);
   const audioChunksRef = React.useRef<Blob[]>([]);
@@ -903,6 +930,7 @@ export function ChatConversa({
     null
   );
   const [buscaQuickReply, setBuscaQuickReply] = React.useState("");
+  const [buscaTag, setBuscaTag] = React.useState("");
   const [quickReplyPopoverAberto, setQuickReplyPopoverAberto] =
     React.useState(false);
   const [arquivosSelecionados, setArquivosSelecionados] = React.useState<File[]>(
@@ -933,6 +961,23 @@ export function ChatConversa({
         return status === "aprovado" || status === "approved";
       }),
     [templatesWhatsapp]
+  );
+  const coresTags = React.useMemo(() => {
+    const mapa = new Map<string, string>();
+    tagsDisponiveis.forEach((tag) => {
+      const chave = tag.nome.trim().toLowerCase();
+      if (!chave) return;
+      mapa.set(chave, tag.cor ?? corPadraoTag);
+    });
+    return mapa;
+  }, [tagsDisponiveis]);
+  const corDaTag = React.useCallback(
+    (nome: string) => {
+      const chave = nome.trim().toLowerCase();
+      if (!chave) return corPadraoTag;
+      return coresTags.get(chave) ?? corPadraoTag;
+    },
+    [coresTags]
   );
   const quickRepliesFiltradas = React.useMemo(() => {
     const termo = buscaQuickReply.trim().toLowerCase();
@@ -1029,44 +1074,74 @@ export function ChatConversa({
     [conversa.id]
   );
 
-  const limparAudioGravado = React.useCallback(() => {
-    if (audioPreviewUrl) {
-      URL.revokeObjectURL(audioPreviewUrl);
-    }
-    setAudioPreviewUrl(null);
-    setAudioGravado(null);
-    setDuracaoAudio(0);
-    setTempoGravacao(0);
-  }, [audioPreviewUrl]);
+  const limparAudioGravado = React.useCallback(
+    (options?: { revogarUrl?: boolean }) => {
+      const revogar = options?.revogarUrl !== false;
+      if (revogar && audioPreviewUrl) {
+        URL.revokeObjectURL(audioPreviewUrl);
+      }
+      setAudioPreviewUrl(null);
+      setAudioGravado(null);
+      setDuracaoAudio(0);
+      setTempoGravacao(0);
+    },
+    [audioPreviewUrl]
+  );
 
   const enviarArquivoAudio = React.useCallback(
     async (arquivo: File, limparAoEnviar = false) => {
-      setEnviando(true);
+      setEnviosPendentes((atual) => atual + 1);
       setErroEnvio(null);
+      const previewBackup = audioPreviewUrl;
+      const audioBackup = audioGravado;
+      const duracaoBackup = duracaoAudio;
+      const tempoBackup = tempoGravacao;
       try {
+        if (limparAoEnviar) {
+          limparAudioGravado({ revogarUrl: false });
+        }
         const resultado = await enviarMensagem("", [arquivo]);
         if (!resultado.ok) {
           setErroEnvio(resultado.erro ?? "Falha ao enviar mensagem.");
+          if (limparAoEnviar) {
+            setAudioPreviewUrl(previewBackup);
+            setAudioGravado(audioBackup);
+            setDuracaoAudio(duracaoBackup);
+            setTempoGravacao(tempoBackup);
+          }
           return;
         }
         if (limparAoEnviar) {
-          limparAudioGravado();
+          limparAudioGravado({ revogarUrl: true });
         }
         aoAtualizarConversa?.();
       } catch (error) {
         setErroEnvio(
           error instanceof Error ? error.message : "Falha ao enviar mensagem."
         );
+        if (limparAoEnviar) {
+          setAudioPreviewUrl(previewBackup);
+          setAudioGravado(audioBackup);
+          setDuracaoAudio(duracaoBackup);
+          setTempoGravacao(tempoBackup);
+        }
       } finally {
-        setEnviando(false);
+        setEnviosPendentes((atual) => Math.max(0, atual - 1));
       }
     },
-    [aoAtualizarConversa, enviarMensagem, limparAudioGravado]
+    [
+      aoAtualizarConversa,
+      audioGravado,
+      audioPreviewUrl,
+      duracaoAudio,
+      enviarMensagem,
+      limparAudioGravado,
+      tempoGravacao,
+    ]
   );
 
   const handleEnviar = React.useCallback(async () => {
-    if (!envioAtivo || enviando) return;
-    setEnviando(true);
+    if (!envioAtivo) return;
     setErroEnvio(null);
 
     const texto = mensagemAtual.trim();
@@ -1074,35 +1149,68 @@ export function ChatConversa({
       ...arquivosSelecionados,
       ...(audioGravado ? [audioGravado] : []),
     ];
+    if (!texto && anexos.length === 0) return;
+
+    const textoBackup = mensagemAtual;
+    const arquivosBackup = arquivosSelecionados;
+    const previewBackup = audioPreviewUrl;
+    const audioBackup = audioGravado;
+    const duracaoBackup = duracaoAudio;
+    const tempoBackup = tempoGravacao;
+
+    setMensagemAtual("");
+    setArquivosSelecionados([]);
+    if (audioGravado) {
+      limparAudioGravado({ revogarUrl: false });
+    }
+    if (inputArquivoRef.current) {
+      inputArquivoRef.current.value = "";
+    }
+    setEnviosPendentes((atual) => atual + 1);
 
     try {
       const resultado = await enviarMensagem(texto, anexos);
       if (!resultado.ok) {
         setErroEnvio(resultado.erro ?? "Falha ao enviar mensagem.");
+        setMensagemAtual(textoBackup);
+        setArquivosSelecionados(arquivosBackup);
+        if (audioBackup) {
+          setAudioPreviewUrl(previewBackup);
+          setAudioGravado(audioBackup);
+          setDuracaoAudio(duracaoBackup);
+          setTempoGravacao(tempoBackup);
+        }
         return;
       }
 
-      setMensagemAtual("");
-      setArquivosSelecionados([]);
-      limparAudioGravado();
-      if (inputArquivoRef.current) {
-        inputArquivoRef.current.value = "";
+      if (audioBackup) {
+        limparAudioGravado({ revogarUrl: true });
       }
       aoAtualizarConversa?.();
     } catch {
       setErroEnvio("Falha ao enviar mensagem.");
+      setMensagemAtual(textoBackup);
+      setArquivosSelecionados(arquivosBackup);
+      if (audioBackup) {
+        setAudioPreviewUrl(previewBackup);
+        setAudioGravado(audioBackup);
+        setDuracaoAudio(duracaoBackup);
+        setTempoGravacao(tempoBackup);
+      }
     } finally {
-      setEnviando(false);
+      setEnviosPendentes((atual) => Math.max(0, atual - 1));
     }
   }, [
     arquivosSelecionados,
     audioGravado,
     aoAtualizarConversa,
     envioAtivo,
-    enviando,
     mensagemAtual,
     enviarMensagem,
     limparAudioGravado,
+    audioPreviewUrl,
+    duracaoAudio,
+    tempoGravacao,
   ]);
 
   const getViewport = React.useCallback(() => {
@@ -1313,7 +1421,7 @@ export function ChatConversa({
         const { recorder: OpusMediaRecorder, workerOptions } =
           await carregarOpusMediaRecorder();
         const RecorderCtor = OpusMediaRecorder as unknown as {
-          new (...args: unknown[]): MediaRecorder;
+          new(...args: unknown[]): MediaRecorder;
         };
         recorder = new RecorderCtor(
           stream,
@@ -1465,6 +1573,24 @@ export function ChatConversa({
     return data.session?.access_token ?? null;
   }, []);
 
+  const obterUrlAnexo = React.useCallback(
+    async (storagePath: string) => {
+      const token = await obterToken();
+      if (!token) return null;
+      try {
+        return await getR2SignedUrl(token, {
+          action: "download",
+          bucket: "inbox-attachments",
+          key: storagePath,
+          expiresIn: 60 * 60 * 24 * 7,
+        });
+      } catch {
+        return null;
+      }
+    },
+    [obterToken]
+  );
+
   React.useEffect(() => {
     if (!conversa) return;
     let ativo = true;
@@ -1477,7 +1603,7 @@ export function ChatConversa({
 
       const [tagsResult, membrosResp, quickResp, templatesResp] =
         await Promise.all([
-          supabaseClient.from("tags").select("id, nome").order("nome"),
+          supabaseClient.from("tags").select("id, nome, cor").order("nome"),
           fetch("/api/settings/team", {
             headers: { Authorization: `Bearer ${token}` },
           }),
@@ -1486,8 +1612,8 @@ export function ChatConversa({
           }),
           conversa.canal === "whatsapp"
             ? fetch("/api/inbox/whatsapp/templates", {
-                headers: { Authorization: `Bearer ${token}` },
-              })
+              headers: { Authorization: `Bearer ${token}` },
+            })
             : Promise.resolve(null),
         ]);
 
@@ -1495,8 +1621,6 @@ export function ChatConversa({
 
       if (!tagsResult.error) {
         setTagsDisponiveis((tagsResult.data ?? []) as TagOpcao[]);
-        const primeiro = tagsResult.data?.[0]?.id ?? "";
-        setTagSelecionada((atual) => atual || primeiro);
       }
 
       if (membrosResp.ok) {
@@ -1594,39 +1718,6 @@ export function ChatConversa({
     };
     return mapa[agentePausadoMotivo] ?? "Agente pausado";
   }, [agentePausadoMotivo]);
-
-  const handleAplicarTags = React.useCallback(async () => {
-    if (!tagSelecionada) return;
-    const token = await obterToken();
-    if (!token) {
-      setErroAcao("Sessao expirada.");
-      return;
-    }
-    setCarregandoAcoes(true);
-    setErroAcao(null);
-
-    const response = await fetch("/api/inbox/tags", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        conversationId: conversa.id,
-        tagIds: [tagSelecionada],
-      }),
-    });
-
-    if (!response.ok) {
-      const detalhe = await response.text().catch(() => "");
-      setErroAcao(detalhe || "Falha ao aplicar tag.");
-      setCarregandoAcoes(false);
-      return;
-    }
-
-    setDialogTagAberto(false);
-    setCarregandoAcoes(false);
-  }, [conversa.id, obterToken, tagSelecionada]);
 
   const handleTransferir = React.useCallback(async () => {
     if (!transferirSelecionado) return;
@@ -1790,36 +1881,80 @@ export function ChatConversa({
   }, [conversa.contato.nome, conversa.id, obterToken, tarefaDataHora, tarefaTitulo]);
 
   const handleMarcarSpam = React.useCallback(async () => {
-    const token = await obterToken();
-    if (!token) {
-      setErroAcao("Sessao expirada.");
-      return;
-    }
+    if (!aoAlterarStatus) return;
     setCarregandoAcoes(true);
-    setErroAcao(null);
+    await aoAlterarStatus(conversa.id, "spam");
+    setDialogSpamAberto(false);
+    setCarregandoAcoes(false);
+  }, [aoAlterarStatus, conversa.id]);
 
-    const response = await fetch(
-      `/api/inbox/conversations/${conversa.id}`,
-      {
-        method: "PATCH",
+  const handleToggleTag = React.useCallback(
+    async (tagName: string) => {
+      const nomeNormalizado = tagName.trim().toLowerCase();
+      if (!nomeNormalizado) return;
+
+      const tagEncontrada = tagsDisponiveis.find(
+        (tag) => tag.nome.trim().toLowerCase() === nomeNormalizado
+      );
+      if (!tagEncontrada) {
+        setErroAcao("Tag nao encontrada.");
+        return;
+      }
+
+      const tagsAtuais = conversa.tags ?? [];
+      const removendo = tagsAtuais.some(
+        (tag) => tag.trim().toLowerCase() === nomeNormalizado
+      );
+
+      const token = await obterToken();
+      if (!token) {
+        setErroAcao("Sessao expirada.");
+        return;
+      }
+
+      setCarregandoAcoes(true);
+      setErroAcao(null);
+
+      const response = await fetch("/api/inbox/tags", {
+        method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ status: "spam" }),
+        body: JSON.stringify({
+          conversationId: conversa.id,
+          tagIds: [tagEncontrada.id],
+          action: removendo ? "remove" : "add",
+        }),
+      });
+
+      if (!response.ok) {
+        const detalhe = await response.text().catch(() => "");
+        setErroAcao(detalhe || "Falha ao atualizar tag.");
+        setCarregandoAcoes(false);
+        return;
       }
-    );
 
-    if (!response.ok) {
-      const detalhe = await response.text().catch(() => "");
-      setErroAcao(detalhe || "Falha ao marcar spam.");
+      const payload = (await response.json().catch(() => null)) as
+        | { tags?: string[] }
+        | null;
+      if (payload?.tags) {
+        aoAtualizarTags?.(conversa.id, payload.tags);
+      } else {
+        aoAtualizarConversa?.();
+      }
       setCarregandoAcoes(false);
-      return;
-    }
-
-    setDialogSpamAberto(false);
-    setCarregandoAcoes(false);
-  }, [conversa.id, obterToken]);
+      setBuscaTag("");
+    },
+    [
+      conversa.id,
+      conversa.tags,
+      tagsDisponiveis,
+      obterToken,
+      aoAtualizarConversa,
+      aoAtualizarTags,
+    ]
+  );
 
   const handleBloquear = React.useCallback(async () => {
     const token = await obterToken();
@@ -1980,7 +2115,7 @@ export function ChatConversa({
 
   return (
     <TooltipProvider>
-      <section className="flex h-[calc(100vh-96px)] min-h-0 flex-col overflow-hidden rounded-[6px] border border-border/50 bg-card/70">
+      <section className="flex h-[calc(100vh-56px)] min-h-0 flex-col overflow-hidden rounded-[6px] border border-border/50 bg-card/70">
         <div className="border-b border-border/50 bg-background/70 px-5 py-4 backdrop-blur-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
@@ -2003,13 +2138,6 @@ export function ChatConversa({
                   {conversa.contato.nome}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <Badge
-                    variant="outline"
-                    className="gap-1 rounded-full px-2.5 text-[11px]"
-                  >
-                    <IconeCanal canal={conversa.canal} className="h-3 w-3" />
-                    {nomeCanal(conversa.canal)}
-                  </Badge>
                   {isGrupo && (
                     <Badge
                       variant="secondary"
@@ -2018,6 +2146,20 @@ export function ChatConversa({
                       Grupo
                     </Badge>
                   )}
+                  {conversa.tags.map((tag) => {
+                    const corTag = corDaTag(tag);
+                    return (
+                      <Badge
+                        key={tag}
+                        variant="outline"
+                        className="gap-1 rounded-full border px-2.5 text-[11px] text-white"
+                        style={{ backgroundColor: corTag, borderColor: corTag }}
+                      >
+                        <Tag className="h-3 w-3" />
+                        {tag}
+                      </Badge>
+                    );
+                  })}
                   {conversa.modoAtendimentoHumano ? (
                     <Badge
                       variant="secondary"
@@ -2046,15 +2188,29 @@ export function ChatConversa({
             </div>
             <div className="flex items-center gap-2">
               {!isGrupo && (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="gap-2 rounded-[6px] border-0 bg-emerald-500/10 text-emerald-700 shadow-none hover:bg-emerald-500/15 hover:text-emerald-700"
-                  onClick={() => aoResolverConversa?.(conversa.id)}
-                >
-                  <Check className="h-4 w-4" />
-                  Resolver
-                </Button>
+                <>
+                  {conversa.status === "aberta" ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="gap-2 rounded-[6px] border-0 bg-emerald-500/10 text-emerald-700 shadow-none hover:bg-emerald-500/15 hover:text-emerald-700"
+                      onClick={() => aoAlterarStatus?.(conversa.id, "resolvida")}
+                    >
+                      <Check className="h-4 w-4" />
+                      Resolver
+                    </Button>
+                  ) : conversa.status === "pendente" || conversa.status === "spam" ? (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="gap-2 rounded-[6px] border-0 bg-blue-500/10 text-blue-700 shadow-none hover:bg-blue-500/15 hover:text-blue-700"
+                      onClick={() => aoAlterarStatus?.(conversa.id, "aberta")}
+                    >
+                      <Play className="h-4 w-4" />
+                      Iniciar conversa
+                    </Button>
+                  ) : null}
+                </>
               )}
               {!isGrupo && (
                 <Tooltip>
@@ -2101,15 +2257,17 @@ export function ChatConversa({
                     <DropdownMenuItem
                       onSelect={() => {
                         setErroAcao(null);
+                        fecharTodosDialogs();
                         setDialogTagAberto(true);
                       }}
                     >
                       <Tag className="mr-2 h-4 w-4" />
-                      Aplicar tags
+                      Gerenciar tags
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() => {
                         setErroAcao(null);
+                        fecharTodosDialogs();
                         setDialogTransferirAberto(true);
                       }}
                     >
@@ -2119,6 +2277,7 @@ export function ChatConversa({
                     <DropdownMenuItem
                       onSelect={() => {
                         setErroAcao(null);
+                        fecharTodosDialogs();
                         setDialogNotaAberto(true);
                       }}
                     >
@@ -2134,6 +2293,7 @@ export function ChatConversa({
                     <DropdownMenuItem
                       onSelect={() => {
                         setErroAcao(null);
+                        fecharTodosDialogs();
                         setDialogDealAberto(true);
                       }}
                     >
@@ -2143,6 +2303,7 @@ export function ChatConversa({
                     <DropdownMenuItem
                       onSelect={() => {
                         setErroAcao(null);
+                        fecharTodosDialogs();
                         setDialogTarefaAberto(true);
                       }}
                     >
@@ -2154,15 +2315,26 @@ export function ChatConversa({
                     <DropdownMenuItem
                       onSelect={() => {
                         setErroAcao(null);
+                        fecharTodosDialogs();
                         setDialogSpamAberto(true);
                       }}
                     >
-                      <OctagonAlert className="mr-2 h-4 w-4" />
-                      Marcar spam
+                      {conversa.status === 'spam' ? (
+                        <>
+                          <CheckCircle2 className="mr-2 h-4 w-4" />
+                          Desmarcar spam
+                        </>
+                      ) : (
+                        <>
+                          <OctagonAlert className="mr-2 h-4 w-4" />
+                          Marcar spam
+                        </>
+                      )}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onSelect={() => {
                         setErroAcao(null);
+                        fecharTodosDialogs();
                         setDialogBloquearAberto(true);
                       }}
                     >
@@ -2176,834 +2348,888 @@ export function ChatConversa({
           </div>
         </div>
 
-      <Dialog open={dialogTagAberto} onOpenChange={setDialogTagAberto}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Aplicar tags</DialogTitle>
-            <DialogDescription>
-              Selecione tags para a conversa atual.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3">
-            {tagsDisponiveis.length ? (
-              <Select value={tagSelecionada} onValueChange={setTagSelecionada}>
+        <Dialog
+          open={dialogTransferirAberto}
+          onOpenChange={setDialogTransferirAberto}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Transferir conversa</DialogTitle>
+              <DialogDescription>
+                Selecione o novo responsável pela conversa.
+              </DialogDescription>
+            </DialogHeader>
+            {membrosDisponiveis.length ? (
+              <Select
+                value={transferirSelecionado}
+                onValueChange={setTransferirSelecionado}
+              >
                 <SelectTrigger>
-                  <SelectValue placeholder="Tag" />
+                  <SelectValue placeholder="Responsável" />
                 </SelectTrigger>
                 <SelectContent>
-                  {tagsDisponiveis.map((tag) => (
-                    <SelectItem key={tag.id} value={tag.id}>
-                      {tag.nome}
+                  {membrosDisponiveis.map((membro) => (
+                    <SelectItem key={membro.userId} value={membro.userId}>
+                      {membro.nome || membro.email}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             ) : (
               <p className="text-xs text-muted-foreground">
-                Nenhuma tag cadastrada.
+                Nenhum membro encontrado.
               </p>
             )}
-            {erroAcao && (
-              <p className="text-xs text-destructive">{erroAcao}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={handleAplicarTags}
-              disabled={!tagSelecionada || carregandoAcoes}
-            >
-              Salvar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={dialogTransferirAberto}
-        onOpenChange={setDialogTransferirAberto}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Transferir conversa</DialogTitle>
-            <DialogDescription>
-              Selecione o novo responsável pela conversa.
-            </DialogDescription>
-          </DialogHeader>
-          {membrosDisponiveis.length ? (
-            <Select
-              value={transferirSelecionado}
-              onValueChange={setTransferirSelecionado}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Responsável" />
-              </SelectTrigger>
-              <SelectContent>
-                {membrosDisponiveis.map((membro) => (
-                  <SelectItem key={membro.userId} value={membro.userId}>
-                    {membro.nome || membro.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Nenhum membro encontrado.
-            </p>
-          )}
-          {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
-          <DialogFooter>
-            <Button
-              onClick={handleTransferir}
-              disabled={!transferirSelecionado || carregandoAcoes}
-            >
-              Transferir
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={dialogNotaAberto} onOpenChange={setDialogNotaAberto}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nota interna</DialogTitle>
-            <DialogDescription>
-              Visível apenas para a equipe.
-            </DialogDescription>
-          </DialogHeader>
-          <Textarea
-            value={notaInterna}
-            onChange={(event) => setNotaInterna(event.target.value)}
-            placeholder="Adicionar nota interna"
-            className="min-h-[120px]"
-          />
-          {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
-          <DialogFooter>
-            <Button
-              onClick={handleSalvarNota}
-              disabled={!notaInterna.trim() || carregandoAcoes}
-            >
-              Salvar nota
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={dialogDealAberto} onOpenChange={setDialogDealAberto}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Criar negócio</DialogTitle>
-            <DialogDescription>
-              Gere uma oportunidade a partir desta conversa.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3">
-            <Input
-              value={dealTitulo}
-              onChange={(event) => setDealTitulo(event.target.value)}
-              placeholder="Nome do negócio"
-            />
-            <Input
-              value={dealValor}
-              onChange={(event) => setDealValor(event.target.value)}
-              placeholder="Valor estimado"
-            />
             {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={handleCriarDeal}
-              disabled={!dealTitulo.trim() || carregandoAcoes}
-            >
-              Criar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button
+                onClick={handleTransferir}
+                disabled={!transferirSelecionado || carregandoAcoes}
+              >
+                Transferir
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      <Dialog open={dialogTarefaAberto} onOpenChange={setDialogTarefaAberto}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Criar tarefa</DialogTitle>
-            <DialogDescription>
-              Programe um follow-up com o contato.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-3">
-            <Input
-              value={tarefaTitulo}
-              onChange={(event) => setTarefaTitulo(event.target.value)}
-              placeholder="Título da tarefa"
-            />
-            <Input
-              type="datetime-local"
-              value={tarefaDataHora}
-              onChange={(event) => setTarefaDataHora(event.target.value)}
-              placeholder="Data e hora"
-            />
-            {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={handleCriarTarefa}
-              disabled={!tarefaTitulo.trim() || !tarefaDataHora || carregandoAcoes}
-            >
-              Criar tarefa
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={dialogSpamAberto} onOpenChange={setDialogSpamAberto}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Marcar como spam</DialogTitle>
-            <DialogDescription>
-              Esta conversa será movida para a aba de spam.
-            </DialogDescription>
-          </DialogHeader>
-          {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
-          <DialogFooter>
-            <Button
-              variant="destructive"
-              onClick={handleMarcarSpam}
-              disabled={carregandoAcoes}
-            >
-              Confirmar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={dialogBloquearAberto} onOpenChange={setDialogBloquearAberto}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Bloquear contato</DialogTitle>
-            <DialogDescription>
-              O contato não poderá iniciar novas conversas.
-            </DialogDescription>
-          </DialogHeader>
-          {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
-          <DialogFooter>
-            <Button
-              variant="destructive"
-              onClick={handleBloquear}
-              disabled={carregandoAcoes}
-            >
-              Bloquear
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={dialogQuickReplyAberto}
-        onOpenChange={setDialogQuickReplyAberto}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Respostas rápidas</DialogTitle>
-            <DialogDescription>
-              Reaproveite respostas frequentes no atendimento.
-            </DialogDescription>
-          </DialogHeader>
-          {quickReplies.length ? (
-            <div className="space-y-2">
-              {quickReplies.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3"
-                >
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium">{item.titulo}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Atalho: {item.atalho || "--"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {item.conteudo}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        setMensagemAtual(item.conteudo);
-                        setDialogQuickReplyAberto(false);
-                      }}
-                    >
-                      Usar
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => handleExcluirQuickReply(item.id)}
-                      disabled={removendoQuickReplyId === item.id}
-                      aria-label="Excluir resposta rápida"
-                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Nenhuma resposta rápida cadastrada.
-            </p>
-          )}
-          <Separator />
-          <div className="grid gap-2">
-            <Input
-              value={novoQuickReplyTitulo}
-              onChange={(event) => setNovoQuickReplyTitulo(event.target.value)}
-              placeholder="Título da resposta rápida"
-            />
-            <Input
-              value={novoQuickReplyAtalho}
-              onChange={(event) => setNovoQuickReplyAtalho(event.target.value)}
-              placeholder="Atalho (opcional)"
-            />
+        <Dialog open={dialogNotaAberto} onOpenChange={setDialogNotaAberto}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Nota interna</DialogTitle>
+              <DialogDescription>
+                Visível apenas para a equipe.
+              </DialogDescription>
+            </DialogHeader>
             <Textarea
-              value={novoQuickReplyConteudo}
-              onChange={(event) => setNovoQuickReplyConteudo(event.target.value)}
-              placeholder="Conteúdo da resposta"
-              className="min-h-[110px]"
+              value={notaInterna}
+              onChange={(event) => setNotaInterna(event.target.value)}
+              placeholder="Adicionar nota interna"
+              className="min-h-[120px]"
             />
-            {erroQuickReply && (
-              <p className="text-xs text-destructive">{erroQuickReply}</p>
-            )}
-          </div>
-          <DialogFooter>
-            <Button
-              onClick={handleCriarQuickReply}
-              disabled={
-                salvandoQuickReply ||
-                !novoQuickReplyTitulo.trim() ||
-                !novoQuickReplyConteudo.trim()
-              }
-            >
-              Salvar resposta rápida
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
+            <DialogFooter>
+              <Button
+                onClick={handleSalvarNota}
+                disabled={!notaInterna.trim() || carregandoAcoes}
+              >
+                Salvar nota
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      <Dialog
-        open={dialogTemplateAberto}
-        onOpenChange={setDialogTemplateAberto}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Templates WhatsApp</DialogTitle>
-            <DialogDescription>
-              Envie templates aprovados para mensagens fora da janela de 24h.
-            </DialogDescription>
-          </DialogHeader>
-          {conversa.canal === "whatsapp" && (
-            <div className="grid gap-2">
-              <p className="text-xs font-medium">Variáveis do template</p>
-              <Textarea
-                value={variaveisTemplate}
-                onChange={(event) => setVariaveisTemplate(event.target.value)}
-                placeholder="Uma variável por linha"
-                className="min-h-[90px]"
+        <Dialog open={dialogDealAberto} onOpenChange={setDialogDealAberto}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Criar negócio</DialogTitle>
+              <DialogDescription>
+                Gere uma oportunidade a partir desta conversa.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3">
+              <Input
+                value={dealTitulo}
+                onChange={(event) => setDealTitulo(event.target.value)}
+                placeholder="Nome do negócio"
               />
-              <p className="text-[11px] text-muted-foreground">
-                {"Use a ordem esperada pelo template ({{1}}, {{2}}, {{3}}...)."}
-              </p>
+              <Input
+                value={dealValor}
+                onChange={(event) => setDealValor(event.target.value)}
+                placeholder="Valor estimado"
+              />
+              {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
             </div>
-          )}
-          {conversa.canal !== "whatsapp" ? (
-            <p className="text-xs text-muted-foreground">
-              Templates estao disponiveis apenas no WhatsApp.
-            </p>
-          ) : templatesDisponiveis.length ? (
-            <div className="space-y-2">
-              {templatesDisponiveis.map((template) => (
-                <div
-                  key={template.id}
-                  className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3"
-                >
-                  <div>
-                    <p className="text-sm font-medium">{template.nome}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {template.idioma} • {template.categoria}
-                    </p>
-                  </div>
-                  <Button
-                    size="sm"
-                    onClick={() => handleEnviarTemplate(template)}
-                    disabled={enviandoTemplate}
-                  >
-                    Enviar
-                  </Button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground">
-              Nenhum template encontrado.
-            </p>
-          )}
-          {erroTemplate && (
-            <p className="text-xs text-destructive">{erroTemplate}</p>
-          )}
-        </DialogContent>
-      </Dialog>
+            <DialogFooter>
+              <Button
+                onClick={handleCriarDeal}
+                disabled={!dealTitulo.trim() || carregandoAcoes}
+              >
+                Criar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
-      <Dialog
-        open={Boolean(midiaAberta)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setMidiaAberta(null);
-          }
-        }}
-      >
-        <DialogContent className="max-w-[95vw] sm:max-w-[900px]">
-          <DialogHeader>
-            <DialogTitle>{midiaAberta?.nome ?? "Visualização"}</DialogTitle>
-          </DialogHeader>
-          {midiaAberta?.tipo === "imagem" ? (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    onClick={() =>
-                      setZoomImagem((valor) => Math.min(valor + 0.2, 3))
-                    }
-                    aria-label="Zoom in"
-                  >
-                    <ZoomIn className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    onClick={() =>
-                      setZoomImagem((valor) => Math.max(valor - 0.2, 0.6))
-                    }
-                    aria-label="Zoom out"
-                  >
-                    <ZoomOut className="h-4 w-4" />
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    onClick={() => setZoomImagem(1)}
-                    aria-label="Reset zoom"
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                  </Button>
-                </div>
-                {midiaAberta?.url && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="gap-2"
-                    onClick={() =>
-                      void baixarArquivo(midiaAberta.url, midiaAberta.nome)
-                    }
-                  >
-                    <Download className="h-4 w-4" />
-                    Baixar
-                  </Button>
+        <Dialog open={dialogTarefaAberto} onOpenChange={setDialogTarefaAberto}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Criar tarefa</DialogTitle>
+              <DialogDescription>
+                Programe um follow-up com o contato.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-3">
+              <Input
+                value={tarefaTitulo}
+                onChange={(event) => setTarefaTitulo(event.target.value)}
+                placeholder="Título da tarefa"
+              />
+              <Input
+                type="datetime-local"
+                value={tarefaDataHora}
+                onChange={(event) => setTarefaDataHora(event.target.value)}
+                placeholder="Data e hora"
+              />
+              {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={handleCriarTarefa}
+                disabled={!tarefaTitulo.trim() || !tarefaDataHora || carregandoAcoes}
+              >
+                Criar tarefa
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={dialogSpamAberto} onOpenChange={setDialogSpamAberto}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{conversa.status === 'spam' ? "Desmarcar spam" : "Marcar como spam"}</DialogTitle>
+              <DialogDescription>
+                {conversa.status === 'spam'
+                  ? "A conversa voltará para a caixa de entrada."
+                  : "Esta conversa será movida para a aba de spam."}
+              </DialogDescription>
+            </DialogHeader>
+            {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
+            <DialogFooter>
+              <Button
+                variant={conversa.status === 'spam' ? "default" : "destructive"}
+                onClick={() => {
+                  if (conversa.status === 'spam') {
+                    // Logic to unspam (move to aberta)
+                    aoAlterarStatus?.(conversa.id, 'aberta');
+                    setDialogSpamAberto(false);
+                  } else {
+                    handleMarcarSpam();
+                  }
+                }}
+                disabled={carregandoAcoes}
+              >
+                Confirmar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={dialogBloquearAberto} onOpenChange={setDialogBloquearAberto}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Bloquear contato</DialogTitle>
+              <DialogDescription>
+                O contato não poderá iniciar novas conversas.
+              </DialogDescription>
+            </DialogHeader>
+            {erroAcao && <p className="text-xs text-destructive">{erroAcao}</p>}
+            <DialogFooter>
+              <Button
+                variant="destructive"
+                onClick={handleBloquear}
+                disabled={carregandoAcoes}
+              >
+                Bloquear
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={dialogTagAberto} onOpenChange={setDialogTagAberto}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Gerenciar Tags</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="flex flex-wrap gap-2">
+                {conversa.tags.length > 0 ? (
+                  conversa.tags.map((tag) => {
+                    const corTag = corDaTag(tag);
+                    return (
+                      <Badge
+                        key={tag}
+                        variant="outline"
+                        className="gap-1 border pr-1.5 text-[11px] font-medium text-white"
+                        style={{ backgroundColor: corTag, borderColor: corTag }}
+                      >
+                        {tag}
+                        <button
+                          onClick={() => handleToggleTag(tag)}
+                          className="ml-1 rounded-full p-0.5 text-white/90 hover:bg-white/15"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    );
+                  })
+                ) : (
+                  <p className="py-2 text-sm italic text-muted-foreground">
+                    Nenhuma tag selecionada.
+                  </p>
                 )}
               </div>
-              <div className="max-h-[70vh] overflow-auto rounded-lg border border-border/40 bg-black/5 p-4">
-                <img
-                  src={midiaAberta?.url ?? ""}
-                  alt={midiaAberta?.nome ?? "Imagem"}
-                  className="mx-auto select-none"
-                  style={{
-                    transform: `scale(${zoomImagem})`,
-                    transformOrigin: "center center",
-                  }}
-                />
-              </div>
-            </div>
-          ) : midiaAberta?.tipo === "video" ? (
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">
-                  Reprodução personalizada
-                </span>
-                {midiaAberta?.url && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="gap-2"
-                    onClick={() =>
-                      void baixarArquivo(midiaAberta.url, midiaAberta.nome)
-                    }
-                  >
-                    <Download className="h-4 w-4" />
-                    Baixar
+
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="h-9 justify-between px-3 text-xs w-full max-w-[240px]">
+                    Adicionar tag...
+                    <Plus className="ml-2 h-3.5 w-3.5 opacity-50" />
                   </Button>
-                )}
-              </div>
-              {midiaAberta?.url && <VideoPlayer src={midiaAberta.url} />}
-            </div>
-          ) : null}
-        </DialogContent>
-      </Dialog>
-
-      <div
-        ref={scrollAreaRef}
-        className="flex-1 min-h-0 bg-gradient-to-b from-background via-background to-muted/30"
-      >
-        <ScrollArea className="h-full px-6 py-5">
-          <div className="space-y-4 pb-10">
-            {mensagensComData.map((item) =>
-              item.type === "date" ? (
-                <div
-                  key={item.key}
-                  className="mx-auto w-fit rounded-full bg-muted px-3 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
-                >
-                  {item.label}
-                </div>
-              ) : (
-                <MensagemChat
-                  key={item.mensagem.id}
-                  mensagem={item.mensagem}
-                  isGrupo={conversa.contato.isGrupo}
-                  avatarContato={conversa.contato.avatarUrl}
-                  avatarEquipe={conversa.avatarCanal}
-                  nomeContato={conversa.contato.nome}
-                  nomeEquipe={conversa.nomeCanal ?? "Equipe"}
-                  aoAbrirMidia={abrirMidia}
-                />
-              )
-            )}
-          </div>
-        </ScrollArea>
-      </div>
-
-      <div className="sticky bottom-0 z-10 border-t border-border/50 bg-background/70 p-4 backdrop-blur-sm">
-        <div className="relative rounded-[6px] border border-border/40 bg-transparent px-3 pb-12 pt-3 shadow-none">
-          <Textarea
-            value={mensagemAtual}
-            onChange={(event) => setMensagemAtual(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                handleEnviar();
-              }
-            }}
-            placeholder='Shift + Enter para uma nova linha. "/" para frase rápida.'
-            className="min-h-[110px] max-h-[180px] resize-none overflow-y-auto border-0 bg-transparent p-0 pb-12 pr-12 text-[13px] leading-relaxed shadow-none focus-visible:ring-0"
-          />
-          {(gravandoAudio || audioGravado) && (
-            <div className="mt-3 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-              {gravandoAudio ? (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                    <span>{audioPausado ? "Gravação pausada" : "Gravando áudio"}</span>
-                    <span className="tabular-nums">{formatarDuracao(tempoGravacao)}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() =>
-                        audioPausado ? retomarGravacaoAudio() : pausarGravacaoAudio()
-                      }
-                      aria-label={audioPausado ? "Retomar gravação" : "Pausar gravação"}
-                      className="h-8 w-8 rounded-full"
-                    >
-                      {audioPausado ? (
-                        <Play className="h-4 w-4" />
-                      ) : (
-                        <Pause className="h-4 w-4" />
-                      )}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => finalizarGravacaoAudio(true)}
-                      className="h-8"
-                    >
-                      Finalizar
-                    </Button>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={descartarGravacaoAudio}
-                      aria-label="Descartar gravação"
-                      className="h-8 w-8 text-destructive"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-1 items-center gap-3">
-                    <audio
-                      src={audioPreviewUrl ?? undefined}
-                      controls
-                      className="h-8 w-full"
+                </PopoverTrigger>
+                <PopoverContent className="w-[280px] p-2" align="start">
+                  <div className="mb-2 px-1">
+                    <Input
+                      placeholder="Buscar tag..."
+                      className="h-8 text-xs focus-visible:ring-1"
+                      value={buscaTag}
+                      onChange={(e) => setBuscaTag(e.target.value)}
+                      autoFocus
                     />
-                    <span className="text-xs text-muted-foreground">
-                      {formatarDuracao(duracaoAudio)}
-                    </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <ScrollArea className="h-[200px]">
+                    <div className="space-y-1 p-1">
+                      {tagsDisponiveis
+                        .filter((t) =>
+                          !conversa.tags.includes(t.nome) &&
+                          t.nome.toLowerCase().includes(buscaTag.toLowerCase())
+                        )
+                        .map((tag) => (
+                          <div
+                            key={tag.id}
+                            className="flex cursor-pointer items-center justify-between rounded-sm px-2 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground"
+                            onClick={() => handleToggleTag(tag.nome)}
+                          >
+                            <span>{tag.nome}</span>
+                            <Plus className="h-3 w-3 opacity-50" />
+                          </div>
+                        ))}
+                      {tagsDisponiveis.filter((t) => !conversa.tags.includes(t.nome) && t.nome.toLowerCase().includes(buscaTag.toLowerCase())).length === 0 && (
+                        <p className="px-2 py-2 text-center text-xs text-muted-foreground">
+                          Nenhuma tag encontrada.
+                        </p>
+                      )}
+                    </div>
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+              {erroAcao && (
+                <p className="text-xs text-destructive">{erroAcao}</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={dialogQuickReplyAberto}
+          onOpenChange={setDialogQuickReplyAberto}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Respostas rápidas</DialogTitle>
+              <DialogDescription>
+                Reaproveite respostas frequentes no atendimento.
+              </DialogDescription>
+            </DialogHeader>
+            {quickReplies.length ? (
+              <div className="space-y-2">
+                {quickReplies.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-start justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3"
+                  >
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">{item.titulo}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Atalho: {item.atalho || "--"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {item.conteudo}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          setMensagemAtual(item.conteudo);
+                          setDialogQuickReplyAberto(false);
+                        }}
+                      >
+                        Usar
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => handleExcluirQuickReply(item.id)}
+                        disabled={removendoQuickReplyId === item.id}
+                        aria-label="Excluir resposta rápida"
+                        className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Nenhuma resposta rápida cadastrada.
+              </p>
+            )}
+            <Separator />
+            <div className="grid gap-2">
+              <Input
+                value={novoQuickReplyTitulo}
+                onChange={(event) => setNovoQuickReplyTitulo(event.target.value)}
+                placeholder="Título da resposta rápida"
+              />
+              <Input
+                value={novoQuickReplyAtalho}
+                onChange={(event) => setNovoQuickReplyAtalho(event.target.value)}
+                placeholder="Atalho (opcional)"
+              />
+              <Textarea
+                value={novoQuickReplyConteudo}
+                onChange={(event) => setNovoQuickReplyConteudo(event.target.value)}
+                placeholder="Conteúdo da resposta"
+                className="min-h-[110px]"
+              />
+              {erroQuickReply && (
+                <p className="text-xs text-destructive">{erroQuickReply}</p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={handleCriarQuickReply}
+                disabled={
+                  salvandoQuickReply ||
+                  !novoQuickReplyTitulo.trim() ||
+                  !novoQuickReplyConteudo.trim()
+                }
+              >
+                Salvar resposta rápida
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={dialogTemplateAberto}
+          onOpenChange={setDialogTemplateAberto}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Templates WhatsApp</DialogTitle>
+              <DialogDescription>
+                Envie templates aprovados para mensagens fora da janela de 24h.
+              </DialogDescription>
+            </DialogHeader>
+            {conversa.canal === "whatsapp" && (
+              <div className="grid gap-2">
+                <p className="text-xs font-medium">Variáveis do template</p>
+                <Textarea
+                  value={variaveisTemplate}
+                  onChange={(event) => setVariaveisTemplate(event.target.value)}
+                  placeholder="Uma variável por linha"
+                  className="min-h-[90px]"
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {"Use a ordem esperada pelo template ({{1}}, {{2}}, {{3}}...)."}
+                </p>
+              </div>
+            )}
+            {conversa.canal !== "whatsapp" ? (
+              <p className="text-xs text-muted-foreground">
+                Templates estao disponiveis apenas no WhatsApp.
+              </p>
+            ) : templatesDisponiveis.length ? (
+              <div className="space-y-2">
+                {templatesDisponiveis.map((template) => (
+                  <div
+                    key={template.id}
+                    className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 p-3"
+                  >
+                    <div>
+                      <p className="text-sm font-medium">{template.nome}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {template.idioma} • {template.categoria}
+                      </p>
+                    </div>
                     <Button
                       size="sm"
-                      variant="secondary"
-                      onClick={enviarAudioGravado}
-                      disabled={enviando}
+                      onClick={() => handleEnviarTemplate(template)}
+                      disabled={enviandoTemplate}
                     >
                       Enviar
                     </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Nenhum template encontrado.
+              </p>
+            )}
+            {erroTemplate && (
+              <p className="text-xs text-destructive">{erroTemplate}</p>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={Boolean(midiaAberta)}
+          onOpenChange={(open) => {
+            if (!open) {
+              setMidiaAberta(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-[95vw] sm:max-w-[900px]">
+            <DialogHeader>
+              <DialogTitle>{midiaAberta?.nome ?? "Visualização"}</DialogTitle>
+            </DialogHeader>
+            {midiaAberta?.tipo === "imagem" ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
                     <Button
+                      variant="secondary"
                       size="icon"
-                      variant="ghost"
-                      onClick={limparAudioGravado}
-                      aria-label="Descartar áudio"
-                      className="h-8 w-8 text-destructive"
+                      onClick={() =>
+                        setZoomImagem((valor) => Math.min(valor + 0.2, 3))
+                      }
+                      aria-label="Zoom in"
                     >
-                      <X className="h-4 w-4" />
+                      <ZoomIn className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      onClick={() =>
+                        setZoomImagem((valor) => Math.max(valor - 0.2, 0.6))
+                      }
+                      aria-label="Zoom out"
+                    >
+                      <ZoomOut className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      onClick={() => setZoomImagem(1)}
+                      aria-label="Reset zoom"
+                    >
+                      <RotateCcw className="h-4 w-4" />
                     </Button>
                   </div>
+                  {midiaAberta?.url && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() =>
+                        void baixarArquivo(midiaAberta.url, midiaAberta.nome)
+                      }
+                    >
+                      <Download className="h-4 w-4" />
+                      Baixar
+                    </Button>
+                  )}
                 </div>
+                <div className="max-h-[70vh] overflow-auto rounded-lg border border-border/40 bg-black/5 p-4">
+                  <img
+                    src={midiaAberta?.url ?? ""}
+                    alt={midiaAberta?.nome ?? "Imagem"}
+                    className="mx-auto select-none"
+                    style={{
+                      transform: `scale(${zoomImagem})`,
+                      transformOrigin: "center center",
+                    }}
+                  />
+                </div>
+              </div>
+            ) : midiaAberta?.tipo === "video" ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    Reprodução personalizada
+                  </span>
+                  {midiaAberta?.url && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="gap-2"
+                      onClick={() =>
+                        void baixarArquivo(midiaAberta.url, midiaAberta.nome)
+                      }
+                    >
+                      <Download className="h-4 w-4" />
+                      Baixar
+                    </Button>
+                  )}
+                </div>
+                {midiaAberta?.url && <VideoPlayer src={midiaAberta.url} />}
+              </div>
+            ) : null}
+          </DialogContent>
+        </Dialog>
+
+        <div
+          ref={scrollAreaRef}
+          className="flex-1 min-h-0 bg-gradient-to-b from-background via-background to-muted/30"
+        >
+          <ScrollArea className="h-full px-6 py-5">
+            <div className="space-y-4 pb-10">
+              {mensagensComData.map((item) =>
+                item.type === "date" ? (
+                  <div
+                    key={item.key}
+                    className="mx-auto w-fit rounded-full bg-muted px-3 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+                  >
+                    {item.label}
+                  </div>
+                ) : (
+                  <MensagemChat
+                    key={item.mensagem.id}
+                    mensagem={item.mensagem}
+                    isGrupo={conversa.contato.isGrupo}
+                    avatarContato={conversa.contato.avatarUrl}
+                    avatarEquipe={conversa.avatarCanal}
+                    nomeContato={conversa.contato.nome}
+                    nomeEquipe={conversa.nomeCanal ?? "Equipe"}
+                    aoAbrirMidia={abrirMidia}
+                    obterUrlAnexo={obterUrlAnexo}
+                  />
+                )
               )}
             </div>
-          )}
-          {erroAudio && (
-            <p className="mt-2 text-xs text-destructive">{erroAudio}</p>
-          )}
-          {previewArquivos.length > 0 && (
-            <div className="mt-3 grid gap-2 pb-6 sm:grid-cols-3">
-              {previewArquivos.map((arquivo, index) => (
-                <div
-                  key={arquivo.id}
-                  className="group relative overflow-hidden rounded-md border border-border/50 bg-muted/20"
-                >
-                  {arquivo.tipo === "imagem" && (
-                    <img
-                      src={arquivo.url}
-                      alt={arquivo.nome}
-                      className="h-24 w-full object-cover"
-                    />
-                  )}
-                  {arquivo.tipo === "video" && (
-                    <div className="relative h-24 w-full bg-black">
-                      <video
-                        className="h-24 w-full object-cover"
-                        muted
-                        playsInline
-                        preload="metadata"
-                      >
-                        <source src={arquivo.url} />
-                      </video>
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/20">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/80">
-                          <Play className="h-4 w-4 text-foreground" />
-                        </span>
-                      </span>
-                    </div>
-                  )}
-                  {arquivo.tipo === "audio" && (
-                    <div className="flex h-24 flex-col items-center justify-center gap-1 px-3 text-[11px] text-muted-foreground">
-                      <Mic className="h-4 w-4" />
-                      Áudio anexado
-                    </div>
-                  )}
-                  {(arquivo.tipo === "documento" ||
-                    arquivo.tipo === "arquivo") && (
-                    <div className="flex h-24 flex-col items-center justify-center gap-1 px-3 text-[11px] text-muted-foreground">
-                      <FileText className="h-4 w-4" />
-                      <span className="uppercase tracking-wide">
-                        {arquivo.extensao ?? "Arquivo"}
-                      </span>
-                    </div>
-                  )}
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className="absolute right-1 top-1 h-6 w-6 rounded-full opacity-0 transition-opacity group-hover:opacity-100"
-                    onClick={() => handleRemoverArquivo(index)}
-                    aria-label="Remover anexo"
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="absolute bottom-2 left-2 flex items-center gap-1">
-            <Popover
-              open={quickReplyPopoverAberto}
-              onOpenChange={(valor) => {
-                setQuickReplyPopoverAberto(valor);
-                if (!valor) setBuscaQuickReply("");
-              }}
-            >
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label="Inserir emoji"
-                      className="rounded-full hover:bg-muted/60"
-                    >
-                      <Smile className="h-4 w-4" />
-                    </Button>
-                  </PopoverTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Emojis</TooltipContent>
-              </Tooltip>
-              <PopoverContent
-                align="start"
-                className="w-[340px] overflow-hidden p-0"
-              >
-                <EmojiPickerPadrao onSelect={handleSelecionarEmoji} />
-              </PopoverContent>
-            </Popover>
-
-            <input
-              ref={inputArquivoRef}
-              type="file"
-              className="hidden"
-              multiple
-              accept="image/*,audio/*,application/pdf,text/plain,text/csv,application/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-              onChange={handleSelecionarArquivos}
-            />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => inputArquivoRef.current?.click()}
-                  aria-label="Anexar arquivo"
-                  className="rounded-full hover:bg-muted/60"
-                >
-                  <Paperclip className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Anexar arquivo</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Ditado de áudio"
-                  onClick={iniciarGravacaoAudio}
-                  disabled={gravandoAudio || Boolean(audioGravado)}
-                  className="rounded-full hover:bg-muted/60"
-                >
-                  <Mic className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Áudio</TooltipContent>
-            </Tooltip>
-
-            <Popover>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      aria-label="Respostas rápidas"
-                      className="h-8 gap-2 rounded-full px-3 text-[11px] hover:bg-muted/60"
-                    >
-                      <Settings className="h-4 w-4" />
-                      Respostas rápidas
-                    </Button>
-                  </PopoverTrigger>
-                </TooltipTrigger>
-                <TooltipContent>Respostas rápidas</TooltipContent>
-              </Tooltip>
-              <PopoverContent align="start" className="w-[320px] p-3">
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1">
-                    <Search className="h-4 w-4 text-muted-foreground" />
-                    <Input
-                      value={buscaQuickReply}
-                      onChange={(event) => setBuscaQuickReply(event.target.value)}
-                      placeholder="Buscar respostas rápidas"
-                      className="h-7 border-0 bg-transparent p-0 text-[12px] focus-visible:ring-0"
-                    />
-                  </div>
-                  <ScrollArea className="h-[180px] pr-2">
-                    {quickRepliesFiltradas.length ? (
-                      <div className="space-y-1">
-                        {quickRepliesFiltradas.map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => {
-                              setMensagemAtual(item.conteudo);
-                              setQuickReplyPopoverAberto(false);
-                            }}
-                            className="w-full rounded-md border border-transparent px-2 py-2 text-left text-xs transition hover:border-border/70 hover:bg-muted/50"
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="font-semibold">
-                                {item.titulo}
-                              </span>
-                              {item.atalho && (
-                                <span className="text-[10px] text-muted-foreground">
-                                  {item.atalho}
-                                </span>
-                              )}
-                            </div>
-                            <p className="mt-1 truncate text-[11px] text-muted-foreground">
-                              {item.conteudo}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-muted-foreground">
-                        Nenhuma resposta rápida encontrada.
-                      </p>
-                    )}
-                  </ScrollArea>
-                  <Separator />
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => {
-                      setQuickReplyPopoverAberto(false);
-                      setDialogQuickReplyAberto(true);
-                    }}
-                  >
-                    Nova resposta rápida
-                  </Button>
-                </div>
-              </PopoverContent>
-            </Popover>
-          </div>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                onClick={handleEnviar}
-                disabled={!envioAtivo || enviando}
-                aria-label="Enviar mensagem"
-                className="absolute bottom-2 right-2 h-9 w-9 rounded-[6px] shadow-none"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Enviar</TooltipContent>
-          </Tooltip>
-          {erroEnvio && (
-            <p className="mt-2 text-xs text-destructive">{erroEnvio}</p>
-          )}
+          </ScrollArea>
         </div>
-      </div>
+
+        <div className="sticky bottom-0 z-10 border-t border-border/50 bg-background/70 p-4 backdrop-blur-sm">
+          <div className="relative rounded-[6px] border border-border/40 bg-transparent px-3 pb-12 pt-3 shadow-none">
+            <Textarea
+              value={mensagemAtual}
+              onChange={(event) => setMensagemAtual(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  handleEnviar();
+                }
+              }}
+              placeholder='Shift + Enter para uma nova linha. "/" para frase rápida.'
+              className="min-h-[110px] max-h-[180px] resize-none overflow-y-auto border-0 bg-transparent p-0 pb-12 pr-12 text-[13px] leading-relaxed shadow-none focus-visible:ring-0"
+            />
+            {(gravandoAudio || audioGravado) && (
+              <div className="mt-3 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
+                {gravandoAudio ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                      <span>{audioPausado ? "Gravação pausada" : "Gravando áudio"}</span>
+                      <span className="tabular-nums">{formatarDuracao(tempoGravacao)}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() =>
+                          audioPausado ? retomarGravacaoAudio() : pausarGravacaoAudio()
+                        }
+                        aria-label={audioPausado ? "Retomar gravação" : "Pausar gravação"}
+                        className="h-8 w-8 rounded-full"
+                      >
+                        {audioPausado ? (
+                          <Play className="h-4 w-4" />
+                        ) : (
+                          <Pause className="h-4 w-4" />
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => finalizarGravacaoAudio(true)}
+                        className="h-8"
+                      >
+                        Finalizar
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={descartarGravacaoAudio}
+                        aria-label="Descartar gravação"
+                        className="h-8 w-8 text-destructive"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-1 items-center gap-3">
+                      <audio
+                        src={audioPreviewUrl ?? undefined}
+                        controls
+                        className="h-8 w-full"
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {formatarDuracao(duracaoAudio)}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={enviarAudioGravado}
+                        disabled={enviando}
+                      >
+                        Enviar
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => limparAudioGravado()}
+                        aria-label="Descartar áudio"
+                        className="h-8 w-8 text-destructive"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {erroAudio && (
+              <p className="mt-2 text-xs text-destructive">{erroAudio}</p>
+            )}
+            {previewArquivos.length > 0 && (
+              <div className="mt-3 grid gap-2 pb-6 sm:grid-cols-3">
+                {previewArquivos.map((arquivo, index) => (
+                  <div
+                    key={arquivo.id}
+                    className="group relative overflow-hidden rounded-md border border-border/50 bg-muted/20"
+                  >
+                    {arquivo.tipo === "imagem" && (
+                      <img
+                        src={arquivo.url}
+                        alt={arquivo.nome}
+                        className="h-24 w-full object-cover"
+                      />
+                    )}
+                    {arquivo.tipo === "video" && (
+                      <div className="relative h-24 w-full bg-black">
+                        <video
+                          className="h-24 w-full object-cover"
+                          muted
+                          playsInline
+                          preload="metadata"
+                        >
+                          <source src={arquivo.url} />
+                        </video>
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/20">
+                          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/80">
+                            <Play className="h-4 w-4 text-foreground" />
+                          </span>
+                        </span>
+                      </div>
+                    )}
+                    {arquivo.tipo === "audio" && (
+                      <div className="flex h-24 flex-col items-center justify-center gap-1 px-3 text-[11px] text-muted-foreground">
+                        <Mic className="h-4 w-4" />
+                        Áudio anexado
+                      </div>
+                    )}
+                    {(arquivo.tipo === "documento" ||
+                      arquivo.tipo === "arquivo") && (
+                        <div className="flex h-24 flex-col items-center justify-center gap-1 px-3 text-[11px] text-muted-foreground">
+                          <FileText className="h-4 w-4" />
+                          <span className="uppercase tracking-wide">
+                            {arquivo.extensao ?? "Arquivo"}
+                          </span>
+                        </div>
+                      )}
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      className="absolute right-1 top-1 h-6 w-6 rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+                      onClick={() => handleRemoverArquivo(index)}
+                      aria-label="Remover anexo"
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="absolute bottom-2 left-2 flex items-center gap-1">
+              <Popover
+                open={quickReplyPopoverAberto}
+                onOpenChange={(valor) => {
+                  setQuickReplyPopoverAberto(valor);
+                  if (!valor) setBuscaQuickReply("");
+                }}
+              >
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Inserir emoji"
+                        className="rounded-full hover:bg-muted/60"
+                      >
+                        <Smile className="h-4 w-4" />
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Emojis</TooltipContent>
+                </Tooltip>
+                <PopoverContent
+                  align="start"
+                  className="w-[340px] overflow-hidden p-0"
+                >
+                  <EmojiPickerPadrao onSelect={handleSelecionarEmoji} />
+                </PopoverContent>
+              </Popover>
+
+              <input
+                ref={inputArquivoRef}
+                type="file"
+                className="hidden"
+                multiple
+                accept="image/*,audio/*,application/pdf,text/plain,text/csv,application/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                onChange={handleSelecionarArquivos}
+              />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => inputArquivoRef.current?.click()}
+                    aria-label="Anexar arquivo"
+                    className="rounded-full hover:bg-muted/60"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Anexar arquivo</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Ditado de áudio"
+                    onClick={iniciarGravacaoAudio}
+                    disabled={gravandoAudio || Boolean(audioGravado)}
+                    className="rounded-full hover:bg-muted/60"
+                  >
+                    <Mic className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Áudio</TooltipContent>
+              </Tooltip>
+
+              <Popover>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label="Respostas rápidas"
+                        className="h-8 gap-2 rounded-full px-3 text-[11px] hover:bg-muted/60"
+                      >
+                        <Settings className="h-4 w-4" />
+                        Respostas rápidas
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  <TooltipContent>Respostas rápidas</TooltipContent>
+                </Tooltip>
+                <PopoverContent align="start" className="w-[320px] p-3">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 rounded-md border border-border/60 bg-background px-2 py-1">
+                      <Search className="h-4 w-4 text-muted-foreground" />
+                      <Input
+                        value={buscaQuickReply}
+                        onChange={(event) => setBuscaQuickReply(event.target.value)}
+                        placeholder="Buscar respostas rápidas"
+                        className="h-7 border-0 bg-transparent p-0 text-[12px] focus-visible:ring-0"
+                      />
+                    </div>
+                    <ScrollArea className="h-[180px] pr-2">
+                      {quickRepliesFiltradas.length ? (
+                        <div className="space-y-1">
+                          {quickRepliesFiltradas.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => {
+                                setMensagemAtual(item.conteudo);
+                                setQuickReplyPopoverAberto(false);
+                              }}
+                              className="w-full rounded-md border border-transparent px-2 py-2 text-left text-xs transition hover:border-border/70 hover:bg-muted/50"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold">
+                                  {item.titulo}
+                                </span>
+                                {item.atalho && (
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {item.atalho}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                                {item.conteudo}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Nenhuma resposta rápida encontrada.
+                        </p>
+                      )}
+                    </ScrollArea>
+                    <Separator />
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        setQuickReplyPopoverAberto(false);
+                        fecharTodosDialogs();
+                        setDialogQuickReplyAberto(true);
+                      }}
+                    >
+                      Nova resposta rápida
+                    </Button>
+                  </div>
+                </PopoverContent>
+              </Popover>
+            </div>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  size="icon"
+                  onClick={handleEnviar}
+                  disabled={!envioAtivo}
+                  aria-label="Enviar mensagem"
+                  className="absolute bottom-2 right-2 h-9 w-9 rounded-[6px] shadow-none"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Enviar</TooltipContent>
+            </Tooltip>
+            {erroEnvio && (
+              <p className="mt-2 text-xs text-destructive">{erroEnvio}</p>
+            )}
+          </div>
+        </div>
       </section>
     </TooltipProvider>
   );
@@ -3017,6 +3243,7 @@ function MensagemChat({
   nomeContato,
   nomeEquipe,
   aoAbrirMidia,
+  obterUrlAnexo,
 }: {
   mensagem: MensagemInbox;
   isGrupo?: boolean;
@@ -3025,6 +3252,7 @@ function MensagemChat({
   nomeContato: string;
   nomeEquipe: string;
   aoAbrirMidia?: (midia: MidiaPreview) => void;
+  obterUrlAnexo?: (storagePath: string) => Promise<string | null>;
 }) {
   const enviada = mensagem.autor !== "contato";
   const alinhamento = enviada ? "items-end" : "items-start";
@@ -3069,19 +3297,12 @@ function MensagemChat({
         return;
       }
 
-      const storage = supabaseClient.storage.from("inbox-attachments");
       const resultado = await Promise.all(
         mensagem.anexos.map(async (anexo, index) => {
           let signedUrl: string | null = null;
-          try {
-            const { data } = await storage.createSignedUrl(
-              anexo.storagePath,
-              60 * 60 * 24 * 7
-            );
-            signedUrl = data?.signedUrl ?? null;
-          } catch {
-            signedUrl = null;
-          }
+          signedUrl = obterUrlAnexo
+            ? await obterUrlAnexo(anexo.storagePath)
+            : null;
           const nomeFallback = anexo.storagePath.split("/").pop() ?? "arquivo";
           const nome = nomeFallback;
           return {
@@ -3104,7 +3325,7 @@ function MensagemChat({
     return () => {
       ativo = false;
     };
-  }, [mensagem.anexos, mensagem.conteudo]);
+  }, [mensagem.anexos, mensagem.conteudo, obterUrlAnexo]);
 
   const anexosImagem = anexos.filter(
     (anexo) => anexo.tipoNormalizado === "imagem"
@@ -3139,22 +3360,22 @@ function MensagemChat({
     !mostrarTexto;
   const respostaNome = mensagem.resposta
     ? mensagem.resposta.senderNome ||
-      (mensagem.resposta.autor
-        ? mensagem.resposta.autor === "equipe"
-          ? nomeEquipe
-          : nomeContato
-        : null)
+    (mensagem.resposta.autor
+      ? mensagem.resposta.autor === "equipe"
+        ? nomeEquipe
+        : nomeContato
+      : null)
     : null;
   const respostaPreview = formatarRespostaPreview(mensagem.resposta);
   const mostrarFallbackSemAnexo =
     anexos.length === 0 &&
     mensagem.tipo !== "texto" &&
     !isTextoGenerico(textoMensagem);
-  const iconMap = {
+  const iconMap: Record<string, React.ElementType> = {
     imagem: ImageIcon,
     pdf: FileText,
     audio: Mic,
-  } as const;
+  };
 
   return (
     <div className={cn("flex flex-col gap-1", alinhamento)}>
@@ -3184,7 +3405,7 @@ function MensagemChat({
         </Avatar>
         <div
           className={cn(
-            "max-w-[78%] break-words rounded-[6px] px-3.5 py-2.5 text-[13px] leading-relaxed sm:max-w-[72%]",
+            "max-w-[85%] break-words rounded-[6px] px-3.5 py-2.5 text-[13px] leading-relaxed sm:max-w-[80%]",
             somenteAudio ? "min-w-[360px] sm:min-w-[420px]" : null,
             enviada ? "rounded-br-md" : "rounded-bl-md",
             bolha
@@ -3211,87 +3432,87 @@ function MensagemChat({
           {(anexosImagem.length > 0 ||
             anexosVideo.length > 0 ||
             anexosSticker.length > 0) && (
-            <div className="space-y-2">
-              {anexosImagem.map((anexo) =>
-                anexo.url ? (
-                  <button
-                    key={anexo.id}
-                    type="button"
-                    onClick={() =>
-                      aoAbrirMidia?.({
-                        tipo: "imagem",
-                        url: anexo.url ?? "",
-                        nome: anexo.nome,
-                      })
-                    }
-                    className="block w-full max-w-[260px] rounded-md cursor-zoom-in"
-                  >
-                    <img
-                      src={anexo.url}
-                      alt={anexo.nome}
-                      loading="lazy"
-                      className="max-h-60 w-full rounded-md object-cover"
-                    />
-                  </button>
-                ) : (
-                  <div key={anexo.id} className="text-xs">
-                    Imagem indisponível
-                  </div>
-                )
-              )}
-              {anexosVideo.map((anexo) =>
-                anexo.url ? (
-                  <button
-                    key={anexo.id}
-                    type="button"
-                    onClick={() =>
-                      aoAbrirMidia?.({
-                        tipo: "video",
-                        url: anexo.url ?? "",
-                        nome: anexo.nome,
-                      })
-                    }
-                    className="block w-full max-w-[260px] rounded-md cursor-pointer"
-                  >
-                    <div className="relative overflow-hidden rounded-md bg-black">
-                      <video
-                        className="pointer-events-none max-h-64 w-full"
-                        muted
-                        playsInline
-                        preload="metadata"
-                      >
-                        <source src={anexo.url} />
-                      </video>
-                      <span className="absolute inset-0 flex items-center justify-center bg-black/20">
-                        <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/80">
-                          <Play className="h-4 w-4 text-foreground" />
-                        </span>
-                      </span>
+              <div className="space-y-2">
+                {anexosImagem.map((anexo) =>
+                  anexo.url ? (
+                    <button
+                      key={anexo.id}
+                      type="button"
+                      onClick={() =>
+                        aoAbrirMidia?.({
+                          tipo: "imagem",
+                          url: anexo.url ?? "",
+                          nome: anexo.nome,
+                        })
+                      }
+                      className="block w-full max-w-[260px] rounded-md cursor-zoom-in"
+                    >
+                      <img
+                        src={anexo.url}
+                        alt={anexo.nome}
+                        loading="lazy"
+                        className="max-h-60 w-full rounded-md object-cover"
+                      />
+                    </button>
+                  ) : (
+                    <div key={anexo.id} className="text-xs">
+                      Imagem indisponível
                     </div>
-                  </button>
-                ) : (
-                  <div key={anexo.id} className="text-xs">
-                    Vídeo indisponível
-                  </div>
-                )
-              )}
-              {anexosSticker.map((anexo) =>
-                anexo.url ? (
-                  <img
-                    key={anexo.id}
-                    src={anexo.url}
-                    alt="Sticker"
-                    loading="lazy"
-                    className="max-h-40 w-full max-w-[180px] object-contain"
-                  />
-                ) : (
-                  <div key={anexo.id} className="text-xs">
-                    Sticker indisponível
-                  </div>
-                )
-              )}
-            </div>
-          )}
+                  )
+                )}
+                {anexosVideo.map((anexo) =>
+                  anexo.url ? (
+                    <button
+                      key={anexo.id}
+                      type="button"
+                      onClick={() =>
+                        aoAbrirMidia?.({
+                          tipo: "video",
+                          url: anexo.url ?? "",
+                          nome: anexo.nome,
+                        })
+                      }
+                      className="block w-full max-w-[260px] rounded-md cursor-pointer"
+                    >
+                      <div className="relative overflow-hidden rounded-md bg-black">
+                        <video
+                          className="pointer-events-none max-h-64 w-full"
+                          muted
+                          playsInline
+                          preload="metadata"
+                        >
+                          <source src={anexo.url} />
+                        </video>
+                        <span className="absolute inset-0 flex items-center justify-center bg-black/20">
+                          <span className="flex h-10 w-10 items-center justify-center rounded-full bg-white/80">
+                            <Play className="h-4 w-4 text-foreground" />
+                          </span>
+                        </span>
+                      </div>
+                    </button>
+                  ) : (
+                    <div key={anexo.id} className="text-xs">
+                      Vídeo indisponível
+                    </div>
+                  )
+                )}
+                {anexosSticker.map((anexo) =>
+                  anexo.url ? (
+                    <img
+                      key={anexo.id}
+                      src={anexo.url}
+                      alt="Sticker"
+                      loading="lazy"
+                      className="max-h-40 w-full max-w-[180px] object-contain"
+                    />
+                  ) : (
+                    <div key={anexo.id} className="text-xs">
+                      Sticker indisponível
+                    </div>
+                  )
+                )}
+              </div>
+            )}
 
           {anexosAudio.length > 0 && (
             <div className="space-y-2">
@@ -3355,7 +3576,7 @@ function MensagemChat({
           {mostrarTexto && (
             <p
               className={cn(
-                "whitespace-pre-wrap break-words break-all",
+                "whitespace-pre-wrap break-words [hyphens:auto] [word-break:break-word]",
                 anexos.length > 0 || mensagem.resposta ? "mt-2" : undefined
               )}
             >

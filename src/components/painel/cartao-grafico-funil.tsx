@@ -57,7 +57,7 @@ export function CartaoGraficoFunil({ serie }: { serie: SerieGrafico }) {
             />
             <XAxis dataKey="valor" type="number" hide />
             <ChartTooltip content={<ChartTooltipContent />} cursor={false} />
-            <Bar dataKey="valor" layout="vertical" fill="var(--color-valor)" radius={4}>
+            <Bar dataKey="valor" fill="var(--color-valor)" radius={4}>
               <LabelList
                 dataKey="etapa"
                 position="insideLeft"

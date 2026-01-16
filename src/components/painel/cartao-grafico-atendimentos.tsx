@@ -117,7 +117,6 @@ export function CartaoGraficoAtendimentos({
                   labelFormatter={(value) =>
                     formatarTooltipLabel(String(value))
                   }
-                  indicator="dot"
                 />
               }
             />

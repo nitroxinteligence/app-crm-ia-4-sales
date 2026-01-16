@@ -1,5 +1,6 @@
-import { SelecionarProviderAgente } from "@/components/agentes/selecionar-provider-agente";
+import { redirect } from "next/navigation";
 
+// Página temporariamente desabilitada - redirecionar para painel
 export default function Page() {
-  return <SelecionarProviderAgente />;
+  redirect("/app/painel");
 }

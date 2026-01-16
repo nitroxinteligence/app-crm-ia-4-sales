@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { emitConversationUpdated } from "@/lib/pusher/events";
 
 export const runtime = "nodejs";
 
@@ -71,11 +72,22 @@ export async function POST(request: Request) {
       .eq("workspace_id", membership.workspace_id);
   }
 
-  await userClient
+  const { data: updatedConversation } = await userClient
     .from("conversations")
     .update({ status: "spam" })
     .eq("id", conversation.id)
-    .eq("workspace_id", membership.workspace_id);
+    .eq("workspace_id", membership.workspace_id)
+    .select("id, status, owner_id")
+    .maybeSingle();
+
+  if (updatedConversation) {
+    await emitConversationUpdated({
+      workspace_id: membership.workspace_id,
+      conversation_id: updatedConversation.id,
+      status: updatedConversation.status,
+      owner_id: updatedConversation.owner_id ?? null,
+    });
+  }
 
   return Response.json({ ok: true });
 }

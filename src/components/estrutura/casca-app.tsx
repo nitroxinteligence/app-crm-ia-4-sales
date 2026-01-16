@@ -6,8 +6,7 @@ import { BarraLateral } from "@/components/estrutura/barra-lateral";
 import { AvisoCreditosZerados } from "@/components/estrutura/aviso-creditos-zerados";
 import { AvisoOnboarding } from "@/components/estrutura/aviso-onboarding";
 import { GatePlanoTrial } from "@/components/estrutura/gate-plano-trial";
-import { ProvedorAutenticacao } from "@/lib/contexto-autenticacao";
-import { supabaseClient } from "@/lib/supabase/client";
+import { ProvedorAutenticacao, useAutenticacao } from "@/lib/contexto-autenticacao";
 
 const CHAVE_COLAPSO = "vpcrm:sidebar-colapsada";
 
@@ -21,47 +20,17 @@ export function CascaApp({ children }: { children: React.ReactNode }) {
 
 function LayoutInterno({ children }: { children: React.ReactNode }) {
   const [colapsada, setColapsada] = React.useState(true);
-  const [sessaoValida, setSessaoValida] = React.useState(false);
-  const [verificandoSessao, setVerificandoSessao] = React.useState(true);
+  const { session, carregandoSessao } = useAutenticacao();
   const router = useRouter();
   const pathname = usePathname();
   const modoFoco = pathname.startsWith("/app/agentes/novo");
   const modoInbox = pathname.startsWith("/app/inbox");
 
   React.useEffect(() => {
-    let ativo = true;
-
-    const validarSessao = async () => {
-      const { data } = await supabaseClient.auth.getSession();
-      if (!ativo) return;
-      if (!data.session) {
-        router.replace("/entrar");
-        return;
-      }
-      setSessaoValida(true);
-      setVerificandoSessao(false);
-    };
-
-    void validarSessao();
-
-    const {
-      data: { subscription },
-    } = supabaseClient.auth.onAuthStateChange((_event, currentSession) => {
-      if (!currentSession) {
-        setSessaoValida(false);
-        setVerificandoSessao(true);
-        router.replace("/entrar");
-        return;
-      }
-      setSessaoValida(true);
-      setVerificandoSessao(false);
-    });
-
-    return () => {
-      ativo = false;
-      subscription.unsubscribe();
-    };
-  }, [router]);
+    if (!carregandoSessao && !session) {
+      router.replace("/entrar");
+    }
+  }, [session, carregandoSessao, router]);
 
   React.useEffect(() => {
     const valor = window.localStorage.getItem(CHAVE_COLAPSO);
@@ -74,7 +43,7 @@ function LayoutInterno({ children }: { children: React.ReactNode }) {
     window.localStorage.setItem(CHAVE_COLAPSO, String(colapsada));
   }, [colapsada]);
 
-  if (verificandoSessao || !sessaoValida) {
+  if (carregandoSessao || !session) {
     return (
       <div className="flex min-h-screen items-center justify-center px-6 text-sm text-muted-foreground">
         Carregando...

@@ -1,8 +1,12 @@
 import "dotenv/config";
 import crypto from "crypto";
 import express from "express";
+import fs from "fs/promises";
+import path from "path";
 import QRCode from "qrcode";
+import Pusher from "pusher";
 import P from "pino";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import {
   BufferJSON,
   Browsers,
@@ -28,21 +32,470 @@ const API_KEY = process.env.BAILEYS_API_KEY ?? "";
 const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
 const SUPABASE_SERVICE_ROLE_KEY =
   process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const AGENTS_API_URL = process.env.AGENTS_API_URL ?? "";
+const AGENTS_API_KEY = process.env.AGENTS_API_KEY ?? "";
+const PUSHER_APP_ID = process.env.PUSHER_APP_ID ?? "";
+const PUSHER_KEY = process.env.PUSHER_KEY ?? "";
+const PUSHER_SECRET = process.env.PUSHER_SECRET ?? "";
+const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER ?? "";
+const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? "";
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID ?? "";
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY ?? "";
+const R2_ENDPOINT =
+  process.env.R2_ENDPOINT ??
+  (R2_ACCOUNT_ID
+    ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
+    : "");
+const R2_BUCKET_INBOX_ATTACHMENTS =
+  process.env.R2_BUCKET_INBOX_ATTACHMENTS ?? "ia-four-sales-crm";
+
+if (!AGENTS_API_URL) {
+  logger.warn("AGENTS_API_URL not configured. Agents notifications are disabled.");
+}
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+}
+if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_ENDPOINT) {
+  throw new Error("Missing R2 credentials");
 }
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+const r2Client = new S3Client({
+  region: "auto",
+  endpoint: R2_ENDPOINT,
+  credentials: {
+    accessKeyId: R2_ACCESS_KEY_ID,
+    secretAccessKey: R2_SECRET_ACCESS_KEY,
+  },
+});
+
+const buildR2Key = (prefix, key) => {
+  const cleanKey = `${key}`.replace(/^\/+/, "");
+  if (cleanKey.startsWith(`${prefix}/`)) {
+    return cleanKey;
+  }
+  return `${prefix}/${cleanKey}`;
+};
+
 const SESSION_TABLE = "whatsapp_baileys_sessions";
 const DAYS_HISTORY = 14;
 const RESTART_BACKOFF_MS = Number(process.env.BAILEYS_RESTART_BACKOFF_MS ?? 1200);
+const RESTART_MAX_BACKOFF_MS = Number(process.env.BAILEYS_RESTART_MAX_BACKOFF_MS ?? 30000);
+const BAILEYS_KEEP_ALIVE_MS = Number(process.env.BAILEYS_KEEP_ALIVE_MS ?? 20000);
+const BAILEYS_CONNECT_TIMEOUT_MS = Number(process.env.BAILEYS_CONNECT_TIMEOUT_MS ?? 60000);
+const BAILEYS_DEFAULT_QUERY_TIMEOUT_MS = Number(
+  process.env.BAILEYS_DEFAULT_QUERY_TIMEOUT_MS ?? 60000
+);
+const BAILEYS_RETRY_REQUEST_DELAY_MS = Number(
+  process.env.BAILEYS_RETRY_REQUEST_DELAY_MS ?? 5000
+);
+const BAILEYS_SYNC_FULL_HISTORY = process.env.BAILEYS_SYNC_FULL_HISTORY === "true";
+const BAILEYS_RESTART_MAX_ATTEMPTS = Number(
+  process.env.BAILEYS_RESTART_MAX_ATTEMPTS ?? 8
+);
+const BAILEYS_BAD_SESSION_THRESHOLD = Number(
+  process.env.BAILEYS_BAD_SESSION_THRESHOLD ?? 3
+);
+const BAILEYS_BAD_SESSION_WINDOW_MS = Number(
+  process.env.BAILEYS_BAD_SESSION_WINDOW_MS ?? 10 * 60 * 1000
+);
+const BAILEYS_RETRY_QUEUE_ENABLED =
+  process.env.BAILEYS_RETRY_QUEUE_ENABLED !== "false";
+const BAILEYS_RETRY_QUEUE_PATH =
+  process.env.BAILEYS_RETRY_QUEUE_PATH ?? "logs/baileys-retry-queue.jsonl";
+const BAILEYS_RETRY_QUEUE_FLUSH_INTERVAL_MS = Number(
+  process.env.BAILEYS_RETRY_QUEUE_FLUSH_INTERVAL_MS ?? 5000
+);
+const BAILEYS_RETRY_QUEUE_MAX = Number(
+  process.env.BAILEYS_RETRY_QUEUE_MAX ?? 5000
+);
+const BAILEYS_RETRY_QUEUE_COOLDOWN_MS = Number(
+  process.env.BAILEYS_RETRY_QUEUE_COOLDOWN_MS ?? 15000
+);
 
 const sessions = new Map();
-const restartTimers = new Map();
+const restartState = new Map();
+const badSessionState = new Map();
+const retryQueue = [];
+const retryQueuePath = path.resolve(process.cwd(), BAILEYS_RETRY_QUEUE_PATH);
+let retryQueueFlushRunning = false;
+let retryQueueInterval = null;
+let dbUnavailableUntil = 0;
+let pusherServer = null;
+let pusherWarned = false;
+
+const workspaceChannel = (workspaceId) => `private-workspace-${workspaceId}`;
+const conversationChannel = (conversationId) =>
+  `private-conversation-${conversationId}`;
+
+const getPusherServer = () => {
+  if (!PUSHER_APP_ID || !PUSHER_KEY || !PUSHER_SECRET || !PUSHER_CLUSTER) {
+    if (!pusherWarned) {
+      pusherWarned = true;
+      logger.warn("Pusher envs ausentes; realtime do inbox sera desabilitado.");
+    }
+    return null;
+  }
+  if (!pusherServer) {
+    pusherServer = new Pusher({
+      appId: PUSHER_APP_ID,
+      key: PUSHER_KEY,
+      secret: PUSHER_SECRET,
+      cluster: PUSHER_CLUSTER,
+      useTLS: true,
+    });
+  }
+  return pusherServer;
+};
+
+const triggerPusher = async (channel, event, payload) => {
+  const pusher = getPusherServer();
+  if (!pusher) return;
+  try {
+    await pusher.trigger(channel, event, payload);
+  } catch (error) {
+    logger.warn({ err: error, event, channel }, "Falha ao disparar Pusher");
+  }
+};
+
+const emitMessageCreated = async ({ workspaceId, conversationId, message }) => {
+  await triggerPusher(conversationChannel(conversationId), "message:created", {
+    event_id: crypto.randomUUID(),
+    workspace_id: workspaceId,
+    conversation_id: conversationId,
+    message,
+  });
+};
+
+const emitConversationUpdated = async ({
+  workspaceId,
+  conversationId,
+  status,
+  lastMessage,
+  lastAt,
+  tags,
+}) => {
+  await triggerPusher(workspaceChannel(workspaceId), "conversation:updated", {
+    event_id: crypto.randomUUID(),
+    workspace_id: workspaceId,
+    conversation_id: conversationId,
+    ...(status ? { status } : {}),
+    ...(typeof lastMessage === "string" ? { ultima_mensagem: lastMessage } : {}),
+    ...(lastAt ? { ultima_mensagem_em: lastAt } : {}),
+    ...(Array.isArray(tags) ? { tags } : {}),
+  });
+};
+
+const emitAttachmentCreated = async ({
+  workspaceId,
+  conversationId,
+  messageId,
+  attachment,
+}) => {
+  await triggerPusher(conversationChannel(conversationId), "attachment:created", {
+    event_id: crypto.randomUUID(),
+    workspace_id: workspaceId,
+    conversation_id: conversationId,
+    message_id: messageId,
+    attachment,
+  });
+};
+
+const resolveErrorMessage = (error) => {
+  if (!error) return "";
+  if (typeof error === "string") return error;
+  if (error instanceof Error && error.message) return error.message;
+  return String(error);
+};
+
+const isTransientDbError = (error) => {
+  if (!error) return false;
+  const cause = error?.cause;
+  const message = resolveErrorMessage(error).toLowerCase();
+  const causeMessage = resolveErrorMessage(cause).toLowerCase();
+  const combinedMessage = `${message} ${causeMessage}`;
+  const code = error?.code || cause?.code;
+  const status = error?.status || cause?.status;
+
+  if (typeof status === "number" && status >= 500) return true;
+  if (
+    typeof code === "string" &&
+    [
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "ECONNREFUSED",
+      "ETIMEDOUT",
+      "ECONNRESET",
+      "UND_ERR_CONNECT_TIMEOUT",
+    ].includes(code)
+  ) {
+    return true;
+  }
+  return [
+    "enotfound",
+    "eai_again",
+    "econnrefused",
+    "etimedout",
+    "econnreset",
+    "fetch failed",
+    "network",
+    "timeout",
+    "socket hang up",
+    "tls",
+  ].some((token) => combinedMessage.includes(token));
+};
+
+const buildSupabaseError = (error, label) => {
+  const detail =
+    error && typeof error.message === "string" ? `: ${error.message}` : "";
+  const err = new Error(`${label}${detail}`);
+  err.cause = error;
+  return err;
+};
+
+const throwIfSupabaseError = (error, label) => {
+  if (error) {
+    throw buildSupabaseError(error, label);
+  }
+};
+
+const markDbUnavailable = () => {
+  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
+  dbUnavailableUntil = Date.now() + BAILEYS_RETRY_QUEUE_COOLDOWN_MS;
+};
+
+const isDbUnavailable = () =>
+  BAILEYS_RETRY_QUEUE_ENABLED && Date.now() < dbUnavailableUntil;
+
+const serializeRetryQueueItem = (item) =>
+  JSON.stringify(item, BufferJSON.replacer);
+
+const parseRetryQueueItem = (line) => JSON.parse(line, BufferJSON.reviver);
+
+const ensureRetryQueueDir = async () => {
+  await fs.mkdir(path.dirname(retryQueuePath), { recursive: true });
+};
+
+const loadRetryQueueFromDisk = async () => {
+  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
+  try {
+    const content = await fs.readFile(retryQueuePath, "utf8");
+    const lines = content.split("\n").filter(Boolean);
+    for (const line of lines) {
+      try {
+        const item = parseRetryQueueItem(line);
+        if (item?.integrationAccountId && item?.message) {
+          retryQueue.push(item);
+        }
+      } catch (error) {
+        logger.warn({ err: error }, "Falha ao ler item da fila");
+      }
+    }
+    if (retryQueue.length) {
+      logger.info(
+        { total: retryQueue.length },
+        "Fila de retry carregada do disco"
+      );
+    }
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      logger.warn({ err: error }, "Falha ao carregar fila de retry");
+    }
+  }
+};
+
+const writeRetryQueueToDisk = async () => {
+  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
+  await ensureRetryQueueDir();
+  const content = retryQueue.length
+    ? `${retryQueue.map(serializeRetryQueueItem).join("\n")}\n`
+    : "";
+  await fs.writeFile(retryQueuePath, content, "utf8");
+};
+
+const appendRetryQueueItem = async (item) => {
+  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
+  await ensureRetryQueueDir();
+  await fs.appendFile(
+    retryQueuePath,
+    `${serializeRetryQueueItem(item)}\n`,
+    "utf8"
+  );
+};
+
+const enqueueRetryMessage = async ({ integrationAccountId, message, source }) => {
+  if (!BAILEYS_RETRY_QUEUE_ENABLED) return false;
+  const item = {
+    id: crypto.randomUUID(),
+    integrationAccountId,
+    source,
+    message,
+    queued_at: new Date().toISOString(),
+  };
+  let dropped = false;
+  if (retryQueue.length >= BAILEYS_RETRY_QUEUE_MAX) {
+    retryQueue.shift();
+    dropped = true;
+    logger.warn(
+      { max: BAILEYS_RETRY_QUEUE_MAX },
+      "Fila de retry cheia; descartando mensagem mais antiga"
+    );
+  }
+  retryQueue.push(item);
+  try {
+    if (dropped) {
+      await writeRetryQueueToDisk();
+    } else {
+      await appendRetryQueueItem(item);
+    }
+  } catch (error) {
+    logger.warn({ err: error }, "Falha ao persistir fila de retry");
+  }
+  return true;
+};
+
+const startRetryQueueInterval = () => {
+  if (!BAILEYS_RETRY_QUEUE_ENABLED || retryQueueInterval) return;
+  retryQueueInterval = setInterval(() => {
+    void flushRetryQueue();
+  }, BAILEYS_RETRY_QUEUE_FLUSH_INTERVAL_MS);
+};
+
+const clearRestartState = (integrationAccountId) => {
+  const state = restartState.get(integrationAccountId);
+  if (state?.timer) clearTimeout(state.timer);
+  restartState.delete(integrationAccountId);
+};
+
+const scheduleRestart = ({
+  integrationAccountId,
+  workspaceId,
+  forceNew,
+  delayOverrideMs,
+  errorLabel,
+}) => {
+  const current = restartState.get(integrationAccountId);
+  if (current?.timer) return;
+  const attempts = (current?.attempts ?? 0) + 1;
+  if (attempts > BAILEYS_RESTART_MAX_ATTEMPTS) {
+    logger.warn(
+      { integrationAccountId, attempts },
+      "Muitas tentativas de reconexao; aguardando acao manual"
+    );
+    clearRestartState(integrationAccountId);
+    void updateSessionRow(integrationAccountId, {
+      status: "desconectado",
+      last_qr: null,
+    });
+    void updateIntegrationAccount(integrationAccountId, {
+      status: "desconectado",
+      sync_last_error: errorLabel || "Baileys: excesso de tentativas",
+    });
+    return;
+  }
+  const delay =
+    typeof delayOverrideMs === "number"
+      ? delayOverrideMs
+      : Math.min(RESTART_BACKOFF_MS * 2 ** (attempts - 1), RESTART_MAX_BACKOFF_MS);
+  const timer = setTimeout(async () => {
+    clearRestartState(integrationAccountId);
+    if (sessions.has(integrationAccountId)) return;
+    try {
+      await createSession({
+        integrationAccountId,
+        workspaceId,
+        forceNew,
+      });
+    } catch (error) {
+      logger.warn({ err: error }, "Falha ao reiniciar sessao");
+    }
+  }, delay);
+  restartState.set(integrationAccountId, {
+    attempts,
+    firstAt: current?.firstAt ?? Date.now(),
+    timer,
+  });
+};
+
+const registerBadSession = (integrationAccountId) => {
+  const now = Date.now();
+  const current = badSessionState.get(integrationAccountId);
+  if (!current || now - current.firstAt > BAILEYS_BAD_SESSION_WINDOW_MS) {
+    badSessionState.set(integrationAccountId, { count: 1, firstAt: now });
+    return false;
+  }
+  const count = current.count + 1;
+  badSessionState.set(integrationAccountId, {
+    count,
+    firstAt: current.firstAt,
+  });
+  return count >= BAILEYS_BAD_SESSION_THRESHOLD;
+};
+
+const clearBadSession = (integrationAccountId) => {
+  badSessionState.delete(integrationAccountId);
+};
+
+const notifyAgents = async ({
+  workspaceId,
+  integrationAccountId,
+  conversationId,
+  messageRowId,
+  messageExternalId,
+  text,
+  isGroup,
+}) => {
+  if (!AGENTS_API_URL) return;
+  try {
+    const headers = { "Content-Type": "application/json" };
+    if (AGENTS_API_KEY) {
+      headers["X-Agents-Key"] = AGENTS_API_KEY;
+    }
+    const response = await fetch(`${AGENTS_API_URL.replace(/\/$/, "")}/integrations/whatsapp-baileys/notify`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        integration_account_id: integrationAccountId,
+        conversation_id: conversationId,
+        message_row_id: messageRowId ?? null,
+        message_external_id: messageExternalId ?? null,
+        text: text ?? null,
+        is_group: Boolean(isGroup),
+      }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      logger.warn(
+        {
+          status: response.status,
+          workspaceId,
+          integrationAccountId,
+          conversationId,
+          detail: detail?.slice(0, 300),
+        },
+        "Agents notify request failed"
+      );
+    } else {
+      logger.info(
+        {
+          workspaceId,
+          integrationAccountId,
+          conversationId,
+          isGroup: Boolean(isGroup),
+          textChars: (text ?? "").length,
+        },
+        "Agents notified"
+      );
+    }
+  } catch (error) {
+    logger.warn({ err: error }, "Failed to notify agents");
+  }
+};
 
 const requireApiKey = (req, res, next) => {
   if (!API_KEY) return next();
@@ -508,15 +961,19 @@ const uploadAttachment = async ({
     safeName.endsWith(fileExt) ? "" : fileExt
   }`;
 
-  const { error } = await supabase.storage
-    .from("inbox-attachments")
-    .upload(storagePath, buffer, {
-      contentType: contentType || "application/octet-stream",
-      upsert: false,
-    });
-
-  if (error) {
-    throw new Error(error.message);
+  try {
+    const objectKey = buildR2Key("inbox-attachments", storagePath);
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET_INBOX_ATTACHMENTS,
+        Key: objectKey,
+        Body: buffer,
+        ContentType: contentType || "application/octet-stream",
+      })
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Falha ao subir arquivo";
+    throw new Error(detail);
   }
 
   return storagePath;
@@ -543,11 +1000,12 @@ const upsertLead = async ({
     payload.avatar_url = avatarUrl;
   }
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("leads")
     .upsert(payload, { onConflict: "workspace_id,whatsapp_wa_id" })
     .select("id")
     .maybeSingle();
+  throwIfSupabaseError(error, "Falha ao salvar lead");
 
   if (!data?.id) {
     throw new Error("Failed to upsert lead");
@@ -573,7 +1031,7 @@ const upsertConversation = async ({
     ultima_mensagem_em: lastAt,
   };
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("conversations")
     .select("id")
     .eq("workspace_id", workspaceId)
@@ -582,14 +1040,16 @@ const upsertConversation = async ({
     .order("ultima_mensagem_em", { ascending: false })
     .limit(1)
     .maybeSingle();
+  throwIfSupabaseError(existingError, "Falha ao consultar conversa");
 
   if (existing?.id) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("conversations")
       .update(payload)
       .eq("id", existing.id)
       .select("id")
       .maybeSingle();
+    throwIfSupabaseError(error, "Falha ao atualizar conversa");
 
     if (!data?.id) {
       throw new Error("Failed to update conversation");
@@ -598,11 +1058,12 @@ const upsertConversation = async ({
     return data.id;
   }
 
-  const { data: inserted } = await supabase
+  const { data: inserted, error } = await supabase
     .from("conversations")
     .insert(payload)
     .select("id")
     .maybeSingle();
+  throwIfSupabaseError(error, "Falha ao criar conversa");
 
   if (!inserted?.id) {
     throw new Error("Failed to insert conversation");
@@ -629,11 +1090,29 @@ const upsertMessage = async ({
   quotedSenderId,
   quotedSenderName,
 }) => {
+  let authorToSave = author;
+  let isNew = true;
+  if (messageId) {
+    const existing = await supabase
+      .from("messages")
+      .select("id, autor")
+      .eq("workspace_id", workspaceId)
+      .eq("whatsapp_message_id", messageId)
+      .maybeSingle();
+    throwIfSupabaseError(existing.error, "Falha ao verificar mensagem");
+    if (existing.data?.id) {
+      isNew = false;
+    }
+    const existingAuthor = existing.data?.autor ?? null;
+    if (existingAuthor === "agente") {
+      authorToSave = "agente";
+    }
+  }
   const payload = {
     workspace_id: workspaceId,
     conversation_id: conversationId,
     whatsapp_message_id: messageId,
-    autor: author,
+    autor: authorToSave,
     tipo: messageType,
     conteudo: content,
     created_at: createdAt,
@@ -648,18 +1127,23 @@ const upsertMessage = async ({
     quoted_sender_nome: quotedSenderName || null,
   };
 
-  await supabase
+  const { error: upsertError } = await supabase
     .from("messages")
     .upsert(payload, { onConflict: "workspace_id,whatsapp_message_id" });
+  throwIfSupabaseError(upsertError, "Falha ao salvar mensagem");
 
-  const { data } = await supabase
+  const { data, error: selectError } = await supabase
     .from("messages")
     .select("id")
     .eq("workspace_id", workspaceId)
     .eq("whatsapp_message_id", messageId)
     .maybeSingle();
+  throwIfSupabaseError(selectError, "Falha ao buscar id da mensagem");
 
-  return data?.id ?? null;
+  return {
+    id: data?.id ?? null,
+    isNew,
+  };
 };
 
 const insertAttachment = async ({
@@ -669,13 +1153,19 @@ const insertAttachment = async ({
   tipo,
   tamanhoBytes,
 }) => {
-  await supabase.from("attachments").insert({
-    workspace_id: workspaceId,
-    message_id: messageId,
-    storage_path: storagePath,
-    tipo,
-    tamanho_bytes: tamanhoBytes ?? null,
-  });
+  const { data, error } = await supabase
+    .from("attachments")
+    .insert({
+      workspace_id: workspaceId,
+      message_id: messageId,
+      storage_path: storagePath,
+      tipo,
+      tamanho_bytes: tamanhoBytes ?? null,
+    })
+    .select("id")
+    .maybeSingle();
+  throwIfSupabaseError(error, "Falha ao salvar anexo");
+  return data?.id ?? null;
 };
 
 const unwrapContent = (container) => {
@@ -1536,171 +2026,243 @@ const shouldSyncMessage = (message) => {
   return getTimestampMs(message) >= cutoff;
 };
 
-const processMessage = async ({ message, session, chatMap }) => {
+const processMessage = async ({
+  message,
+  session,
+  chatMap,
+  source,
+  queueOnDbFail = true,
+}) => {
   if (!message?.key?.remoteJid) return;
 
   const remoteJid = message.key.remoteJid;
   if (session?.blocked || session?.status === "desconectado") return;
   const normalizedJid = jidNormalizedUser(remoteJid) || remoteJid;
   if (isJidStatusBroadcast(normalizedJid)) return;
-  const chatStore = session.chatMap ?? chatMap;
-  const chatMeta = chatStore?.get(remoteJid);
-  const identity = await normalizeLeadIdentity({ remoteJid, session });
-  if (!identity?.waId) return;
-  const waId = identity.waId;
-  const phone = identity.phone ?? null;
-  const displayName = await resolveChatName({
-    remoteJid,
-    session,
-    chatMeta,
-    message,
-  });
-  const avatarUrl = await resolveAvatarUrl({ remoteJid, session, chatMeta });
 
-  const payload = extractMessagePayload(message);
-  const createdAt = new Date(getTimestampMs(message)).toISOString();
-  const normalizedText = await formatMentions({
-    text: payload.texto,
-    mentions: payload.mentions,
-    session,
-    remoteJid,
-  });
-
-  const leadId = await upsertLead({
-    workspaceId: session.workspaceId,
-    waId,
-    name: displayName,
-    phone,
-    avatarUrl,
-  });
-
-  const conversationId = await upsertConversation({
-    workspaceId: session.workspaceId,
-    leadId,
-    integrationAccountId: session.integrationAccountId,
-    lastMessage: normalizedText,
-    lastAt: createdAt,
-  });
-
-  const author = message.key.fromMe ? "equipe" : "contato";
-  let senderId = null;
-  let senderPhone = null;
-  let senderName = null;
-  let senderAvatarUrl = null;
-
-  if (message.key.fromMe) {
-    senderId = session.numero ?? null;
-    senderName = session.nome ?? null;
-    if (!senderName && message.pushName) {
-      senderName = message.pushName;
-    }
-    senderAvatarUrl = session.selfAvatarUrl ?? null;
-  }
-
-  if (!message.key.fromMe && isGroupJid(remoteJid) && message.key.participant) {
-    senderId = message.key.participant;
-    await ensureGroupMetadata({ session, groupJid: remoteJid });
-    senderPhone = session.participantPhoneMap?.get(senderId) ?? null;
-    senderName = await resolveParticipantName({
-      participantJid: senderId,
-      session,
-      phone: senderPhone,
-      fallbackName: message.pushName ?? null,
+  if (queueOnDbFail && isDbUnavailable()) {
+    await enqueueRetryMessage({
+      integrationAccountId: session.integrationAccountId,
+      message,
+      source,
     });
-    senderAvatarUrl = await resolveAvatarUrl({
-      remoteJid: message.key.participant,
+    return;
+  }
+
+  try {
+    const chatStore = session.chatMap ?? chatMap;
+    const chatMeta = chatStore?.get(remoteJid);
+    const identity = await normalizeLeadIdentity({ remoteJid, session });
+    if (!identity?.waId) return;
+    const waId = identity.waId;
+    const phone = identity.phone ?? null;
+    const displayName = await resolveChatName({
+      remoteJid,
       session,
-      chatMeta: session?.contactMap?.get(message.key.participant),
-      phone: senderPhone,
+      chatMeta,
+      message,
     });
-  }
+    const avatarUrl = await resolveAvatarUrl({ remoteJid, session, chatMeta });
 
-  const quoted = payload.quoted ?? null;
-  const quotedSenderId = quoted?.senderId ?? null;
-  let quotedSenderName = null;
-  let quotedAuthor = null;
-  if (quotedSenderId) {
-    const normalizedQuoted = jidNormalizedUser(quotedSenderId) || quotedSenderId;
-    const normalizedSelf = session.numero
-      ? jidNormalizedUser(session.numero) || session.numero
-      : null;
-    quotedAuthor =
-      normalizedSelf && normalizedQuoted === normalizedSelf ? "equipe" : "contato";
-    if (isGroupJid(remoteJid)) {
-      const quotedPhone = await getParticipantPhoneFromGroup({
-        session,
-        groupJid: remoteJid,
-        participantJid: quotedSenderId,
-      });
-      quotedSenderName = await resolveParticipantName({
-        participantJid: quotedSenderId,
-        session,
-        phone: quotedPhone,
-        fallbackName: null,
-      });
-    } else if (quotedAuthor === "equipe") {
-      quotedSenderName = session.nome ?? null;
-    } else {
-      quotedSenderName = displayName ?? null;
+    const payload = extractMessagePayload(message);
+    const createdAt = new Date(getTimestampMs(message)).toISOString();
+    const normalizedText = await formatMentions({
+      text: payload.texto,
+      mentions: payload.mentions,
+      session,
+      remoteJid,
+    });
+
+    const leadId = await upsertLead({
+      workspaceId: session.workspaceId,
+      waId,
+      name: displayName,
+      phone,
+      avatarUrl,
+    });
+
+    const conversationId = await upsertConversation({
+      workspaceId: session.workspaceId,
+      leadId,
+      integrationAccountId: session.integrationAccountId,
+      lastMessage: normalizedText,
+      lastAt: createdAt,
+    });
+
+    const author = message.key.fromMe ? "equipe" : "contato";
+    let senderId = null;
+    let senderPhone = null;
+    let senderName = null;
+    let senderAvatarUrl = null;
+
+    if (message.key.fromMe) {
+      senderId = session.numero ?? null;
+      senderName = session.nome ?? null;
+      if (!senderName && message.pushName) {
+        senderName = message.pushName;
+      }
+      senderAvatarUrl = session.selfAvatarUrl ?? null;
     }
-  }
 
-  const messageId = await upsertMessage({
-    workspaceId: session.workspaceId,
-    conversationId,
-    messageId: message.key.id,
-    author,
-    messageType: payload.tipo,
-    content: normalizedText,
-    createdAt,
-    senderId,
-    senderName,
-    senderAvatarUrl,
-    quotedMessageId: quoted?.messageId ?? null,
-    quotedContent: quoted?.texto ?? null,
-    quotedType: quoted?.tipo ?? null,
-    quotedAuthor,
-    quotedSenderId,
-    quotedSenderName,
-  });
-
-  if (!messageId || !payload.media || payload.viewOnce) return;
-
-  const messageForDownload = payload.content
-    ? { ...message, message: payload.content }
-    : message;
-
-  const existingAttachments = await supabase
-    .from("attachments")
-    .select("id")
-    .eq("message_id", messageId)
-    .limit(1);
-
-  if ((existingAttachments.data ?? []).length > 0) return;
-
-  const buffer = await downloadMediaMessage(
-    messageForDownload,
-    "buffer",
-    {},
-    {
-      logger,
-      reuploadRequest: session.sock.updateMediaMessage,
+    if (!message.key.fromMe && isGroupJid(remoteJid) && message.key.participant) {
+      senderId = message.key.participant;
+      await ensureGroupMetadata({ session, groupJid: remoteJid });
+      senderPhone = session.participantPhoneMap?.get(senderId) ?? null;
+      senderName = await resolveParticipantName({
+        participantJid: senderId,
+        session,
+        phone: senderPhone,
+        fallbackName: message.pushName ?? null,
+      });
+      senderAvatarUrl = await resolveAvatarUrl({
+        remoteJid: message.key.participant,
+        session,
+        chatMeta: session?.contactMap?.get(message.key.participant),
+        phone: senderPhone,
+      });
     }
-  );
 
-  const storagePath = await uploadAttachment({
-    buffer,
-    workspaceId: session.workspaceId,
-    conversationId,
-    filename: payload.media.fileName || "arquivo",
-    contentType: payload.media.mimetype || "application/octet-stream",
-  });
+    const quoted = payload.quoted ?? null;
+    const quotedSenderId = quoted?.senderId ?? null;
+    let quotedSenderName = null;
+    let quotedAuthor = null;
+    if (quotedSenderId) {
+      const normalizedQuoted = jidNormalizedUser(quotedSenderId) || quotedSenderId;
+      const normalizedSelf = session.numero
+        ? jidNormalizedUser(session.numero) || session.numero
+        : null;
+      quotedAuthor =
+        normalizedSelf && normalizedQuoted === normalizedSelf ? "equipe" : "contato";
+      if (isGroupJid(remoteJid)) {
+        const quotedPhone = await getParticipantPhoneFromGroup({
+          session,
+          groupJid: remoteJid,
+          participantJid: quotedSenderId,
+        });
+        quotedSenderName = await resolveParticipantName({
+          participantJid: quotedSenderId,
+          session,
+          phone: quotedPhone,
+          fallbackName: null,
+        });
+      } else if (quotedAuthor === "equipe") {
+        quotedSenderName = session.nome ?? null;
+      } else {
+        quotedSenderName = displayName ?? null;
+      }
+    }
 
-  await insertAttachment({
-    workspaceId: session.workspaceId,
-    messageId,
-    storagePath,
-    tipo:
+    const messageResult = await upsertMessage({
+      workspaceId: session.workspaceId,
+      conversationId,
+      messageId: message.key.id,
+      author,
+      messageType: payload.tipo,
+      content: normalizedText,
+      createdAt,
+      senderId,
+      senderName,
+      senderAvatarUrl,
+      quotedMessageId: quoted?.messageId ?? null,
+      quotedContent: quoted?.texto ?? null,
+      quotedType: quoted?.tipo ?? null,
+      quotedAuthor,
+      quotedSenderId,
+      quotedSenderName,
+    });
+    const messageId = messageResult?.id ?? null;
+
+    const createdAtMs = Date.parse(createdAt);
+    const shouldEmitRealtime =
+      source === "realtime" ||
+      (Number.isFinite(createdAtMs) &&
+        Date.now() - createdAtMs < 2 * 60 * 1000);
+    const shouldNotifyAgents =
+      author === "contato" &&
+      (source === "realtime" ||
+        (Number.isFinite(createdAtMs) &&
+          Date.now() - createdAtMs < 2 * 60 * 1000));
+
+    if (shouldNotifyAgents) {
+      void notifyAgents({
+        workspaceId: session.workspaceId,
+        integrationAccountId: session.integrationAccountId,
+        conversationId,
+        messageRowId: messageId,
+        messageExternalId: message.key.id,
+        text: normalizedText,
+        isGroup: isGroupJid(remoteJid),
+      });
+    }
+
+    if (shouldEmitRealtime && messageId && messageResult?.isNew) {
+      void emitMessageCreated({
+        workspaceId: session.workspaceId,
+        conversationId,
+        message: {
+          id: messageId,
+          autor: author,
+          tipo: payload.tipo,
+          conteudo: normalizedText ?? null,
+          created_at: createdAt,
+          interno: false,
+          sender_id: senderId || null,
+          sender_nome: senderName || null,
+          sender_avatar_url: senderAvatarUrl || null,
+          quoted_message_id: quoted?.messageId ?? null,
+          quoted_autor: quotedAuthor ?? null,
+          quoted_sender_id: quotedSenderId ?? null,
+          quoted_sender_nome: quotedSenderName ?? null,
+          quoted_tipo: quoted?.tipo ?? null,
+          quoted_conteudo: quoted?.texto ?? null,
+        },
+      });
+      void emitConversationUpdated({
+        workspaceId: session.workspaceId,
+        conversationId,
+        status: "aberta",
+        lastMessage: normalizedText,
+        lastAt: createdAt,
+      });
+    }
+
+    if (!messageId || !payload.media || payload.viewOnce) return;
+
+    const messageForDownload = payload.content
+      ? { ...message, message: payload.content }
+      : message;
+
+    const existingAttachments = await supabase
+      .from("attachments")
+      .select("id")
+      .eq("message_id", messageId)
+      .limit(1);
+    throwIfSupabaseError(
+      existingAttachments.error,
+      "Falha ao checar anexos"
+    );
+
+    if ((existingAttachments.data ?? []).length > 0) return;
+
+    const buffer = await downloadMediaMessage(
+      messageForDownload,
+      "buffer",
+      {},
+      {
+        logger,
+        reuploadRequest: session.sock.updateMediaMessage,
+      }
+    );
+
+    const storagePath = await uploadAttachment({
+      buffer,
+      workspaceId: session.workspaceId,
+      conversationId,
+      filename: payload.media.fileName || "arquivo",
+      contentType: payload.media.mimetype || "application/octet-stream",
+    });
+
+    const attachmentType =
       payload.media.type === "audio"
         ? "audio"
         : payload.media.type === "document"
@@ -1709,9 +2271,87 @@ const processMessage = async ({ message, session, chatMap }) => {
             ? "video"
             : payload.media.type === "sticker"
               ? "sticker"
-              : "imagem",
-    tamanhoBytes: buffer?.length ?? null,
-  });
+              : "imagem";
+    const attachmentId = await insertAttachment({
+      workspaceId: session.workspaceId,
+      messageId,
+      storagePath,
+      tipo: attachmentType,
+      tamanhoBytes: buffer?.length ?? null,
+    });
+
+    if (shouldEmitRealtime && attachmentId) {
+      void emitAttachmentCreated({
+        workspaceId: session.workspaceId,
+        conversationId,
+        messageId,
+        attachment: {
+          id: attachmentId,
+          storage_path: storagePath,
+          tipo: attachmentType,
+          tamanho_bytes: buffer?.length ?? null,
+        },
+      });
+    }
+  } catch (error) {
+    if (queueOnDbFail && isTransientDbError(error)) {
+      markDbUnavailable();
+      await enqueueRetryMessage({
+        integrationAccountId: session.integrationAccountId,
+        message,
+        source,
+      });
+      logger.warn({ err: error }, "Supabase indisponivel; mensagem enfileirada");
+      return;
+    }
+    throw error;
+  }
+};
+
+const flushRetryQueue = async () => {
+  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
+  if (retryQueueFlushRunning) return;
+  if (!retryQueue.length) return;
+  retryQueueFlushRunning = true;
+  let processed = 0;
+  try {
+    while (retryQueue.length) {
+      const item = retryQueue[0];
+      const session = sessions.get(item.integrationAccountId);
+      if (!session || session.blocked || session.status === "desconectado") {
+        break;
+      }
+      try {
+        await processMessage({
+          message: item.message,
+          session,
+          chatMap: session.chatMap ?? buildChatMap(),
+          source: item.source ?? "realtime",
+          queueOnDbFail: false,
+        });
+        retryQueue.shift();
+        processed += 1;
+      } catch (error) {
+        if (isTransientDbError(error)) {
+          markDbUnavailable();
+          break;
+        }
+        retryQueue.shift();
+        processed += 1;
+        logger.error(
+          { err: error, integrationAccountId: item.integrationAccountId },
+          "Falha ao reprocessar mensagem da fila"
+        );
+      }
+    }
+    if (processed > 0) {
+      await writeRetryQueueToDisk();
+    }
+  } catch (error) {
+    logger.warn({ err: error }, "Falha ao processar fila de retry");
+  } finally {
+    retryQueueFlushRunning = false;
+  }
 };
 
 const createSession = async ({ integrationAccountId, workspaceId, forceNew }) => {
@@ -1813,7 +2453,11 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
     logger,
     browser: Browsers.appropriate("Desktop"),
     printQRInTerminal: false,
-    syncFullHistory: true,
+    syncFullHistory: BAILEYS_SYNC_FULL_HISTORY,
+    keepAliveIntervalMs: BAILEYS_KEEP_ALIVE_MS,
+    connectTimeoutMs: BAILEYS_CONNECT_TIMEOUT_MS,
+    defaultQueryTimeoutMs: BAILEYS_DEFAULT_QUERY_TIMEOUT_MS,
+    retryRequestDelayMs: BAILEYS_RETRY_REQUEST_DELAY_MS,
   });
 
   const session = {
@@ -1864,11 +2508,9 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
     }
 
     if (connection === "open") {
-      const timer = restartTimers.get(integrationAccountId);
-      if (timer) {
-        clearTimeout(timer);
-        restartTimers.delete(integrationAccountId);
-      }
+      clearRestartState(integrationAccountId);
+      clearBadSession(integrationAccountId);
+      logger.info({ integrationAccountId }, "Conexao aberta");
       const numero = sock.user?.id ? normalizeJid(sock.user.id) : null;
       session.status = "conectado";
       session.qr = null;
@@ -1944,6 +2586,9 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
           });
         }, 9000);
       }
+      if (retryQueue.length) {
+        void flushRetryQueue();
+      }
     }
 
     if (connection === "close") {
@@ -1961,16 +2606,17 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
 
       const errorLabel = reason ? `Baileys: ${reason}` : `Baileys: ${message}`;
       const loggedOut = statusCode === DisconnectReason.loggedOut;
+      const isBadSession = statusCode === DisconnectReason.badSession;
+      const restartRequired = statusCode === DisconnectReason.restartRequired;
+      const shouldForceReauth =
+        isBadSession && registerBadSession(integrationAccountId);
 
       if (loggedOut) {
         session.status = "desconectado";
         session.qr = null;
         sessions.delete(integrationAccountId);
-        const timer = restartTimers.get(integrationAccountId);
-        if (timer) {
-          clearTimeout(timer);
-          restartTimers.delete(integrationAccountId);
-        }
+        clearRestartState(integrationAccountId);
+        clearBadSession(integrationAccountId);
         await updateSessionRow(integrationAccountId, {
           status: "desconectado",
           last_qr: null,
@@ -1979,6 +2625,23 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
         await updateIntegrationAccount(integrationAccountId, {
           status: "desconectado",
           sync_last_error: errorLabel,
+        });
+        return;
+      }
+
+      if (shouldForceReauth) {
+        session.status = "desconectado";
+        session.qr = null;
+        sessions.delete(integrationAccountId);
+        clearRestartState(integrationAccountId);
+        await updateSessionRow(integrationAccountId, {
+          status: "desconectado",
+          last_qr: null,
+          auth_state: null,
+        });
+        await updateIntegrationAccount(integrationAccountId, {
+          status: "desconectado",
+          sync_last_error: `${errorLabel} - reautenticacao necessaria`,
         });
         return;
       }
@@ -1997,22 +2660,13 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
         sync_last_error: errorLabel,
       });
 
-      if (!restartTimers.has(integrationAccountId)) {
-        const timer = setTimeout(async () => {
-          restartTimers.delete(integrationAccountId);
-          if (sessions.has(integrationAccountId)) return;
-          try {
-            await createSession({
-              integrationAccountId,
-              workspaceId: reconnectWorkspaceId,
-              forceNew: false,
-            });
-          } catch (error) {
-            logger.warn({ err: error }, "Failed to restart session");
-          }
-        }, RESTART_BACKOFF_MS);
-        restartTimers.set(integrationAccountId, timer);
-      }
+      scheduleRestart({
+        integrationAccountId,
+        workspaceId: reconnectWorkspaceId,
+        forceNew: false,
+        delayOverrideMs: restartRequired ? 250 : undefined,
+        errorLabel,
+      });
     }
   });
 
@@ -2069,7 +2723,7 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
         seenChats.add(chatId);
       }
       try {
-        await processMessage({ message, session, chatMap });
+        await processMessage({ message, session, chatMap, source: "history" });
       } catch (error) {
         logger.error({ err: error }, "Failed to process history message");
       } finally {
@@ -2099,7 +2753,7 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
     const chatMap = session.chatMap ?? buildChatMap();
     for (const message of messages ?? []) {
       try {
-        await processMessage({ message, session, chatMap });
+        await processMessage({ message, session, chatMap, source: "realtime" });
       } catch (error) {
         logger.error({ err: error }, "Failed to process message");
       }
@@ -2571,7 +3225,12 @@ app.get("/health", (_req, res) => {
 
 app.listen(PORT, () => {
   logger.info(`Baileys service running on :${PORT}`);
-  bootstrapSessions().catch((error) => {
-    logger.warn({ err: error }, "Failed to bootstrap sessions");
-  });
+  loadRetryQueueFromDisk()
+    .then(() => {
+      startRetryQueueInterval();
+      return bootstrapSessions();
+    })
+    .catch((error) => {
+      logger.warn({ err: error }, "Failed to bootstrap sessions");
+    });
 });

@@ -2,11 +2,14 @@ import tempfile
 from pathlib import Path
 import hashlib
 import json
+import logging
 
 import tiktoken
 from langdetect import detect
 
 from app.clients.supabase import get_supabase_client
+from app.clients.r2_client import build_r2_key, get_r2_client
+from app.config import settings
 from app.clients.redis_client import get_redis_client
 from app.services.embeddings import (
     embed_query_gemini,
@@ -22,6 +25,8 @@ from app.services.ocr import (
     extract_text_from_txt,
 )
 from app.services.workspaces import is_workspace_not_expired
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def chunk_text(text: str, chunk_size: int = 1200, overlap: int = 200) -> list[str]:
@@ -99,8 +104,13 @@ def process_knowledge_file(file_id: str) -> dict:
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             local_path = Path(temp_dir) / Path(file_row["storage_path"]).name
-            storage = supabase.storage.from_("agent-knowledge")
-            data = storage.download(file_row["storage_path"])
+            r2 = get_r2_client()
+            object_key = build_r2_key("agent-knowledge", file_row["storage_path"])
+            response = r2.get_object(
+                Bucket=settings.r2_bucket_agent_knowledge,
+                Key=object_key,
+            )
+            data = response["Body"].read()
             local_path.write_bytes(data)
 
             raw_text = _extract_text(local_path, file_row.get("mime_type"))
@@ -264,9 +274,24 @@ def retrieve_knowledge(
     cached = redis.get(cache_key)
     if cached:
         try:
-            return json.loads(cached)
+            data = json.loads(cached)
+            logger.info(
+                "rag_cache_hit agent_id=%s conversation_id=%s match_count=%s items=%s",
+                agent_id,
+                conversation_id or "",
+                match_count,
+                len(data) if isinstance(data, list) else 0,
+            )
+            return data
         except Exception:
             pass
+    logger.info(
+        "rag_cache_miss agent_id=%s conversation_id=%s match_count=%s query_chars=%s",
+        agent_id,
+        conversation_id or "",
+        match_count,
+        len(query),
+    )
 
     results: list[dict] = []
     conversation_matches = []
@@ -286,11 +311,25 @@ def retrieve_knowledge(
     if data:
         results.extend(data)
         redis.setex(cache_key, 600, json.dumps(results[:match_count]))
+        logger.info(
+            "rag_results agent_id=%s conversation_id=%s source=openai total=%s convo=%s global=%s",
+            agent_id,
+            conversation_id or "",
+            len(results[:match_count]),
+            len(conversation_matches),
+            len(data),
+        )
         return results[:match_count]
 
     try:
         embedding_gemini = embed_query_gemini(query)
     except Exception:
+        logger.info(
+            "rag_results agent_id=%s conversation_id=%s source=openai_only total=%s",
+            agent_id,
+            conversation_id or "",
+            len(results[:match_count]),
+        )
         return results
 
     response = supabase.rpc(
@@ -303,4 +342,12 @@ def retrieve_knowledge(
         redis.setex(cache_key, 600, json.dumps(results[:match_count]))
     elif results:
         redis.setex(cache_key, 600, json.dumps(results[:match_count]))
+    logger.info(
+        "rag_results agent_id=%s conversation_id=%s source=gemini total=%s convo=%s global=%s",
+        agent_id,
+        conversation_id or "",
+        len(results[:match_count]),
+        len(conversation_matches),
+        len(data),
+    )
     return results[:match_count]

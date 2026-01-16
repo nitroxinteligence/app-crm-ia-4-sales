@@ -57,6 +57,7 @@ export const permissoesBase: PermissaoAgente[] = [
   { id: "calendar_editar", label: "Editar eventos", habilitado: true },
   { id: "calendar_cancelar", label: "Cancelar eventos", habilitado: true },
   { id: "calendar_consultar", label: "Consultar eventos", habilitado: true },
+  { id: "calendar_disponibilidade", label: "Consultar disponibilidade", habilitado: true },
 ];
 
 export const templatesAgente: {

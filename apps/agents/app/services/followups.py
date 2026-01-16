@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import logging
 
 from app.clients.supabase import get_supabase_client
 from app.services.agent_runner import load_agent
@@ -7,6 +8,8 @@ from app.services.consent import has_agent_consent
 from app.services.credits import consume_credits, get_remaining_credits
 from app.tools.inbox import create_agent_message, send_instagram_text, send_whatsapp_template, send_whatsapp_text
 from app.services.workspaces import is_workspace_not_expired
+
+logger = logging.getLogger("uvicorn.error")
 
 
 def _resolve_provider(agent: dict) -> str:
@@ -23,6 +26,31 @@ def _resolve_provider(agent: dict) -> str:
         .data
     )
     return account.get("provider") if account and account.get("provider") else "whatsapp_oficial"
+
+
+def _agent_allows_groups(agent: dict) -> bool:
+    cfg = agent.get("configuracao") or {}
+    try:
+        return bool(cfg.get("enviar_para_grupos", False))
+    except Exception:
+        return False
+
+
+def _agent_group_allowlist(agent: dict) -> set[str] | None:
+    cfg = agent.get("configuracao") or {}
+    if not isinstance(cfg, dict) or "grupos_permitidos" not in cfg:
+        return None
+    raw = cfg.get("grupos_permitidos")
+    if not isinstance(raw, list):
+        return set()
+    values = {str(item).strip() for item in raw if isinstance(item, str) and item.strip()}
+    return values
+
+
+def _is_group_chat(phone: str | None) -> bool:
+    if not phone or not isinstance(phone, str):
+        return False
+    return phone.endswith("@g.us")
 
 
 def _get_followup_state(agent_id: str, conversation_id: str) -> dict | None:
@@ -74,6 +102,11 @@ def _is_outside_window(messages: list[dict]) -> bool:
 def schedule_followups(agent_id: str, conversation_id: str) -> dict | None:
     supabase = get_supabase_client()
     if not _is_followup_enabled(agent_id):
+        logger.info(
+            "followup_schedule_skipped agent_id=%s conversation_id=%s reason=permission_disabled",
+            agent_id,
+            conversation_id,
+        )
         return None
     followups = (
         supabase.table("agent_followups")
@@ -85,19 +118,45 @@ def schedule_followups(agent_id: str, conversation_id: str) -> dict | None:
         .data
     )
     if not followups:
+        logger.info(
+            "followup_schedule_skipped agent_id=%s conversation_id=%s reason=no_followups",
+            agent_id,
+            conversation_id,
+        )
         return None
 
     state = _get_followup_state(agent_id, conversation_id) or {}
     next_step = state.get("followup_step", 0)
 
     if next_step >= len(followups):
+        logger.info(
+            "followup_schedule_skipped agent_id=%s conversation_id=%s reason=completed step=%s total=%s",
+            agent_id,
+            conversation_id,
+            next_step,
+            len(followups),
+        )
         return None
 
+    logger.info(
+        "followup_scheduled agent_id=%s conversation_id=%s followup_id=%s step=%s delay_minutos=%s",
+        agent_id,
+        conversation_id,
+        followups[next_step].get("id"),
+        next_step,
+        followups[next_step].get("delay_minutos"),
+    )
     return followups[next_step]
 
 
 def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
     supabase = get_supabase_client()
+    logger.info(
+        "followup_run_start agent_id=%s conversation_id=%s followup_id=%s",
+        agent_id,
+        conversation_id,
+        followup_id,
+    )
     conversation = (
         supabase.table("conversations")
         .select("id, workspace_id, lead_id, contact_id, canal, modo_atendimento_humano")
@@ -107,31 +166,66 @@ def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
         .data
     )
     if not conversation:
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=missing_conversation",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "missing_conversation"}
 
     if not is_workspace_not_expired(conversation.get("workspace_id")):
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=trial_expired",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "blocked", "reason": "trial_expired"}
 
     agent = load_agent(agent_id)
     if not agent:
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=missing_agent",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "missing_agent"}
     provider = _resolve_provider(agent)
 
     if not has_agent_consent(agent_id):
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=no_consent",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "no_consent"}
 
     messages = get_messages(conversation_id)
     paused, _ = should_pause(agent, conversation, messages)
     if paused:
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=paused",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "paused"}
 
     if get_remaining_credits(conversation["workspace_id"]) <= 0:
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=no_credits",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "no_credits"}
 
     outside_window = _is_outside_window(messages)
     if provider == "whatsapp_baileys":
         outside_window = False
     elif provider == "whatsapp_nao_oficial":
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=provider_disabled",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "provider_disabled"}
 
     last_user = next((m for m in reversed(messages) if m.get("autor") == "contato"), None)
@@ -141,6 +235,11 @@ def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
             last_user_at = datetime.fromisoformat(last_user.get("created_at").replace("Z", "+00:00"))
             last_agent_at = datetime.fromisoformat(last_agent.get("created_at").replace("Z", "+00:00"))
             if last_user_at > last_agent_at:
+                logger.info(
+                    "followup_run_skipped agent_id=%s conversation_id=%s reason=new_user_message",
+                    agent_id,
+                    conversation_id,
+                )
                 return {"status": "skipped_human"}
         except Exception:
             pass
@@ -154,9 +253,19 @@ def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
         .data
     )
     if not followup:
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=missing_followup",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "missing_followup"}
 
     if followup.get("somente_fora_janela") and not outside_window:
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=within_window",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "within_window"}
 
     canal = conversation.get("canal") or "whatsapp"
@@ -195,7 +304,36 @@ def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
             phone = lead.get("telefone") if lead else None
 
     if not phone:
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=missing_phone",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "missing_phone"}
+
+    if canal == "whatsapp" and _is_group_chat(phone):
+        if provider != "whatsapp_baileys":
+            logger.info(
+                "followup_run_skipped agent_id=%s conversation_id=%s reason=group_disabled",
+                agent_id,
+                conversation_id,
+            )
+            return {"status": "skipped_group", "reason": "group_disabled"}
+        if not _agent_allows_groups(agent):
+            logger.info(
+                "followup_run_skipped agent_id=%s conversation_id=%s reason=group_disabled",
+                agent_id,
+                conversation_id,
+            )
+            return {"status": "skipped_group", "reason": "group_disabled"}
+        allowlist = _agent_group_allowlist(agent)
+        if allowlist is not None and phone not in allowlist:
+            logger.info(
+                "followup_run_skipped agent_id=%s conversation_id=%s reason=group_not_allowed",
+                agent_id,
+                conversation_id,
+            )
+            return {"status": "skipped_group", "reason": "group_not_allowed"}
 
     if (
         canal == "whatsapp"
@@ -204,10 +342,20 @@ def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
         and followup.get("usar_template")
         and provider == "whatsapp_oficial"
     ):
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=template_required",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "template_required"}
 
     if canal == "instagram":
         if outside_window:
+            logger.info(
+                "followup_run_skipped agent_id=%s conversation_id=%s reason=window_expired_instagram",
+                agent_id,
+                conversation_id,
+            )
             return {"status": "window_expired_no_template"}
         if followup.get("mensagem_texto"):
             send_instagram_text(agent_id, phone, followup["mensagem_texto"])
@@ -218,6 +366,11 @@ def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
                 "texto",
             )
         else:
+            logger.info(
+                "followup_run_skipped agent_id=%s conversation_id=%s reason=missing_followup_text",
+                agent_id,
+                conversation_id,
+            )
             return {"status": "missing_followup_text"}
     elif provider == "whatsapp_baileys":
         if followup.get("mensagem_texto"):
@@ -229,8 +382,18 @@ def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
                 "texto",
             )
         else:
+            logger.info(
+                "followup_run_skipped agent_id=%s conversation_id=%s reason=missing_followup_text",
+                agent_id,
+                conversation_id,
+            )
             return {"status": "missing_followup_text"}
     elif provider == "whatsapp_nao_oficial":
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=provider_disabled",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "provider_disabled"}
     elif followup.get("usar_template") and followup.get("template_id"):
         template = (
@@ -248,6 +411,11 @@ def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
         send_whatsapp_text(agent_id, phone, followup["mensagem_texto"])
         create_agent_message(conversation["workspace_id"], conversation_id, followup["mensagem_texto"], "texto")
     elif followup.get("mensagem_texto") and outside_window:
+        logger.info(
+            "followup_run_skipped agent_id=%s conversation_id=%s reason=window_expired_no_template",
+            agent_id,
+            conversation_id,
+        )
         return {"status": "window_expired_no_template"}
 
     consume_credits(conversation["workspace_id"], agent_id, conversation_id, None, 1)
@@ -266,4 +434,10 @@ def run_followup(agent_id: str, conversation_id: str, followup_id: str) -> dict:
         on_conflict="agent_id,conversation_id",
     ).execute()
 
+    logger.info(
+        "followup_run_sent agent_id=%s conversation_id=%s followup_id=%s",
+        agent_id,
+        conversation_id,
+        followup_id,
+    )
     return {"status": "sent"}

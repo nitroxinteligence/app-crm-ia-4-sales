@@ -12,7 +12,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await supabaseServer
     .from("workspace_invites")
-    .select("id, email, role, status, expires_at, workspaces (nome, trial_ends_at)")
+    .select("id, email, role, status, expires_at, workspace_id")
     .eq("token", token)
     .maybeSingle();
 
@@ -28,9 +28,11 @@ export async function GET(request: Request) {
     return new Response("Invite expired.", { status: 400 });
   }
 
-  const workspace = Array.isArray(data.workspaces)
-    ? data.workspaces[0]
-    : data.workspaces;
+  const { data: workspace } = await supabaseServer
+    .from("workspaces")
+    .select("nome, trial_ends_at")
+    .eq("id", data.workspace_id)
+    .maybeSingle();
   if (workspace?.trial_ends_at) {
     const trialEndsAt = new Date(workspace.trial_ends_at).getTime();
     if (trialEndsAt < Date.now()) {
@@ -42,9 +44,7 @@ export async function GET(request: Request) {
     invite: {
       email: data.email,
       role: data.role,
-      workspaceName: Array.isArray(data.workspaces)
-        ? data.workspaces[0]?.nome ?? null
-        : data.workspaces?.nome ?? null,
+      workspaceName: workspace?.nome ?? null,
     },
   });
 }

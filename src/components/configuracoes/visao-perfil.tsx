@@ -4,6 +4,8 @@ import * as React from "react";
 import { ImagePlus, Lock, Moon, Save, Sun, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { supabaseClient } from "@/lib/supabase/client";
+import { buildR2PublicUrl } from "@/lib/r2/public";
+import { uploadFileToR2 } from "@/lib/r2/browser";
 import { useAutenticacao } from "@/lib/contexto-autenticacao";
 import { texto } from "@/lib/idioma";
 import { cn } from "@/lib/utils";
@@ -238,27 +240,38 @@ export function VisaoPerfilConfiguracoes() {
     const extensao = arquivo.name.split(".").pop() ?? "png";
     const caminho = `${usuario.id}/${Date.now()}.${extensao}`;
 
-    const { error: uploadErro } = await supabaseClient.storage
-      .from("user-avatars")
-      .upload(caminho, arquivo, {
-        contentType: arquivo.type || undefined,
-        upsert: true,
-      });
-
-    if (uploadErro) {
-      setErro(t("Não foi possível atualizar a foto.", "Unable to update the photo."));
+    const token = await obterToken();
+    if (!token) {
+      setErro(t("Sessão expirada.", "Session expired."));
       setEnviandoAvatar(false);
       event.target.value = "";
       return;
     }
 
-    const publicUrl = supabaseClient.storage
-      .from("user-avatars")
-      .getPublicUrl(caminho).data.publicUrl;
+    try {
+      await uploadFileToR2({
+        token,
+        bucket: "user-avatars",
+        key: caminho,
+        file: arquivo,
+      });
+    } catch (error) {
+      setErro(
+        t("Não foi possível atualizar a foto.", "Unable to update the photo.")
+      );
+      setEnviandoAvatar(false);
+      event.target.value = "";
+      return;
+    }
 
-    const token = await obterToken();
-    if (!token) {
-      setErro(t("Sessão expirada.", "Session expired."));
+    const publicUrl = buildR2PublicUrl("user-avatars", caminho);
+    if (!publicUrl) {
+      setErro(
+        t(
+          "Não foi possível gerar a URL da foto.",
+          "Unable to generate the photo URL."
+        )
+      );
       setEnviandoAvatar(false);
       event.target.value = "";
       return;

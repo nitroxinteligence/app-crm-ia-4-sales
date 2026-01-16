@@ -21,7 +21,7 @@ function getUserClient(request: Request) {
   });
 }
 
-async function getMembership(userClient: ReturnType<typeof createClient>, userId: string) {
+async function getMembership(userClient: any, userId: string) {
   const { data: membership } = await userClient
     .from("workspace_members")
     .select("workspace_id")

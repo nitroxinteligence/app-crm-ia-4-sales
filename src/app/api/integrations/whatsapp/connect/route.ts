@@ -153,7 +153,7 @@ async function resolveWabaAndPhone(accessToken: string) {
   }
 
   if (!wabaId) {
-    return { wabaId: null, phoneNumberId: null, businessId: null };
+    return { wabaId: null, phoneNumberId: null, businessId: null, displayPhoneNumber: null };
   }
 
   const phoneResponse = (await graphGet(`${wabaId}/phone_numbers`, {
@@ -236,7 +236,12 @@ export async function POST(request: Request) {
       return new Response("Missing access token", { status: 400 });
     }
 
-    let resolved = {
+    let resolved: {
+      wabaId: string | null;
+      phoneNumberId: string | null;
+      businessId: string | null;
+      displayPhoneNumber: string | null;
+    } = {
       wabaId: null,
       phoneNumberId: null,
       businessId: null,

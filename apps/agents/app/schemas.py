@@ -66,3 +66,31 @@ class UazapiHistorySyncResponse(BaseModel):
     status: str
     chats: int = 0
     messages: int = 0
+
+
+class BaileysNotifyRequest(BaseModel):
+    workspace_id: str
+    integration_account_id: str
+    conversation_id: str
+    message_row_id: str | None = None
+    message_external_id: str | None = None
+    text: str | None = None
+    is_group: bool | None = None
+
+
+class BaileysNotifyResponse(BaseModel):
+    status: str
+    agent_id: str | None = None
+    conversation_id: str | None = None
+
+
+class BaileysGroupItem(BaseModel):
+    id: str
+    subject: str | None = None
+    addressingMode: str | None = None
+    size: int | None = None
+
+
+class BaileysGroupsResponse(BaseModel):
+    total: int
+    groups: list[BaileysGroupItem] = []

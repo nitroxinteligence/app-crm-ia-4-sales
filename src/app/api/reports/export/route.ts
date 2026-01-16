@@ -23,7 +23,7 @@ function csvValue(value: unknown) {
 }
 
 async function resolveWorkspaceId(
-  userClient: ReturnType<typeof createClient>,
+  userClient: any,
   requestedId: string | null
 ) {
   if (requestedId) {

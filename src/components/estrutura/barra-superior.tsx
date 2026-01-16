@@ -146,6 +146,10 @@ export function BarraSuperior() {
       const payload = await response.json();
       if (!ativo) return;
       const account = payload?.accounts?.[0] ?? null;
+      if (!account || account.status !== "conectado") {
+        setSyncStatus(null);
+        return;
+      }
       if (!account?.sync_status || account.sync_status !== "running") {
         setSyncStatus(null);
         return;
@@ -176,7 +180,7 @@ export function BarraSuperior() {
   const progressoSync = React.useMemo(() => {
     if (!syncStatus?.total || !syncStatus?.done) return 0;
     return Math.min(100, Math.max(0, Math.round((syncStatus.done / syncStatus.total) * 100)));
-  }, [syncStatus?.done, syncStatus?.total]);
+  }, [syncStatus]);
 
   return (
     <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">

@@ -61,8 +61,7 @@ export function PainelContato({
   aoAlternarColapso: () => void;
   aoAtualizarContato: (contatoId: string, atualizacao: Partial<ContatoInbox>) => void;
 }) {
-  const [session, setSession] = React.useState<Session | null>(null);
-  const { usuario, workspace } = useAutenticacao();
+  const { usuario, workspace, session } = useAutenticacao();
   const [dialogEditarContatoAberto, setDialogEditarContatoAberto] =
     React.useState(false);
   const [convertendo, setConvertendo] = React.useState(false);
@@ -89,22 +88,6 @@ export function PainelContato({
     React.useState(false);
 
   React.useEffect(() => {
-    supabaseClient.auth.getSession().then(({ data }) => {
-      setSession(data.session ?? null);
-    });
-
-    const {
-      data: { subscription },
-    } = supabaseClient.auth.onAuthStateChange((_event, currentSession) => {
-      setSession(currentSession);
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  React.useEffect(() => {
     if (!workspace?.id || !conversa?.contactId) {
       setNegociacoes([]);
       return;
@@ -128,9 +111,9 @@ export function PainelContato({
           const valor =
             typeof item.valor === "number"
               ? new Intl.NumberFormat("pt-BR", {
-                  style: "currency",
-                  currency: moeda,
-                }).format(item.valor)
+                style: "currency",
+                currency: moeda,
+              }).format(item.valor)
               : "-";
           return {
             id: item.id,

@@ -1,4 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
+import type { NextRequest } from "next/server";
+import { emitConversationUpdated } from "@/lib/pusher/events";
 
 export const runtime = "nodejs";
 
@@ -20,8 +22,8 @@ function getUserClient(request: Request) {
 }
 
 export async function PATCH(
-  request: Request,
-  { params }: { params: { conversationId: string } }
+  request: NextRequest,
+  context: { params: Promise<{ conversationId: string }> }
 ) {
   if (!supabaseUrl || !supabaseAnonKey) {
     return new Response("Missing Supabase env vars.", { status: 500 });
@@ -64,7 +66,7 @@ export async function PATCH(
     return new Response("Invalid payload.", { status: 400 });
   }
 
-  const conversationId = params.conversationId;
+  const { conversationId } = await context.params;
   const { data: conversation } = await userClient
     .from("conversations")
     .select("id, lead_id, contact_id")
@@ -116,6 +118,15 @@ export async function PATCH(
         .eq("id", conversation.contact_id)
         .eq("workspace_id", membership.workspace_id);
     }
+  }
+
+  if (updated) {
+    await emitConversationUpdated({
+      workspace_id: membership.workspace_id,
+      conversation_id: updated.id,
+      status: updated.status,
+      owner_id: updated.owner_id ?? null,
+    });
   }
 
   return Response.json({ conversation: updated });

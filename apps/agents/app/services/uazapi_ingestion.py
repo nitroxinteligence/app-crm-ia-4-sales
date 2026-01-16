@@ -9,6 +9,8 @@ import re
 import httpx
 
 from app.clients.supabase import get_supabase_client
+from app.clients.r2_client import build_r2_key, get_r2_client
+from app.config import settings
 from app.clients.uazapi_client import UazapiClient
 from app.services.workspaces import is_workspace_not_expired
 
@@ -406,15 +408,16 @@ def _store_attachment(
     extension = _resolve_extension(mime_type, filename, message_type)
     storage_path = f"{workspace_id}/{conversation_id}/{message_row_id}-{Path(media_url).name}{extension}"
 
-    supabase = get_supabase_client()
-    storage = supabase.storage.from_("inbox-attachments")
-    storage.upload(
-        storage_path,
-        content,
-        file_options={
-            "content-type": mime_type or "application/octet-stream",
-        },
+    r2 = get_r2_client()
+    object_key = build_r2_key("inbox-attachments", storage_path)
+    r2.put_object(
+        Bucket=settings.r2_bucket_inbox_attachments,
+        Key=object_key,
+        Body=content,
+        ContentType=mime_type or "application/octet-stream",
     )
+
+    supabase = get_supabase_client()
 
     existing = (
         supabase.table("attachments")

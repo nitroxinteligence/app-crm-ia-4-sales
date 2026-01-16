@@ -52,10 +52,17 @@ export async function POST(request: Request) {
     return new Response("Conta nao encontrada", { status: 404 });
   }
 
+  const workspaceId = Array.isArray(account.integrations)
+    ? account.integrations[0]?.workspace_id
+    : (account.integrations as any)?.workspace_id;
+  if (!workspaceId) {
+    return new Response("Conta sem workspace", { status: 500 });
+  }
+
   const { data: membership } = await userClient
     .from("workspace_members")
     .select("workspace_id, role")
-    .eq("workspace_id", account.integrations.workspace_id)
+    .eq("workspace_id", workspaceId)
     .maybeSingle();
 
   if (!membership) {
@@ -88,8 +95,6 @@ export async function POST(request: Request) {
     return new Response(detalhe || "Falha ao desconectar", { status: 502 });
   }
 
-  const workspaceId = account.integrations.workspace_id;
-
   await supabaseServer
     .from("conversations")
     .delete()
@@ -102,10 +107,33 @@ export async function POST(request: Request) {
     .eq("workspace_id", workspaceId)
     .eq("canal_origem", "whatsapp");
 
-  await supabaseServer
+  const updatePayloadBase = {
+    status: "desconectado",
+    sync_status: null,
+    sync_total: null,
+    sync_done: null,
+    sync_started_at: null,
+    sync_finished_at: null,
+    sync_last_error: null,
+  };
+
+  const updatePayloadWithChats = {
+    ...updatePayloadBase,
+    sync_total_chats: null,
+    sync_done_chats: null,
+  };
+
+  const { error: updateError } = await supabaseServer
     .from("integration_accounts")
-    .update({ status: "desconectado" })
+    .update(updatePayloadWithChats)
     .eq("id", account.id);
+
+  if (updateError) {
+    await supabaseServer
+      .from("integration_accounts")
+      .update(updatePayloadBase)
+      .eq("id", account.id);
+  }
 
   return Response.json({ success: true });
 }

@@ -197,7 +197,7 @@ export async function listEvents(params: {
   timeMin?: string;
   timeMax?: string;
 }) {
-  let timeMin = params.timeMin?.trim() || undefined;
+  const timeMin = params.timeMin?.trim() || undefined;
   let timeMax = params.timeMax?.trim() || undefined;
 
   if (timeMin && timeMax) {

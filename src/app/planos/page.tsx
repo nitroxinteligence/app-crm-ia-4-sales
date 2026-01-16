@@ -2,25 +2,22 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { supabaseClient } from "@/lib/supabase/client";
-import { ProvedorAutenticacao, useAutenticacao } from "@/lib/contexto-autenticacao";
+import { useAutenticacao } from "@/lib/contexto-autenticacao";
 import { GatePlanoTrial } from "@/components/estrutura/gate-plano-trial";
 import { VisaoCobrancaConfiguracoes } from "@/components/configuracoes/visao-cobranca";
 
-function ConteudoPlanos() {
+function PlanosPage() {
   const router = useRouter();
-  const { workspace } = useAutenticacao();
+  const { workspace, session } = useAutenticacao();
   const [carregando, setCarregando] = React.useState(true);
 
   React.useEffect(() => {
-    supabaseClient.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        router.replace("/entrar");
-        return;
-      }
-      setCarregando(false);
-    });
-  }, [router]);
+    if (!session) {
+      router.replace("/entrar");
+      return;
+    }
+    setCarregando(false);
+  }, [router, session]);
 
   React.useEffect(() => {
     if (!carregando && workspace?.planoSelecionadoEm) {
@@ -46,10 +43,4 @@ function ConteudoPlanos() {
   );
 }
 
-export default function PlanosPage() {
-  return (
-    <ProvedorAutenticacao>
-      <ConteudoPlanos />
-    </ProvedorAutenticacao>
-  );
-}
+export default PlanosPage;

@@ -5,6 +5,8 @@ from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
+APPS_ENV = Path(__file__).resolve().parents[3] / "apps" / ".env"
+AGENTS_ENV = Path(__file__).resolve().parents[1] / ".env"
 
 
 class Settings(BaseSettings):
@@ -46,6 +48,28 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("UAZAPI_BASE_URLS"),
     )
 
+    pusher_app_id: str = Field(validation_alias=AliasChoices("PUSHER_APP_ID"))
+    pusher_key: str = Field(validation_alias=AliasChoices("PUSHER_KEY"))
+    pusher_secret: str = Field(validation_alias=AliasChoices("PUSHER_SECRET"))
+    pusher_cluster: str = Field(validation_alias=AliasChoices("PUSHER_CLUSTER"))
+
+    r2_account_id: str = Field(validation_alias=AliasChoices("R2_ACCOUNT_ID"))
+    r2_access_key_id: str = Field(validation_alias=AliasChoices("R2_ACCESS_KEY_ID"))
+    r2_secret_access_key: str = Field(
+        validation_alias=AliasChoices("R2_SECRET_ACCESS_KEY")
+    )
+    r2_endpoint: str | None = Field(
+        default=None, validation_alias=AliasChoices("R2_ENDPOINT")
+    )
+    r2_bucket_inbox_attachments: str = Field(
+        default="ia-four-sales-crm",
+        validation_alias=AliasChoices("R2_BUCKET_INBOX_ATTACHMENTS"),
+    )
+    r2_bucket_agent_knowledge: str = Field(
+        default="ia-four-sales-crm",
+        validation_alias=AliasChoices("R2_BUCKET_AGENT_KNOWLEDGE"),
+    )
+
     google_client_id: str | None = None
     google_client_secret: str | None = None
 
@@ -72,7 +96,7 @@ class Settings(BaseSettings):
         return urlunparse(parsed)
 
     model_config = SettingsConfigDict(
-        env_file=(ROOT_ENV, ".env"),
+        env_file=(AGENTS_ENV, APPS_ENV, ROOT_ENV, ".env"),
         case_sensitive=False,
         extra="ignore",
     )

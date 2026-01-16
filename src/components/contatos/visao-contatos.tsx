@@ -18,6 +18,9 @@ import {
 import type { CanalId, ContatoCRM, StatusContato } from "@/lib/types";
 import { mascararEmail, mascararTelefone } from "@/lib/mascaramento";
 import { supabaseClient } from "@/lib/supabase/client";
+import { buildR2PublicUrl } from "@/lib/r2/public";
+import { deleteR2Object, uploadFileToR2 } from "@/lib/r2/browser";
+import { useAutenticacao } from "@/lib/contexto-autenticacao";
 import { podeVerDadosSensiveis } from "@/lib/permissoes";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -185,7 +188,11 @@ const formatarBytes = (bytes?: number | null) => {
 const apenasNumeros = (valor: string) => valor.replace(/\D/g, "");
 
 const formatarTelefone = (valor: string) => {
-  const numeros = apenasNumeros(valor).slice(0, 11);
+  let numeros = apenasNumeros(valor);
+  if (numeros.length > 11 && numeros.startsWith("55")) {
+    numeros = numeros.slice(2);
+  }
+  numeros = numeros.slice(0, 11);
   if (numeros.length === 0) return "";
   if (numeros.length < 3) return `(${numeros}`;
   const ddd = numeros.slice(0, 2);
@@ -195,10 +202,7 @@ const formatarTelefone = (valor: string) => {
   if (resto.length <= 8) {
     return `(${ddd}) ${resto.slice(0, 4)}-${resto.slice(4)}`;
   }
-  const digito = resto.slice(0, 1);
-  const meio = resto.slice(1, 5);
-  const final = resto.slice(5, 9);
-  return `(${ddd}) ${digito}.${meio}-${final}`;
+  return `(${ddd}) ${resto.slice(0, 5)}-${resto.slice(5, 9)}`;
 };
 
 const gerarCorTag = () => {
@@ -291,8 +295,7 @@ const parseCsvTexto = (conteudo: string) => {
 };
 
 export function VisaoContatos() {
-  const [session, setSession] = React.useState<Session | null>(null);
-  const [carregandoSessao, setCarregandoSessao] = React.useState(true);
+  const { session } = useAutenticacao();
   const [workspaceId, setWorkspaceId] = React.useState<string | null>(null);
   const [role, setRole] = React.useState<
     "ADMIN" | "MANAGER" | "MEMBER" | "VIEWER"
@@ -302,6 +305,11 @@ export function VisaoContatos() {
   const [erroDados, setErroDados] = React.useState<string | null>(null);
   const [erroPipelines, setErroPipelines] = React.useState<string | null>(null);
   const podeVer = podeVerDadosSensiveis(role);
+
+  const obterToken = React.useCallback(async () => {
+    const { data } = await supabaseClient.auth.getSession();
+    return data.session?.access_token ?? null;
+  }, []);
 
   const [contatos, setContatos] = React.useState<ContatoCRM[]>([]);
   const [pipelines, setPipelines] = React.useState<Pipeline[]>([]);
@@ -329,6 +337,8 @@ export function VisaoContatos() {
   const [dialogEditarContatoAberto, setDialogEditarContatoAberto] =
     React.useState(false);
   const [dialogExcluirAberto, setDialogExcluirAberto] = React.useState(false);
+  const [dialogExcluirContatoAberto, setDialogExcluirContatoAberto] = React.useState(false);
+  const [excluindoContato, setExcluindoContato] = React.useState(false);
   const [dialogExportarAberto, setDialogExportarAberto] = React.useState(false);
   const [dialogImportarAberto, setDialogImportarAberto] = React.useState(false);
   const [dialogNovoContatoAberto, setDialogNovoContatoAberto] =
@@ -384,26 +394,7 @@ export function VisaoContatos() {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const arquivoInputRef = React.useRef<HTMLInputElement | null>(null);
 
-  React.useEffect(() => {
-    let ativo = true;
-    supabaseClient.auth.getSession().then(({ data }) => {
-      if (!ativo) return;
-      setSession(data.session ?? null);
-      setCarregandoSessao(false);
-    });
 
-    const {
-      data: { subscription },
-    } = supabaseClient.auth.onAuthStateChange((_event, currentSession) => {
-      setSession(currentSession);
-      setCarregandoSessao(false);
-    });
-
-    return () => {
-      ativo = false;
-      subscription.unsubscribe();
-    };
-  }, []);
 
   const labelOwner = React.useCallback(
     (ownerId?: string | null) => {
@@ -677,9 +668,7 @@ export function VisaoContatos() {
       const arquivosComUrl =
         arquivos?.map((arquivo) => ({
           ...arquivo,
-          publicUrl: supabaseClient.storage
-            .from("contact-files")
-            .getPublicUrl(arquivo.storage_path).data.publicUrl,
+          publicUrl: buildR2PublicUrl("contact-files", arquivo.storage_path),
         })) ?? [];
 
       setNotasContato(notas ?? []);
@@ -717,12 +706,36 @@ export function VisaoContatos() {
       todos.add(session.user.id);
     }
     return ["todos", ...Array.from(todos), OWNER_SEM];
-  }, [contatos, session?.user.id]);
+  }, [contatos, session]);
 
   const tags = React.useMemo(() => {
     const todos = new Set(contatos.flatMap((contato) => contato.tags));
     return ["todas", ...Array.from(todos)];
   }, [contatos]);
+
+  const tagsDisponiveisCriacao = React.useMemo(() => {
+    const termo = tagInput.trim().toLowerCase();
+    return tagsExistentes.filter((tag) => {
+      const jaSelecionada = tagsSelecionadas.some(
+        (item) => normalizarTexto(item.nome) === normalizarTexto(tag.nome)
+      );
+      if (jaSelecionada) return false;
+      if (!termo) return true;
+      return tag.nome.toLowerCase().includes(termo);
+    });
+  }, [tagInput, tagsExistentes, tagsSelecionadas]);
+
+  const tagsDisponiveisEdicao = React.useMemo(() => {
+    const termo = tagEditarInput.trim().toLowerCase();
+    return tagsExistentes.filter((tag) => {
+      const jaSelecionada = tagsEditadas.some(
+        (item) => normalizarTexto(item.nome) === normalizarTexto(tag.nome)
+      );
+      if (jaSelecionada) return false;
+      if (!termo) return true;
+      return tag.nome.toLowerCase().includes(termo);
+    });
+  }, [tagEditarInput, tagsEditadas, tagsExistentes]);
 
   const contatosFiltrados = React.useMemo(() => {
     return contatos.filter((contato) => {
@@ -992,6 +1005,29 @@ export function VisaoContatos() {
     setCarregando(false);
   };
 
+  const handleExcluirContatoAtivo = async () => {
+    if (!contatoAtivo || !workspaceId) return;
+    setExcluindoContato(true);
+    setErroDados(null);
+
+    const { error } = await supabaseClient
+      .from("contacts")
+      .delete()
+      .eq("id", contatoAtivo.id)
+      .eq("workspace_id", workspaceId);
+
+    if (error) {
+      setErroDados("Falha ao excluir contato.");
+      setExcluindoContato(false);
+      return;
+    }
+
+    setDialogExcluirContatoAberto(false);
+    setContatoAtivo(null);
+    await carregarContatos();
+    setExcluindoContato(false);
+  };
+
   const handleLimparFiltros = () => {
     setBusca("");
     setFiltroStatus("todos");
@@ -1016,27 +1052,75 @@ export function VisaoContatos() {
     }));
   };
 
-  const adicionarTagSelecionada = (valor: string) => {
+  const resolverTagExistente = React.useCallback(
+    async (valor: string): Promise<TagSelecionada | null> => {
+      const nomeTag = valor.trim();
+      if (!nomeTag) return null;
+      const nomeNormalizado = normalizarTexto(nomeTag);
+      const tagExistente = tagsExistentes.find(
+        (tag) => normalizarTexto(tag.nome) === nomeNormalizado
+      );
+      if (tagExistente) {
+        return {
+          id: tagExistente.id,
+          nome: tagExistente.nome,
+          cor: tagExistente.cor ?? gerarCorTag(),
+        };
+      }
+
+      const cor = gerarCorTag();
+      if (!workspaceId) {
+        return { nome: nomeTag, cor };
+      }
+
+      const { data, error } = await supabaseClient
+        .from("tags")
+        .insert({ workspace_id: workspaceId, nome: nomeTag, cor })
+        .select("id, nome, cor")
+        .single();
+
+      if (error || !data) {
+        setErroDados("Falha ao criar tag.");
+        return { nome: nomeTag, cor };
+      }
+
+      setTagsExistentes((atual) => {
+        const jaExiste = atual.some(
+          (tag) => normalizarTexto(tag.nome) === normalizarTexto(data.nome)
+        );
+        if (jaExiste) return atual;
+        return [...atual, data];
+      });
+
+      return {
+        id: data.id,
+        nome: data.nome,
+        cor: data.cor ?? cor,
+      };
+    },
+    [tagsExistentes, workspaceId]
+  );
+
+  const adicionarTagSelecionada = async (valor: string) => {
     const nomeTag = valor.trim();
     if (!nomeTag) return;
 
     const jaExiste = tagsSelecionadas.some(
-      (tag) => tag.nome.toLowerCase() === nomeTag.toLowerCase()
+      (tag) => normalizarTexto(tag.nome) === normalizarTexto(nomeTag)
     );
     if (jaExiste) {
       setTagInput("");
       return;
     }
 
-    const tagExistente = tagsExistentes.find(
-      (tag) => tag.nome.toLowerCase() === nomeTag.toLowerCase()
-    );
-
-    const cor = tagExistente?.cor ?? gerarCorTag();
-
+    const tagResolvida = await resolverTagExistente(nomeTag);
+    if (!tagResolvida) {
+      setTagInput("");
+      return;
+    }
     setTagsSelecionadas((atual) => [
       ...atual,
-      { id: tagExistente?.id, nome: nomeTag, cor },
+      tagResolvida,
     ]);
     setTagInput("");
   };
@@ -1047,27 +1131,26 @@ export function VisaoContatos() {
     );
   };
 
-  const adicionarTagEditada = (valor: string) => {
+  const adicionarTagEditada = async (valor: string) => {
     const nomeTag = valor.trim();
     if (!nomeTag) return;
 
     const jaExiste = tagsEditadas.some(
-      (tag) => tag.nome.toLowerCase() === nomeTag.toLowerCase()
+      (tag) => normalizarTexto(tag.nome) === normalizarTexto(nomeTag)
     );
     if (jaExiste) {
       setTagEditarInput("");
       return;
     }
 
-    const tagExistente = tagsExistentes.find(
-      (tag) => tag.nome.toLowerCase() === nomeTag.toLowerCase()
-    );
-
-    const cor = tagExistente?.cor ?? gerarCorTag();
-
+    const tagResolvida = await resolverTagExistente(nomeTag);
+    if (!tagResolvida) {
+      setTagEditarInput("");
+      return;
+    }
     setTagsEditadas((atual) => [
       ...atual,
-      { id: tagExistente?.id, nome: nomeTag, cor },
+      tagResolvida,
     ]);
     setTagEditarInput("");
   };
@@ -1471,7 +1554,26 @@ export function VisaoContatos() {
     setContatoAtivo((atual) =>
       atual
         ? {
-            ...atual,
+          ...atual,
+          nome,
+          telefone: telefoneNormalizado,
+          email: formEditarContato.email.trim(),
+          empresa: nomeEmpresa || undefined,
+          status: formEditarContato.status,
+          owner: labelOwner(ownerId),
+          ownerId: ownerId ?? undefined,
+          pipelineId: formEditarContato.pipelineId || undefined,
+          pipelineStageId: formEditarContato.stageId || undefined,
+          tags: tagsDepois,
+        }
+        : atual
+    );
+
+    setContatos((atual) =>
+      atual.map((contato) =>
+        contato.id === contatoAtivo.id
+          ? {
+            ...contato,
             nome,
             telefone: telefoneNormalizado,
             email: formEditarContato.email.trim(),
@@ -1483,25 +1585,6 @@ export function VisaoContatos() {
             pipelineStageId: formEditarContato.stageId || undefined,
             tags: tagsDepois,
           }
-        : atual
-    );
-
-    setContatos((atual) =>
-      atual.map((contato) =>
-        contato.id === contatoAtivo.id
-          ? {
-              ...contato,
-              nome,
-              telefone: telefoneNormalizado,
-              email: formEditarContato.email.trim(),
-              empresa: nomeEmpresa || undefined,
-              status: formEditarContato.status,
-              owner: labelOwner(ownerId),
-              ownerId: ownerId ?? undefined,
-              pipelineId: formEditarContato.pipelineId || undefined,
-              pipelineStageId: formEditarContato.stageId || undefined,
-              tags: tagsDepois,
-            }
           : contato
       )
     );
@@ -1568,20 +1651,20 @@ export function VisaoContatos() {
     setContatoAtivo((atual) =>
       atual
         ? {
-            ...atual,
-            owner: labelOwner(ownerId),
-            ownerId: ownerId ?? undefined,
-          }
+          ...atual,
+          owner: labelOwner(ownerId),
+          ownerId: ownerId ?? undefined,
+        }
         : atual
     );
     setContatos((atual) =>
       atual.map((contato) =>
         contato.id === contatoAtivo.id
           ? {
-              ...contato,
-              owner: labelOwner(ownerId),
-              ownerId: ownerId ?? undefined,
-            }
+            ...contato,
+            owner: labelOwner(ownerId),
+            ownerId: ownerId ?? undefined,
+          }
           : contato
       )
     );
@@ -1711,14 +1794,22 @@ export function VisaoContatos() {
     const nomeSeguro = arquivo.name.replace(/[^\w.-]/g, "_");
     const caminho = `${workspaceId}/${contatoAtivo.id}/${Date.now()}-${nomeSeguro}`;
 
-    const { error: uploadErro } = await supabaseClient.storage
-      .from("contact-files")
-      .upload(caminho, arquivo, {
-        contentType: arquivo.type || undefined,
-        upsert: false,
-      });
+    const token = await obterToken();
+    if (!token) {
+      setErroDados("Sessão expirada.");
+      setEnviandoArquivo(false);
+      event.target.value = "";
+      return;
+    }
 
-    if (uploadErro) {
+    try {
+      await uploadFileToR2({
+        token,
+        bucket: "contact-files",
+        key: caminho,
+        file: arquivo,
+      });
+    } catch (error) {
       setErroDados("Não foi possível enviar o arquivo.");
       setEnviandoArquivo(false);
       event.target.value = "";
@@ -1748,12 +1839,10 @@ export function VisaoContatos() {
       return;
     }
 
-    const publicUrl = supabaseClient.storage
-      .from("contact-files")
-      .getPublicUrl(caminho).data.publicUrl;
+    const publicUrl = buildR2PublicUrl("contact-files", caminho);
 
     setArquivosContato((atual) => [
-      { ...registro, publicUrl },
+      { ...registro, publicUrl: publicUrl ?? undefined },
       ...atual,
     ]);
     await registrarAuditoria({
@@ -1770,9 +1859,24 @@ export function VisaoContatos() {
 
     setArquivoExcluindoId(arquivo.id);
 
-    const { error: storageErro } = await supabaseClient.storage
-      .from("contact-files")
-      .remove([arquivo.storage_path]);
+    const token = await obterToken();
+    if (!token) {
+      setErroDados("Sessão expirada.");
+      setArquivoExcluindoId(null);
+      return;
+    }
+
+    try {
+      await deleteR2Object({
+        token,
+        bucket: "contact-files",
+        key: arquivo.storage_path,
+      });
+    } catch (error) {
+      setErroDados("Não foi possível excluir o arquivo.");
+      setArquivoExcluindoId(null);
+      return;
+    }
 
     const { error: bancoErro } = await supabaseClient
       .from("contact_files")
@@ -1780,7 +1884,7 @@ export function VisaoContatos() {
       .eq("id", arquivo.id)
       .eq("workspace_id", workspaceId);
 
-    if (storageErro || bancoErro) {
+    if (bancoErro) {
       setErroDados("Não foi possível excluir o arquivo.");
       setArquivoExcluindoId(null);
       return;
@@ -1812,23 +1916,35 @@ export function VisaoContatos() {
     const extensao = arquivo.name.split(".").pop() ?? "png";
     const caminho = `${workspaceId}/${contatoAtivo.id}/${Date.now()}.${extensao}`;
 
-    const { error: uploadErro } = await supabaseClient.storage
-      .from("contact-avatars")
-      .upload(caminho, arquivo, {
-        contentType: arquivo.type || undefined,
-        upsert: true,
-      });
+    const token = await obterToken();
+    if (!token) {
+      setErroDados("Sessão expirada.");
+      setEnviandoAvatar(false);
+      event.target.value = "";
+      return;
+    }
 
-    if (uploadErro) {
+    try {
+      await uploadFileToR2({
+        token,
+        bucket: "contact-avatars",
+        key: caminho,
+        file: arquivo,
+      });
+    } catch (error) {
       setErroDados("Não foi possível atualizar a foto.");
       setEnviandoAvatar(false);
       event.target.value = "";
       return;
     }
 
-    const publicUrl = supabaseClient.storage
-      .from("contact-avatars")
-      .getPublicUrl(caminho).data.publicUrl;
+    const publicUrl = buildR2PublicUrl("contact-avatars", caminho);
+    if (!publicUrl) {
+      setErroDados("Não foi possível gerar a URL da foto.");
+      setEnviandoAvatar(false);
+      event.target.value = "";
+      return;
+    }
 
     const { error } = await supabaseClient
       .from("contacts")
@@ -1862,7 +1978,7 @@ export function VisaoContatos() {
     event.target.value = "";
   };
 
-  if (!session && !carregandoSessao) {
+  if (!session) {
     return null;
   }
 
@@ -1870,7 +1986,7 @@ export function VisaoContatos() {
     podeVer ? formatarTelefone(telefone) : mascararTelefone(telefone);
   const exibirEmail = (email: string) =>
     podeVer ? email : mascararEmail(email);
-  const exibirSkeleton = carregandoSessao || carregando;
+  const exibirSkeleton = carregando;
   const previewCsvRows = csvDados?.rows.slice(0, 5) ?? [];
 
   return (
@@ -2253,6 +2369,37 @@ export function VisaoContatos() {
               onClick={handleExcluirSelecionados}
             >
               Confirmar exclusão
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dialogExcluirContatoAberto} onOpenChange={setDialogExcluirContatoAberto}>
+        <DialogContent className="rounded-[6px] shadow-none">
+          <DialogHeader>
+            <DialogTitle>Excluir contato?</DialogTitle>
+            <DialogDescription>
+              Esta ação irá excluir permanentemente o contato{" "}
+              <strong>{contatoAtivo?.nome}</strong> e todos os seus dados
+              associados. Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              className="rounded-[6px] shadow-none"
+              onClick={() => setDialogExcluirContatoAberto(false)}
+              disabled={excluindoContato}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              className="rounded-[6px] shadow-none"
+              onClick={handleExcluirContatoAtivo}
+              disabled={excluindoContato}
+            >
+              {excluindoContato ? "Excluindo..." : "Excluir contato"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -2647,12 +2794,27 @@ export function VisaoContatos() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    adicionarTagSelecionada(tagInput);
+                    void adicionarTagSelecionada(tagInput);
                   }
                 }}
                 placeholder="Digite uma tag e pressione Enter"
                 className="rounded-[6px] shadow-none"
               />
+              {tagsDisponiveisCriacao.length > 0 && (
+                <div className="flex flex-wrap gap-2 rounded-[6px] border border-border/60 bg-muted/30 p-2">
+                  {tagsDisponiveisCriacao.map((tag) => (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => void adicionarTagSelecionada(tag.nome)}
+                      className="rounded-[6px] px-2 py-1 text-xs text-white"
+                      style={{ backgroundColor: tag.cor ?? "#94a3b8" }}
+                    >
+                      {tag.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
@@ -2733,7 +2895,7 @@ export function VisaoContatos() {
                       </p>
                     </div>
                   </div>
-                <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="mt-3 flex flex-wrap gap-2">
                     <Badge
                       className="rounded-[6px] text-[10px] text-white"
                       style={{ backgroundColor: obterEtapaContato(contatoAtivo).cor }}
@@ -2823,6 +2985,15 @@ export function VisaoContatos() {
                               ))}
                           </SelectContent>
                         </Select>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-9 w-9 p-0 rounded-[6px] shadow-none text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                          onClick={() => setDialogExcluirContatoAberto(true)}
+                          aria-label="Excluir contato"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                     </div>
                     <Separator />
@@ -3353,12 +3524,27 @@ export function VisaoContatos() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     event.preventDefault();
-                    adicionarTagEditada(tagEditarInput);
+                    void adicionarTagEditada(tagEditarInput);
                   }
                 }}
                 placeholder="Digite uma tag e pressione Enter"
                 className="rounded-[6px] shadow-none"
               />
+              {tagsDisponiveisEdicao.length > 0 && (
+                <div className="flex flex-wrap gap-2 rounded-[6px] border border-border/60 bg-muted/30 p-2">
+                  {tagsDisponiveisEdicao.map((tag) => (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => void adicionarTagEditada(tag.nome)}
+                      className="rounded-[6px] px-2 py-1 text-xs text-white"
+                      style={{ backgroundColor: tag.cor ?? "#94a3b8" }}
+                    >
+                      {tag.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>

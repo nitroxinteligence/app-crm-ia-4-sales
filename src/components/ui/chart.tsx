@@ -5,7 +5,6 @@ import {
   Legend as RechartsLegend,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
-  type TooltipProps,
 } from "recharts";
 import { cn } from "@/lib/utils";
 
@@ -91,7 +90,10 @@ function ChartTooltipContent({
   label,
   hideLabel,
   labelFormatter,
-}: TooltipProps<number, string> & {
+}: {
+  active?: boolean;
+  payload?: Array<{ dataKey?: unknown; name?: unknown; value?: unknown; color?: string }>;
+  label?: string | number;
   hideLabel?: boolean;
   labelFormatter?: (label: string | number) => string;
 }) {
@@ -122,9 +124,9 @@ function ChartTooltipContent({
                   className="h-2 w-2 rounded-full"
                   style={{ backgroundColor: cor }}
                 />
-                <span>{configItem?.label ?? item.name ?? key}</span>
+                <span>{configItem?.label ?? String(item.name ?? key)}</span>
               </div>
-              <span className="font-medium">{item.value}</span>
+              <span className="font-medium">{String(item.value ?? "")}</span>
             </div>
           );
         })}

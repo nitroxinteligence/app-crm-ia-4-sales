@@ -1,5 +1,14 @@
 import { createClient } from "@supabase/supabase-js";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { buildR2Key, getR2Client, resolveBucket } from "@/lib/r2/server";
+import type { StatusConversa } from "@/lib/types";
 import { supabaseServer } from "@/lib/supabase/server";
+import {
+  emitAttachmentCreated,
+  emitConversationUpdated,
+  emitMessageCreated,
+} from "@/lib/pusher/events";
 
 export const runtime = "nodejs";
 
@@ -246,17 +255,42 @@ const salvarMensagem = async (
     if (!createdMessage) {
       return { error: "Falha ao salvar mensagem." };
     }
+    const dataCriacao = createdMessage.created_at ?? new Date().toISOString();
+    const statusAtualizado =
+      (conversation.status === "resolvida" || conversation.status === "pendente"
+        ? "aberta"
+        : conversation.status) as StatusConversa;
 
     await userClient
       .from("conversations")
       .update({
         ultima_mensagem: payload.conteudo,
-        ultima_mensagem_em: createdMessage.created_at ?? new Date().toISOString(),
-        status:
-          conversation.status === "resolvida" ? "aberta" : conversation.status,
+        ultima_mensagem_em: dataCriacao,
+        status: statusAtualizado,
       })
       .eq("id", conversation.id)
       .eq("workspace_id", workspaceId);
+
+    await emitMessageCreated({
+      workspace_id: workspaceId,
+      conversation_id: conversation.id,
+      message: {
+        id: createdMessage.id,
+        autor: "equipe",
+        tipo: payload.tipo,
+        conteudo: payload.conteudo,
+        created_at: dataCriacao,
+        interno: false,
+      },
+    });
+
+    await emitConversationUpdated({
+      workspace_id: workspaceId,
+      conversation_id: conversation.id,
+      status: statusAtualizado,
+      ultima_mensagem: payload.conteudo,
+      ultima_mensagem_em: dataCriacao,
+    });
 
     return { data: createdMessage };
   }
@@ -284,16 +318,42 @@ const salvarMensagem = async (
     return { error: insertAttempt.error?.message ?? "Falha ao salvar mensagem." };
   }
 
+  const dataCriacao = createdMessage.created_at ?? new Date().toISOString();
+  const statusAtualizado =
+    (conversation.status === "resolvida" || conversation.status === "pendente"
+      ? "aberta"
+      : conversation.status) as StatusConversa;
+
   await userClient
     .from("conversations")
     .update({
       ultima_mensagem: payload.conteudo,
-      ultima_mensagem_em: createdMessage.created_at ?? new Date().toISOString(),
-      status:
-        conversation.status === "resolvida" ? "aberta" : conversation.status,
+      ultima_mensagem_em: dataCriacao,
+      status: statusAtualizado,
     })
     .eq("id", conversation.id)
     .eq("workspace_id", workspaceId);
+
+  await emitMessageCreated({
+    workspace_id: workspaceId,
+    conversation_id: conversation.id,
+    message: {
+      id: createdMessage.id,
+      autor: "equipe",
+      tipo: payload.tipo,
+      conteudo: payload.conteudo,
+      created_at: dataCriacao,
+      interno: false,
+    },
+  });
+
+  await emitConversationUpdated({
+    workspace_id: workspaceId,
+    conversation_id: conversation.id,
+    status: statusAtualizado,
+    ultima_mensagem: payload.conteudo,
+    ultima_mensagem_em: dataCriacao,
+  });
 
   return { data: createdMessage };
 };
@@ -623,7 +683,7 @@ export async function POST(request: Request) {
     return payload.message_id ?? null;
   };
 
-  if (message) {
+  if (message && attachments.length === 0) {
     const saved = await salvarMensagem(
       userClient,
       membership.workspace_id,
@@ -662,9 +722,19 @@ export async function POST(request: Request) {
     }
   }
 
-  for (const attachment of attachments) {
+  const r2Client = getR2Client();
+  const inboxBucket = resolveBucket("inbox-attachments");
+  if (!inboxBucket) {
+    return new Response("Bucket de anexos nao configurado.", { status: 500 });
+  }
+
+  for (let index = 0; index < attachments.length; index += 1) {
+    const attachment = attachments[index];
     const nomeArquivo =
       sanitizarNomeArquivo(attachment.file.name) || "arquivo";
+    const legendaTexto = index === 0 ? message.trim() : "";
+    const hasLegenda = Boolean(legendaTexto);
+    const conteudoParaSalvar = hasLegenda ? legendaTexto : nomeArquivo;
     const storagePath = `${membership.workspace_id}/${conversation.id}/${
       crypto.randomUUID()
     }-${nomeArquivo}`;
@@ -682,7 +752,7 @@ export async function POST(request: Request) {
       conversation,
       {
         tipo: attachment.tipo,
-        conteudo: nomeArquivo,
+        conteudo: conteudoParaSalvar,
         providerMessageId: null,
         sendStatus: "sending",
         sendError: null,
@@ -695,35 +765,52 @@ export async function POST(request: Request) {
       });
     }
 
-    const { error: uploadError } = await userClient.storage
-      .from("inbox-attachments")
-      .upload(storagePath, attachment.file, {
-        contentType: baseMimeType,
-        upsert: false,
-    });
-
-    if (uploadError) {
+    const objectKey = buildR2Key("inbox-attachments", storagePath);
+    try {
+      const buffer = Buffer.from(await attachment.file.arrayBuffer());
+      await r2Client.send(
+        new PutObjectCommand({
+          Bucket: inboxBucket,
+          Key: objectKey,
+          Body: buffer,
+          ContentType: baseMimeType,
+        })
+      );
+    } catch (error) {
+      const detalhe = error instanceof Error ? error.message : "Falha no upload.";
       await atualizarEnvioMensagem(userClient, saved.data.id, {
         sendStatus: "failed",
-        sendError: uploadError.message,
+        sendError: detalhe,
       });
-      return new Response(uploadError.message, { status: 500 });
+      return new Response(detalhe, { status: 500 });
     }
 
     let providerMessageId: string | null = null;
 
     try {
-      if (conversation.canal === "whatsapp" && provider === "whatsapp_baileys") {
-        const { data: signed } = await userClient.storage
-          .from("inbox-attachments")
-          .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
+      const precisaUrl =
+        conversation.canal === "whatsapp" || conversation.canal === "instagram";
+      let signedUrl: string | null = null;
+      if (precisaUrl) {
+        signedUrl = await getSignedUrl(
+          r2Client,
+          new GetObjectCommand({
+            Bucket: inboxBucket,
+            Key: objectKey,
+          }),
+          { expiresIn: 60 * 60 * 24 * 7 }
+        );
+      }
 
-        if (!signed?.signedUrl) {
+      if (conversation.canal === "whatsapp" && provider === "whatsapp_baileys") {
+        if (!signedUrl) {
           throw new Error("Falha ao gerar URL do arquivo.");
         }
 
         const tipoBaileys =
-          attachment.whatsappType === "image"
+          hasLegenda && attachment.whatsappType === "audio"
+            ? "document"
+            : attachment.whatsappType === "image"
             ? "image"
             : attachment.whatsappType === "document"
               ? "document"
@@ -731,52 +818,40 @@ export async function POST(request: Request) {
 
         providerMessageId = await enviarViaBaileys({
           type: tipoBaileys,
-          text: tipoBaileys === "audio" ? undefined : nomeArquivo,
-          mediaUrl: signed.signedUrl,
+          text: tipoBaileys === "audio" ? undefined : hasLegenda ? legendaTexto : undefined,
+          mediaUrl: signedUrl,
           mimeType: baileysMimeType,
           fileName: nomeArquivo,
         });
       } else if (conversation.canal === "whatsapp" && provider === "whatsapp_oficial") {
-        const mediaForm = new FormData();
-        mediaForm.append("messaging_product", "whatsapp");
-        mediaForm.append("file", attachment.file, nomeArquivo);
-        mediaForm.append("type", baseMimeType);
-
-        const uploadResponse = await fetch(
-          `https://graph.facebook.com/${whatsappGraphVersion}/${phoneNumberId}/media`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-            body: mediaForm,
-          }
-        );
-
-        if (!uploadResponse.ok) {
-          throw new Error(await parseGraphError(uploadResponse));
+        if (!signedUrl) {
+          throw new Error("Falha ao gerar URL do arquivo.");
         }
 
-        const uploadPayload = (await uploadResponse.json()) as {
-          id?: string;
-        };
-        const mediaId = uploadPayload.id;
-        if (!mediaId) {
-          throw new Error("Falha ao enviar midia.");
-        }
+        const sendType =
+          hasLegenda && attachment.whatsappType === "audio"
+            ? "document"
+            : attachment.whatsappType;
 
         const messageBody: Record<string, unknown> = {
           messaging_product: "whatsapp",
           to: destinatario,
-          type: attachment.whatsappType,
+          type: sendType,
         };
 
-        if (attachment.whatsappType === "image") {
-          messageBody.image = { id: mediaId };
-        } else if (attachment.whatsappType === "document") {
-          messageBody.document = { id: mediaId, filename: nomeArquivo };
+        if (sendType === "image") {
+          messageBody.image = {
+            link: signedUrl,
+            caption: hasLegenda ? legendaTexto : undefined,
+          };
+        } else if (sendType === "document") {
+          messageBody.document = {
+            link: signedUrl,
+            filename: nomeArquivo,
+            caption: hasLegenda ? legendaTexto : undefined,
+          };
         } else {
-          messageBody.audio = { id: mediaId };
+          messageBody.audio = { link: signedUrl };
         }
 
         const mediaResponse = await fetch(
@@ -800,13 +875,12 @@ export async function POST(request: Request) {
         };
         providerMessageId = mediaPayload.messages?.[0]?.id ?? null;
       } else if (conversation.canal === "instagram") {
-        const { data: signed } = await userClient.storage
-          .from("inbox-attachments")
-          .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
-        const texto = signed?.signedUrl
-          ? `Arquivo: ${nomeArquivo}\n${signed.signedUrl}`
-          : `Arquivo: ${nomeArquivo}`;
-        providerMessageId = await enviarTexto(texto);
+        const partes = [
+          hasLegenda ? legendaTexto : null,
+          `Arquivo: ${nomeArquivo}`,
+          signedUrl,
+        ].filter(Boolean) as string[];
+        providerMessageId = await enviarTexto(partes.join("\n"));
       }
     } catch (error) {
       const detalhe = error instanceof Error ? error.message : null;
@@ -838,7 +912,7 @@ export async function POST(request: Request) {
       sendError: null,
     });
 
-    const { error: attachmentError } = await userClient
+    const { data: attachmentRow, error: attachmentError } = await userClient
       .from("attachments")
       .insert({
         workspace_id: membership.workspace_id,
@@ -846,15 +920,30 @@ export async function POST(request: Request) {
         storage_path: storagePath,
         tipo: attachment.tipo,
         tamanho_bytes: attachment.file.size,
-      });
+      })
+      .select("id")
+      .single();
 
-    if (attachmentError) {
+    if (attachmentError || !attachmentRow) {
+      const erroMensagem = attachmentError?.message ?? "Falha ao salvar anexo.";
       await atualizarEnvioMensagem(userClient, saved.data.id, {
         sendStatus: "failed",
-        sendError: attachmentError.message,
+        sendError: erroMensagem,
       });
-      return new Response(attachmentError.message, { status: 500 });
+      return new Response(erroMensagem, { status: 500 });
     }
+
+    await emitAttachmentCreated({
+      workspace_id: membership.workspace_id,
+      conversation_id: conversation.id,
+      message_id: saved.data.id,
+      attachment: {
+        id: attachmentRow.id,
+        storage_path: storagePath,
+        tipo: attachment.tipo,
+        tamanho_bytes: attachment.file.size,
+      },
+    });
   }
 
   return Response.json({ ok: true });

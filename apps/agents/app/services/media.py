@@ -6,6 +6,8 @@ import tempfile
 from pathlib import Path
 
 from app.clients.supabase import get_supabase_client
+from app.clients.r2_client import build_r2_key, get_r2_client
+from app.config import settings
 from app.services.ocr import (
     extract_text_from_docx,
     extract_text_from_image,
@@ -14,16 +16,19 @@ from app.services.ocr import (
 )
 from app.services.transcription import transcribe_audio
 
-ATTACHMENTS_BUCKET = "inbox-attachments"
 # Route logs through uvicorn to ensure visibility in dev logs.
 logger = logging.getLogger("uvicorn.error")
 logger.setLevel(logging.INFO)
 
 
 def _download_attachment(storage_path: str, target_path: Path) -> Path:
-    supabase = get_supabase_client()
-    storage = supabase.storage.from_(ATTACHMENTS_BUCKET)
-    data = storage.download(storage_path)
+    r2 = get_r2_client()
+    object_key = build_r2_key("inbox-attachments", storage_path)
+    response = r2.get_object(
+        Bucket=settings.r2_bucket_inbox_attachments,
+        Key=object_key,
+    )
+    data = response["Body"].read()
     target_path.write_bytes(data)
     return target_path
 

@@ -343,7 +343,7 @@ export function VisaoRelatorios() {
 
         <section className="grid gap-4 lg:grid-cols-4">
           {(carregandoNegocios && !dadosNegocios
-            ? Array.from({ length: 4 })
+            ? Array.from({ length: 4 }, () => null)
             : dadosNegocios?.kpis ?? []
           ).map((kpi, index) => {
             if (!kpi) {

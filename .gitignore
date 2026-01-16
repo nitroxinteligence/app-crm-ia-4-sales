@@ -52,9 +52,9 @@ instance-*
 instance_id,payload-*
 
 # docs with secrets
-/docs/credenciais-env.md
-/docs/docs-testes/
-/docs/log-erros/
+/docs/
+AGENTS.md
+supabase/
 
 # vercel
 .vercel

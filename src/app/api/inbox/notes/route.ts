@@ -1,4 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  emitConversationUpdated,
+  emitMessageCreated,
+} from "@/lib/pusher/events";
 
 export const runtime = "nodejs";
 
@@ -93,6 +97,28 @@ export async function POST(request: Request) {
     })
     .eq("id", conversation.id)
     .eq("workspace_id", membership.workspace_id);
+
+  const dataCriacao = message.created_at ?? new Date().toISOString();
+
+  await emitMessageCreated({
+    workspace_id: membership.workspace_id,
+    conversation_id: conversation.id,
+    message: {
+      id: message.id,
+      autor: "equipe",
+      tipo: "texto",
+      conteudo: content,
+      created_at: dataCriacao,
+      interno: true,
+    },
+  });
+
+  await emitConversationUpdated({
+    workspace_id: membership.workspace_id,
+    conversation_id: conversation.id,
+    ultima_mensagem: content,
+    ultima_mensagem_em: dataCriacao,
+  });
 
   return Response.json({ id: message.id });
 }

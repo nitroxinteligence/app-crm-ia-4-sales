@@ -70,7 +70,7 @@ export const itensNavegacao: ItemNavegacao[] = [
     href: "/app/agentes",
     icone: Bot,
     grupo: "inteligencia",
-    disponivel: true,
+    disponivel: false, // Temporariamente desabilitado
   },
   {
     id: "prospeccao",

@@ -1,4 +1,8 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  emitConversationUpdated,
+  emitMessageCreated,
+} from "@/lib/pusher/events";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -238,10 +242,40 @@ export async function POST(request: Request) {
     .update({
       ultima_mensagem: `Template: ${templateName}`,
       ultima_mensagem_em: message.created_at ?? new Date().toISOString(),
-      status: conversation.status === "resolvida" ? "aberta" : conversation.status,
+      status:
+        conversation.status === "resolvida" || conversation.status === "pendente"
+          ? "aberta"
+          : conversation.status,
     })
     .eq("id", conversation.id)
     .eq("workspace_id", membership.workspace_id);
+
+  const dataCriacao = message.created_at ?? new Date().toISOString();
+  const statusAtualizado =
+    conversation.status === "resolvida" || conversation.status === "pendente"
+      ? "aberta"
+      : conversation.status;
+
+  await emitMessageCreated({
+    workspace_id: membership.workspace_id,
+    conversation_id: conversation.id,
+    message: {
+      id: message.id,
+      autor: "equipe",
+      tipo: "texto",
+      conteudo: `Template: ${templateName}`,
+      created_at: dataCriacao,
+      interno: false,
+    },
+  });
+
+  await emitConversationUpdated({
+    workspace_id: membership.workspace_id,
+    conversation_id: conversation.id,
+    status: statusAtualizado,
+    ultima_mensagem: `Template: ${templateName}`,
+    ultima_mensagem_em: dataCriacao,
+  });
 
   return Response.json({ id: message.id });
 }

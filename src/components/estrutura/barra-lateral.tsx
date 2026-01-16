@@ -162,7 +162,7 @@ export function BarraLateral({
           <>
             <div className="flex items-center gap-3">
               <img
-                src="https://ksalwtadilmtijouekpa.supabase.co/storage/v1/object/sign/doc-interno/PNG%20-%20IA%20FOUR%20SALES.svg?token=eyJraWQiOiJzdG9yYWdlLXVybC1zaWduaW5nLWtleV9jMDBmM2UzZi04OGFkLTQwNjctODY5MC0wOWQyMzUzYzUxMzAiLCJhbGciOiJIUzI1NiJ9.eyJ1cmwiOiJkb2MtaW50ZXJuby9QTkcgLSBJQSBGT1VSIFNBTEVTLnN2ZyIsImlhdCI6MTc2ODAwOTY1NiwiZXhwIjoyMTE0OTA1NjU2fQ.-69IsEegSz9-qQp1x4ZhUw3TjSUm4g5aTh9mmd-Ak_0"
+                src="/logo-ia-four-sales.svg"
                 alt="IA FOUR SALES"
                 className="h-6 w-auto"
               />

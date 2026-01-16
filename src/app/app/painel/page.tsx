@@ -5,11 +5,10 @@ const estadosValidos = ["loading", "empty", "error", "denied"] as const;
 
 type Estado = (typeof estadosValidos)[number];
 
-export default function Page({
-  searchParams,
-}: {
-  searchParams?: { estado?: string };
+export default async function Page(props: {
+  searchParams?: Promise<{ estado?: string }>;
 }) {
+  const searchParams = await props.searchParams;
   const estado = searchParams?.estado;
   const estadoNormalizado = estadosValidos.includes(estado as Estado)
     ? (estado as Estado)

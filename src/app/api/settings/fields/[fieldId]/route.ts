@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
@@ -49,9 +50,10 @@ const getTabela = (entidade: string | null) => {
 };
 
 export async function PATCH(
-  request: Request,
-  { params }: { params: { fieldId: string } }
+  request: NextRequest,
+  context: { params: Promise<{ fieldId: string }> }
 ) {
+  const { fieldId } = await context.params;
   const { membership, userClient, error } = await getMembership(request);
   if (!membership || !userClient) {
     return new Response(error ?? "Unauthorized", { status: 401 });
@@ -85,7 +87,7 @@ export async function PATCH(
   const { data, error: updateError } = await userClient
     .from(tabela)
     .update(updates)
-    .eq("id", params.fieldId)
+    .eq("id", fieldId)
     .eq("workspace_id", membership.workspace_id)
     .select("id, nome, tipo, opcoes, obrigatorio, ordem, created_at")
     .maybeSingle();
@@ -98,9 +100,10 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  request: Request,
-  { params }: { params: { fieldId: string } }
+  request: NextRequest,
+  context: { params: Promise<{ fieldId: string }> }
 ) {
+  const { fieldId } = await context.params;
   const { membership, userClient, error } = await getMembership(request);
   if (!membership || !userClient) {
     return new Response(error ?? "Unauthorized", { status: 401 });
@@ -113,7 +116,7 @@ export async function DELETE(
   const { error: deleteError } = await userClient
     .from(tabela)
     .delete()
-    .eq("id", params.fieldId)
+    .eq("id", fieldId)
     .eq("workspace_id", membership.workspace_id);
 
   if (deleteError) {

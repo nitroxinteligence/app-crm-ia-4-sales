@@ -5,6 +5,13 @@ from typing import Any
 import httpx
 
 from app.clients.supabase import get_supabase_client
+from app.clients.r2_client import build_r2_key, get_r2_client
+from app.config import settings
+from app.services.realtime import (
+    emit_attachment_created,
+    emit_conversation_updated,
+    emit_message_created,
+)
 from app.services.workspaces import is_workspace_not_expired
 
 
@@ -216,23 +223,24 @@ def _store_attachment(
     media_url: str,
     attachment_type: str,
     message_type: str,
-) -> None:
+) -> dict | None:
     if not message_row_id:
-        return
+        return None
 
     content, mime_type = _download_media(media_url, access_token)
     extension = _resolve_extension(mime_type, attachment_type)
     storage_path = f"{workspace_id}/{conversation_id}/{message_row_id}{extension}"
 
-    supabase = get_supabase_client()
-    storage = supabase.storage.from_("inbox-attachments")
-    storage.upload(
-        storage_path,
-        content,
-        file_options={
-            "content-type": mime_type or "application/octet-stream",
-        },
+    r2 = get_r2_client()
+    object_key = build_r2_key("inbox-attachments", storage_path)
+    r2.put_object(
+        Bucket=settings.r2_bucket_inbox_attachments,
+        Key=object_key,
+        Body=content,
+        ContentType=mime_type or "application/octet-stream",
     )
+
+    supabase = get_supabase_client()
 
     existing = (
         supabase.table("attachments")
@@ -244,10 +252,10 @@ def _store_attachment(
         .data
     )
     if existing:
-        return
+        return None
 
     tamanho = len(content)
-    supabase.table("attachments").insert(
+    insert_response = supabase.table("attachments").insert(
         {
             "workspace_id": workspace_id,
             "message_id": message_row_id,
@@ -256,6 +264,16 @@ def _store_attachment(
             "tamanho_bytes": tamanho,
         }
     ).execute()
+    data = insert_response.data or []
+    attachment_row = data[0] if isinstance(data, list) and data else data
+    if not attachment_row or not isinstance(attachment_row, dict):
+        return None
+    return {
+        "id": attachment_row.get("id"),
+        "storage_path": storage_path,
+        "tipo": message_type,
+        "tamanho_bytes": tamanho,
+    }
 
 
 def _safe_get_payload(payload: Any) -> dict:
@@ -356,11 +374,32 @@ def process_instagram_event(event_id: str) -> dict:
                     content=content,
                     created_at=created_at,
                 )
+                if message_row_id:
+                    emit_message_created(
+                        workspace_id,
+                        conversation["id"],
+                        {
+                            "id": message_row_id,
+                            "autor": "contato",
+                            "tipo": message_type,
+                            "conteudo": content,
+                            "created_at": created_at,
+                        },
+                    )
+                    emit_conversation_updated(
+                        workspace_id,
+                        conversation["id"],
+                        {
+                            "status": conversation.get("status", "aberta"),
+                            "ultima_mensagem": content,
+                            "ultima_mensagem_em": created_at,
+                        },
+                    )
 
                 if attachments:
                     for attachment in attachments:
                         try:
-                            _store_attachment(
+                            attachment_row = _store_attachment(
                                 access_token=access_token,
                                 workspace_id=workspace_id,
                                 conversation_id=conversation["id"],
@@ -369,6 +408,13 @@ def process_instagram_event(event_id: str) -> dict:
                                 attachment_type=attachment.get("type", "file"),
                                 message_type=message_type,
                             )
+                            if attachment_row and message_row_id:
+                                emit_attachment_created(
+                                    workspace_id,
+                                    conversation["id"],
+                                    message_row_id,
+                                    attachment_row,
+                                )
                         except Exception:
                             continue
     except Exception:
