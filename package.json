@@ -5,8 +5,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "worker:build": "npx opennextjs-cloudflare",
-    "pages:build": "next build && npx opennextjs-cloudflare",
+    "worker:build": "npx opennextjs-cloudflare build",
+    "pages:build": "next build && npx opennextjs-cloudflare build",
     "start": "next start",
     "lint": "eslint",
     "env:validate": "node scripts/validate-env.mjs",
