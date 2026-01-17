@@ -109,8 +109,9 @@ export async function GET(
 // PATCH /api/contacts/[contactId] - Atualizar contact
 export async function PATCH(
     request: NextRequest,
-    { params }: { params: { contactId: string } }
+    context: { params: Promise<{ contactId: string }> }
 ) {
+    const { contactId } = await context.params;
     if (!supabaseUrl || !supabaseAnonKey) {
         return serverError("Missing Supabase env vars");
     }
@@ -143,7 +144,7 @@ export async function PATCH(
     const { data: existingContact } = await supabaseServer
         .from("contacts")
         .select("id, workspace_id")
-        .eq("id", params.contactId)
+        .eq("id", contactId)
         .eq("workspace_id", membership.workspace_id)
         .maybeSingle();
 
@@ -162,7 +163,7 @@ export async function PATCH(
     const { data: updatedContact, error } = await supabaseServer
         .from("contacts")
         .update(updateData)
-        .eq("id", params.contactId)
+        .eq("id", contactId)
         .eq("workspace_id", membership.workspace_id)
         .select()
         .single();
@@ -177,8 +178,9 @@ export async function PATCH(
 // DELETE /api/contacts/[contactId] - Deletar contact
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: { contactId: string } }
+    context: { params: Promise<{ contactId: string }> }
 ) {
+    const { contactId } = await context.params;
     if (!supabaseUrl || !supabaseAnonKey) {
         return serverError("Missing Supabase env vars");
     }
@@ -210,7 +212,7 @@ export async function DELETE(
     const { error } = await supabaseServer
         .from("contacts")
         .delete()
-        .eq("id", params.contactId)
+        .eq("id", contactId)
         .eq("workspace_id", membership.workspace_id);
 
     if (error) {
