@@ -476,10 +476,10 @@ export function EditorAgente({
         }));
         let numerosFiltrados = providerSelecionado
           ? numeros.filter((conta) =>
-              providerSelecionado === "whatsapp_oficial"
-                ? !conta.provider || conta.provider === "whatsapp_oficial"
-                : conta.provider === providerSelecionado
-            )
+            providerSelecionado === "whatsapp_oficial"
+              ? !conta.provider || conta.provider === "whatsapp_oficial"
+              : conta.provider === providerSelecionado
+          )
           : numeros;
         if (providerSelecionado === "whatsapp_baileys" && numerosFiltrados.length > 1) {
           numerosFiltrados = [...numerosFiltrados].sort((a, b) => {
@@ -566,9 +566,9 @@ export function EditorAgente({
           integracoesCalendario?.map((item) => item.id) ?? [];
         const { data: calendariosSync } = integrationIds.length
           ? await supabaseClient
-              .from("calendar_sync_state")
-              .select("integration_id, calendar_id")
-              .in("integration_id", integrationIds)
+            .from("calendar_sync_state")
+            .select("integration_id, calendar_id")
+            .in("integration_id", integrationIds)
           : { data: [] };
 
         if (ativo) {
@@ -1602,101 +1602,101 @@ export function EditorAgente({
         <div ref={scrollAreaTesteRef} className="flex-1 min-h-0">
           <ScrollArea className="h-full" type="always">
             <div className="space-y-3 p-4">
-            {mensagensTeste.length === 0 ? (
-              <p className="text-center text-xs text-muted-foreground">
-                Inicie uma conversa para testar o agente.
-              </p>
-            ) : (
-              mensagensTeste.map((mensagem) => (
-                <div
-                  key={mensagem.id}
-                  className={cn(
-                    "flex items-end gap-2",
-                    mensagem.autor === "usuario" ? "justify-end" : "justify-start"
-                  )}
-                >
-                  {mensagem.autor === "agente" && (
-                    <span className="flex h-8 w-8 items-center justify-center rounded-[6px] border border-border/60 bg-muted/40 text-muted-foreground">
-                      <Brain className="h-4 w-4" />
-                    </span>
-                  )}
+              {mensagensTeste.length === 0 ? (
+                <p className="text-center text-xs text-muted-foreground">
+                  Inicie uma conversa para testar o agente.
+                </p>
+              ) : (
+                mensagensTeste.map((mensagem) => (
                   <div
+                    key={mensagem.id}
                     className={cn(
-                      "inline-flex w-fit max-w-[82%] flex-col space-y-2 rounded-[6px] px-3 py-2 text-sm whitespace-pre-wrap break-words",
-                      mensagem.autor === "usuario"
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted"
+                      "flex items-end gap-2",
+                      mensagem.autor === "usuario" ? "justify-end" : "justify-start"
                     )}
                   >
-                    {mensagem.texto ? <p>{mensagem.texto}</p> : null}
-                    {mensagem.anexos?.length ? (
-                      <div className="space-y-2 pt-1">
-                        {mensagem.anexos.map((anexo) => (
-                          <div key={anexo.id} className="space-y-2">
-                            {anexo.tipo === "imagem" && anexo.url && (
-                              <img
-                                src={anexo.url}
-                                alt={anexo.nome}
-                                className="max-h-40 rounded-[6px] border border-border/40"
-                              />
-                            )}
-                            {anexo.tipo === "audio" && anexo.url && (
-                              <audio controls className="w-full">
-                                <source src={anexo.url} />
-                              </audio>
-                            )}
-                            <div className="flex items-center gap-2 text-xs opacity-80">
-                              {anexo.tipo === "imagem" ? (
-                                <ImageIcon className="h-3.5 w-3.5" />
-                              ) : anexo.tipo === "audio" ? (
-                                <Mic className="h-3.5 w-3.5" />
-                              ) : (
-                                <Paperclip className="h-3.5 w-3.5" />
-                              )}
-                              <span className="truncate">
-                                {anexo.tipo === "audio" ? "Áudio" : anexo.nome}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  {mensagem.autor === "usuario" && (
-                    <Avatar className="h-8 w-8 shrink-0">
-                      {usuario?.avatarUrl && (
-                        <AvatarImage src={usuario.avatarUrl} alt={usuario.nome} />
+                    {mensagem.autor === "agente" && (
+                      <span className="flex h-8 w-8 items-center justify-center rounded-[6px] border border-border/60 bg-muted/40 text-muted-foreground">
+                        <Brain className="h-4 w-4" />
+                      </span>
+                    )}
+                    <div
+                      className={cn(
+                        "inline-flex w-fit max-w-[82%] flex-col space-y-2 rounded-[6px] px-3 py-2 text-sm whitespace-pre-wrap break-words",
+                        mensagem.autor === "usuario"
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted"
                       )}
-                      <AvatarFallback>{iniciaisUsuario}</AvatarFallback>
-                    </Avatar>
-                  )}
+                    >
+                      {mensagem.texto ? <p>{mensagem.texto}</p> : null}
+                      {mensagem.anexos?.length ? (
+                        <div className="space-y-2 pt-1">
+                          {mensagem.anexos.map((anexo) => (
+                            <div key={anexo.id} className="space-y-2">
+                              {anexo.tipo === "imagem" && anexo.url && (
+                                <img
+                                  src={anexo.url}
+                                  alt={anexo.nome}
+                                  className="max-h-40 rounded-[6px] border border-border/40"
+                                />
+                              )}
+                              {anexo.tipo === "audio" && anexo.url && (
+                                <audio controls className="w-full">
+                                  <source src={anexo.url} />
+                                </audio>
+                              )}
+                              <div className="flex items-center gap-2 text-xs opacity-80">
+                                {anexo.tipo === "imagem" ? (
+                                  <ImageIcon className="h-3.5 w-3.5" />
+                                ) : anexo.tipo === "audio" ? (
+                                  <Mic className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Paperclip className="h-3.5 w-3.5" />
+                                )}
+                                <span className="truncate">
+                                  {anexo.tipo === "audio" ? "Áudio" : anexo.nome}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                    {mensagem.autor === "usuario" && (
+                      <Avatar className="h-8 w-8 shrink-0">
+                        {usuario?.avatarUrl && (
+                          <AvatarImage src={usuario.avatarUrl} alt={usuario.nome} />
+                        )}
+                        <AvatarFallback>{iniciaisUsuario}</AvatarFallback>
+                      </Avatar>
+                    )}
+                  </div>
+                ))
+              )}
+              {enviandoTeste && (
+                <div className="flex items-end gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-[6px] border border-border/60 bg-muted/40 text-muted-foreground">
+                    <Brain className="h-4 w-4" />
+                  </span>
+                  <div className="inline-flex w-fit max-w-[82%] items-center gap-1 rounded-[6px] bg-muted px-3 py-2 text-sm">
+                    <span
+                      className="h-2 w-2 rounded-[6px] bg-muted-foreground/70 animate-bounce"
+                      style={{ animationDelay: "0ms" }}
+                    />
+                    <span
+                      className="h-2 w-2 rounded-[6px] bg-muted-foreground/70 animate-bounce"
+                      style={{ animationDelay: "150ms" }}
+                    />
+                    <span
+                      className="h-2 w-2 rounded-[6px] bg-muted-foreground/70 animate-bounce"
+                      style={{ animationDelay: "300ms" }}
+                    />
+                  </div>
                 </div>
-              ))
-            )}
-            {enviandoTeste && (
-              <div className="flex items-end gap-2">
-                <span className="flex h-8 w-8 items-center justify-center rounded-[6px] border border-border/60 bg-muted/40 text-muted-foreground">
-                  <Brain className="h-4 w-4" />
-                </span>
-                <div className="inline-flex w-fit max-w-[82%] items-center gap-1 rounded-[6px] bg-muted px-3 py-2 text-sm">
-                  <span
-                    className="h-2 w-2 rounded-[6px] bg-muted-foreground/70 animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  />
-                  <span
-                    className="h-2 w-2 rounded-[6px] bg-muted-foreground/70 animate-bounce"
-                    style={{ animationDelay: "150ms" }}
-                  />
-                  <span
-                    className="h-2 w-2 rounded-[6px] bg-muted-foreground/70 animate-bounce"
-                    style={{ animationDelay: "300ms" }}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        </ScrollArea>
-      </div>
+              )}
+            </div>
+          </ScrollArea>
+        </div>
         <div className="sticky bottom-0 border-t border-border/60 bg-background/90 p-3 backdrop-blur">
           {arquivosTeste.length > 0 && (
             <div className="mb-3 flex flex-wrap gap-2">
@@ -2472,11 +2472,11 @@ export function EditorAgente({
                     </DialogContent>
                   </Dialog>
                 </div>
-              <div className="rounded-[6px] border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground whitespace-pre-wrap break-words">
-                {promptAgente
-                  ? `${promptAgente.slice(0, 240)}${promptAgente.length > 240 ? "…" : ""}`
-                  : "Nenhum prompt configurado ainda."}
-              </div>
+                <div className="rounded-[6px] border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground whitespace-pre-wrap break-words">
+                  {promptAgente
+                    ? `${promptAgente.slice(0, 240)}${promptAgente.length > 240 ? "…" : ""}`
+                    : "Nenhum prompt configurado ainda."}
+                </div>
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span>{promptWordCount} / {PROMPT_MAX_PALAVRAS} palavras</span>
                   <span>Obrigatório</span>
@@ -2806,9 +2806,9 @@ export function EditorAgente({
       case "followup":
         return (
           <div className="space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold">Follow-ups automáticos</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">Follow-ups automáticos</p>
                 {providerBaileys ? (
                   <p className="text-xs text-muted-foreground">
                     Follow-up liberado para API não oficial, sem janela de 24h.
@@ -3127,7 +3127,7 @@ export function EditorAgente({
       }
       return true;
     });
-  }, [filtroAuditoriaAcao, logsAuditoria]);
+  }, [filtroAuditoriaAcao, logsAuditoria, filtroAuditoriaPeriodo]);
 
   const nomeInvalido = !formAgente.nome.trim();
   const consentimentoInvalido = !consentimento;
@@ -3314,7 +3314,7 @@ export function EditorAgente({
   const descricaoPagina = modoCriacao
     ? "Configuração guiada para criar um agente completo."
     : [formAgente.nome, tipoAgenteLabel].filter(Boolean).join(" • ") ||
-      "Ajuste as configurações do agente.";
+    "Ajuste as configurações do agente.";
 
   React.useEffect(() => {
     if (providerSelecionado !== "whatsapp_oficial") {
@@ -3595,272 +3595,195 @@ export function EditorAgente({
             <div className="p-4">
               <TooltipProvider>
                 <Tabs value={abaAtiva} onValueChange={setAbaAtiva}>
-                <TabsList className="grid w-full grid-cols-3 gap-2 md:grid-cols-6">
-                  <TabsTrigger value="configuracao">Configuração</TabsTrigger>
-                  <TabsTrigger value="acoes">Ações</TabsTrigger>
-                  <TabsTrigger value="conhecimento">Conhecimento</TabsTrigger>
-                  <TabsTrigger value="followup">Follow-up</TabsTrigger>
-                  <TabsTrigger value="testar">Testar</TabsTrigger>
-                  <TabsTrigger value="auditoria">Auditoria</TabsTrigger>
-                </TabsList>
+                  <TabsList className="grid w-full grid-cols-3 gap-2 md:grid-cols-6">
+                    <TabsTrigger value="configuracao">Configuração</TabsTrigger>
+                    <TabsTrigger value="acoes">Ações</TabsTrigger>
+                    <TabsTrigger value="conhecimento">Conhecimento</TabsTrigger>
+                    <TabsTrigger value="followup">Follow-up</TabsTrigger>
+                    <TabsTrigger value="testar">Testar</TabsTrigger>
+                    <TabsTrigger value="auditoria">Auditoria</TabsTrigger>
+                  </TabsList>
 
-                <TabsContent value="configuracao" className="pt-4">
-                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-                    <div className="space-y-6">
-                      <Card className="border-border/60">
-                        <CardContent className="space-y-4 p-4">
-                          <div>
-                            <p className="text-sm font-semibold">Identidade do agente</p>
-                            <p className="text-xs text-muted-foreground">
-                              Defina nome, função e estilo de conversa.
-                            </p>
-                          </div>
-                          <div className="space-y-2">
-                            <p className="text-sm font-medium">Função principal</p>
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              {templatesAgente.map((template) => {
-                                const Icone = template.icone;
-                                const ativo = formAgente.tipo === template.id;
-                                return (
-                                  <button
-                                    key={template.id}
-                                    type="button"
-                                    onClick={() =>
-                                      setFormAgente((atual) => ({
-                                        ...atual,
-                                        tipo: template.id as TipoAgente,
-                                      }))
-                                    }
-                                    className={cn(
-                                      "flex w-full items-start gap-3 rounded-[6px] border border-border/60 bg-background/80 p-3 text-left text-sm transition",
-                                      ativo && "border-primary/50 bg-primary/5"
-                                    )}
-                                  >
-                                    <span className="mt-1 rounded-[6px] bg-primary/10 p-2 text-primary">
-                                      <Icone className="h-4 w-4" />
-                                    </span>
-                                    <div>
-                                      <p className="font-medium">{template.nome}</p>
-                                      <p className="text-xs text-muted-foreground">
-                                        {template.descricao}
-                                      </p>
-                                    </div>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          <Separator />
-                          <div className="grid gap-3">
-                            <div className="grid gap-2">
-                              <label htmlFor="agente-nome" className="text-sm font-medium">
-                                Nome do agente
-                              </label>
-                              <Input
-                                id="agente-nome"
-                                value={formAgente.nome}
-                                onChange={(event) =>
-                                  setFormAgente((atual) => ({
-                                    ...atual,
-                                    nome: event.target.value,
-                                  }))
-                                }
-                                placeholder="Ex: Maya SDR"
-                              />
+                  <TabsContent value="configuracao" className="pt-4">
+                    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                      <div className="space-y-6">
+                        <Card className="border-border/60">
+                          <CardContent className="space-y-4 p-4">
+                            <div>
+                              <p className="text-sm font-semibold">Identidade do agente</p>
                               <p className="text-xs text-muted-foreground">
-                                Este nome sera usado pelo agente ao se apresentar nas conversas.
+                                Defina nome, função e estilo de conversa.
                               </p>
                             </div>
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <div className="grid gap-2">
-                                <label className="text-sm font-medium">Tom de voz</label>
-                                <Select
-                                  value={formAgente.tom}
-                                  onValueChange={(valor) =>
-                                    setFormAgente((atual) => ({
-                                      ...atual,
-                                      tom: valor as TomAgente,
-                                    }))
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione o tom" />
-                                  </SelectTrigger>
-                                  <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    {tonsAgente.map((tom) => (
-                                      <SelectItem key={tom.value} value={tom.value}>
-                                        {tom.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                            <div className="space-y-2">
+                              <p className="text-sm font-medium">Função principal</p>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {templatesAgente.map((template) => {
+                                  const Icone = template.icone;
+                                  const ativo = formAgente.tipo === template.id;
+                                  return (
+                                    <button
+                                      key={template.id}
+                                      type="button"
+                                      onClick={() =>
+                                        setFormAgente((atual) => ({
+                                          ...atual,
+                                          tipo: template.id as TipoAgente,
+                                        }))
+                                      }
+                                      className={cn(
+                                        "flex w-full items-start gap-3 rounded-[6px] border border-border/60 bg-background/80 p-3 text-left text-sm transition",
+                                        ativo && "border-primary/50 bg-primary/5"
+                                      )}
+                                    >
+                                      <span className="mt-1 rounded-[6px] bg-primary/10 p-2 text-primary">
+                                        <Icone className="h-4 w-4" />
+                                      </span>
+                                      <div>
+                                        <p className="font-medium">{template.nome}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {template.descricao}
+                                        </p>
+                                      </div>
+                                    </button>
+                                  );
+                                })}
                               </div>
-                              <div className="grid gap-2">
-                                <label className="text-sm font-medium">
-                                  Horário de atuação
-                                </label>
-                                <Select
-                                  value={formAgente.horario}
-                                  onValueChange={(valor) =>
-                                    setFormAgente((atual) => ({
-                                      ...atual,
-                                      horario: valor as AgenteIA["horario"],
-                                    }))
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione o horário" />
-                                  </SelectTrigger>
-                                  <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    {horariosAgente.map((horario) => (
-                                      <SelectItem key={horario.value} value={horario.value}>
-                                        {horario.label}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                            </div>
-                            {formAgente.tom === "outro" && (
-                              <div className="grid gap-2">
-                                <label className="text-sm font-medium">
-                                  Tom de voz personalizado
-                                </label>
-                                <Input
-                                  value={tomPersonalizado}
-                                  onChange={(event) => setTomPersonalizado(event.target.value)}
-                                  placeholder="Descreva o tom de voz desejado."
-                                />
-                              </div>
-                            )}
-                            {formAgente.horario === "personalizado" && (
-                              <div className="grid gap-2">
-                                <label className="text-sm font-medium">
-                                  Horário personalizado
-                                </label>
-                                <Input
-                                  value={horarioPersonalizado}
-                                  onChange={(event) =>
-                                    setHorarioPersonalizado(event.target.value)
-                                  }
-                                  placeholder="Ex: 08h às 20h"
-                                />
-                              </div>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-border/60">
-                        <CardContent className="space-y-4 p-4">
-                          <div>
-                            <p className="text-sm font-semibold">Canais e CRM</p>
-                            <p className="text-xs text-muted-foreground">
-                              Defina canal, conta, pipeline e agendas do agente.
-                            </p>
-                          </div>
-                          <div className="space-y-4">
-                            <div className="grid gap-2">
-                              <label className="text-sm font-medium">Canal ativo</label>
-                              <Select
-                                value={canalSelecionado}
-                                onValueChange={(valor) =>
-                                  handleSelecionarCanal(valor as CanalId)
-                                }
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Selecione o canal" />
-                                </SelectTrigger>
-                                <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                  {canaisPermitidos.map((canal) => (
-                                    <SelectItem key={canal} value={canal}>
-                                      {nomeCanal(canal)}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
                             </div>
                             <Separator />
-                            <div className="grid gap-2">
-                              <div className="flex items-center gap-2 text-sm font-medium">
-                                <span>Número WhatsApp do agente</span>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="inline-flex text-muted-foreground">
-                                      <CircleHelp className="h-4 w-4" />
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    Escolha o número conectado para esse agente.
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
-                              {numerosWhatsapp.length ? (
-                                <Select
-                                  value={numeroSelecionado ?? ""}
-                                  onValueChange={(valor) =>
-                                    setNumeroSelecionado(valor || null)
+                            <div className="grid gap-3">
+                              <div className="grid gap-2">
+                                <label htmlFor="agente-nome" className="text-sm font-medium">
+                                  Nome do agente
+                                </label>
+                                <Input
+                                  id="agente-nome"
+                                  value={formAgente.nome}
+                                  onChange={(event) =>
+                                    setFormAgente((atual) => ({
+                                      ...atual,
+                                      nome: event.target.value,
+                                    }))
                                   }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione um número" />
-                                  </SelectTrigger>
-                                  <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    {numerosWhatsapp.map((numero) => (
-                                      <SelectItem
-                                        key={numero.id}
-                                        value={numero.id}
-                                        disabled={numero.emUso}
-                                      >
-                                        {formatarNumeroExibicao(numero)}
-                                        {numero.emUso ? " (em uso)" : ""}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              ) : (
+                                  placeholder="Ex: Maya SDR"
+                                />
                                 <p className="text-xs text-muted-foreground">
-                                  Nenhum número conectado.
+                                  Este nome sera usado pelo agente ao se apresentar nas conversas.
                                 </p>
+                              </div>
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <div className="grid gap-2">
+                                  <label className="text-sm font-medium">Tom de voz</label>
+                                  <Select
+                                    value={formAgente.tom}
+                                    onValueChange={(valor) =>
+                                      setFormAgente((atual) => ({
+                                        ...atual,
+                                        tom: valor as TomAgente,
+                                      }))
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione o tom" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      {tonsAgente.map((tom) => (
+                                        <SelectItem key={tom.value} value={tom.value}>
+                                          {tom.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="grid gap-2">
+                                  <label className="text-sm font-medium">
+                                    Horário de atuação
+                                  </label>
+                                  <Select
+                                    value={formAgente.horario}
+                                    onValueChange={(valor) =>
+                                      setFormAgente((atual) => ({
+                                        ...atual,
+                                        horario: valor as AgenteIA["horario"],
+                                      }))
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione o horário" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      {horariosAgente.map((horario) => (
+                                        <SelectItem key={horario.value} value={horario.value}>
+                                          {horario.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                              {formAgente.tom === "outro" && (
+                                <div className="grid gap-2">
+                                  <label className="text-sm font-medium">
+                                    Tom de voz personalizado
+                                  </label>
+                                  <Input
+                                    value={tomPersonalizado}
+                                    onChange={(event) => setTomPersonalizado(event.target.value)}
+                                    placeholder="Descreva o tom de voz desejado."
+                                  />
+                                </div>
+                              )}
+                              {formAgente.horario === "personalizado" && (
+                                <div className="grid gap-2">
+                                  <label className="text-sm font-medium">
+                                    Horário personalizado
+                                  </label>
+                                  <Input
+                                    value={horarioPersonalizado}
+                                    onChange={(event) =>
+                                      setHorarioPersonalizado(event.target.value)
+                                    }
+                                    placeholder="Ex: 08h às 20h"
+                                  />
+                                </div>
                               )}
                             </div>
-                            <Separator />
-                            <div className="grid gap-3 sm:grid-cols-2">
+                          </CardContent>
+                        </Card>
+
+                        <Card className="border-border/60">
+                          <CardContent className="space-y-4 p-4">
+                            <div>
+                              <p className="text-sm font-semibold">Canais e CRM</p>
+                              <p className="text-xs text-muted-foreground">
+                                Defina canal, conta, pipeline e agendas do agente.
+                              </p>
+                            </div>
+                            <div className="space-y-4">
                               <div className="grid gap-2">
-                                <div className="flex items-center gap-2 text-sm font-medium">
-                                  <span>Pipeline principal</span>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <span className="inline-flex text-muted-foreground">
-                                        <CircleHelp className="h-4 w-4" />
-                                      </span>
-                                    </TooltipTrigger>
-                                    <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                      Pipeline onde o agente cria e move negócios.
-                                    </TooltipContent>
-                                  </Tooltip>
-                                </div>
+                                <label className="text-sm font-medium">Canal ativo</label>
                                 <Select
-                                  value={pipelineSelecionado ?? ""}
+                                  value={canalSelecionado}
                                   onValueChange={(valor) =>
-                                    setPipelineSelecionado(valor || null)
+                                    handleSelecionarCanal(valor as CanalId)
                                   }
                                 >
                                   <SelectTrigger>
-                                    <SelectValue placeholder="Selecione o pipeline" />
+                                    <SelectValue placeholder="Selecione o canal" />
                                   </SelectTrigger>
                                   <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    {pipelinesDisponiveis.map((pipeline) => (
-                                      <SelectItem key={pipeline.id} value={pipeline.id}>
-                                        {pipeline.nome}
+                                    {canaisPermitidos.map((canal) => (
+                                      <SelectItem key={canal} value={canal}>
+                                        {nomeCanal(canal)}
                                       </SelectItem>
                                     ))}
                                   </SelectContent>
                                 </Select>
                               </div>
+                              <Separator />
                               <div className="grid gap-2">
                                 <div className="flex items-center gap-2 text-sm font-medium">
-                                  <span>Etapa inicial</span>
+                                  <span>Número WhatsApp do agente</span>
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <span className="inline-flex text-muted-foreground">
@@ -3868,33 +3791,260 @@ export function EditorAgente({
                                       </span>
                                     </TooltipTrigger>
                                     <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                      Etapa onde novos leads entram automaticamente.
+                                      Escolha o número conectado para esse agente.
                                     </TooltipContent>
                                   </Tooltip>
                                 </div>
-                                <Select
-                                  value={etapaSelecionada ?? ""}
-                                  onValueChange={(valor) =>
-                                    setEtapaSelecionada(valor || null)
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione a etapa" />
-                                  </SelectTrigger>
-                                  <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    {etapasFiltradas.map((etapa) => (
-                                      <SelectItem key={etapa.id} value={etapa.id}>
-                                        {etapa.nome}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                {numerosWhatsapp.length ? (
+                                  <Select
+                                    value={numeroSelecionado ?? ""}
+                                    onValueChange={(valor) =>
+                                      setNumeroSelecionado(valor || null)
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione um número" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      {numerosWhatsapp.map((numero) => (
+                                        <SelectItem
+                                          key={numero.id}
+                                          value={numero.id}
+                                          disabled={numero.emUso}
+                                        >
+                                          {formatarNumeroExibicao(numero)}
+                                          {numero.emUso ? " (em uso)" : ""}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                ) : (
+                                  <p className="text-xs text-muted-foreground">
+                                    Nenhum número conectado.
+                                  </p>
+                                )}
+                              </div>
+                              <Separator />
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="grid gap-2">
+                                  <div className="flex items-center gap-2 text-sm font-medium">
+                                    <span>Pipeline principal</span>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="inline-flex text-muted-foreground">
+                                          <CircleHelp className="h-4 w-4" />
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                        Pipeline onde o agente cria e move negócios.
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                  <Select
+                                    value={pipelineSelecionado ?? ""}
+                                    onValueChange={(valor) =>
+                                      setPipelineSelecionado(valor || null)
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione o pipeline" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      {pipelinesDisponiveis.map((pipeline) => (
+                                        <SelectItem key={pipeline.id} value={pipeline.id}>
+                                          {pipeline.nome}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div className="grid gap-2">
+                                  <div className="flex items-center gap-2 text-sm font-medium">
+                                    <span>Etapa inicial</span>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="inline-flex text-muted-foreground">
+                                          <CircleHelp className="h-4 w-4" />
+                                        </span>
+                                      </TooltipTrigger>
+                                      <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                        Etapa onde novos leads entram automaticamente.
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </div>
+                                  <Select
+                                    value={etapaSelecionada ?? ""}
+                                    onValueChange={(valor) =>
+                                      setEtapaSelecionada(valor || null)
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione a etapa" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      {etapasFiltradas.map((etapa) => (
+                                        <SelectItem key={etapa.id} value={etapa.id}>
+                                          {etapa.nome}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              </div>
+                              <Separator />
+                              <div className="grid gap-2">
+                                <div className="flex items-center gap-2 text-sm font-medium">
+                                  <span>Agendas disponíveis</span>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="inline-flex text-muted-foreground">
+                                        <CircleHelp className="h-4 w-4" />
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      Selecione as agendas que o agente pode usar.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                {agendasDisponiveis.length ? (
+                                  <div className="space-y-3">
+                                    <Select
+                                      value={agendaEmSelecao}
+                                      onValueChange={(valor) => {
+                                        handleAdicionarAgenda(valor);
+                                        setAgendaEmSelecao("");
+                                      }}
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Selecione uma agenda" />
+                                      </SelectTrigger>
+                                      <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                        {agendasDisponiveis.map((agenda) => (
+                                          <SelectItem key={agenda.id} value={agenda.id}>
+                                            {agenda.titulo}
+                                            {agenda.primaria &&
+                                              " • Agenda principal (voce)"}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                    <div className="flex flex-wrap gap-2">
+                                      {agendasSelecionadas.map((agendaId) => {
+                                        const agenda = agendasDisponiveis.find(
+                                          (item) => item.id === agendaId
+                                        );
+                                        if (!agenda) return null;
+                                        return (
+                                          <Badge
+                                            key={agendaId}
+                                            variant="secondary"
+                                            className="flex items-center gap-1"
+                                          >
+                                            {agenda.titulo}
+                                            {agenda.primaria && " (voce)"}
+                                            <Button
+                                              type="button"
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-4 w-4"
+                                              onClick={() =>
+                                                handleRemoverAgenda(agendaId)
+                                              }
+                                            >
+                                              <X className="h-3 w-3" />
+                                            </Button>
+                                          </Badge>
+                                        );
+                                      })}
+                                      {agendasSelecionadas.length === 0 && (
+                                        <span className="text-xs text-muted-foreground">
+                                          Nenhuma agenda selecionada.
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+                                    <span>Nenhuma agenda configurada.</span>
+                                    <Button asChild variant="outline" size="sm">
+                                      <Link href="/app/calendario">
+                                        Configurar agendas
+                                      </Link>
+                                    </Button>
+                                  </div>
+                                )}
                               </div>
                             </div>
-                            <Separator />
-                            <div className="grid gap-2">
+                          </CardContent>
+                        </Card>
+
+                        <Card className="border-border/60">
+                          <CardContent className="space-y-4 p-4">
+                            <div>
+                              <p className="text-sm font-semibold">Idioma e tempo</p>
+                              <p className="text-xs text-muted-foreground">
+                                Controle o tempo de resposta e a localização do agente.
+                              </p>
+                            </div>
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <div className="grid gap-2">
+                                <div className="flex items-center gap-2 text-sm font-medium">
+                                  <span>Tempo de resposta (segundos)</span>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="inline-flex text-muted-foreground">
+                                        <CircleHelp className="h-4 w-4" />
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      Define o tempo alvo para responder aos leads.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                <Input
+                                  type="number"
+                                  min={5}
+                                  value={tempoResposta}
+                                  onChange={(event) =>
+                                    setTempoResposta(Number(event.target.value || 0))
+                                  }
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <div className="flex items-center gap-2 text-sm font-medium">
+                                  <span>Timezone</span>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="inline-flex text-muted-foreground">
+                                        <CircleHelp className="h-4 w-4" />
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      Usado para horários de atuação e follow-ups.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </div>
+                                <Input
+                                  value={timezone}
+                                  onChange={(event) => setTimezone(event.target.value)}
+                                  placeholder="America/Sao_Paulo"
+                                />
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        <Card className="border-border/60">
+                          <CardContent className="space-y-4 p-4">
+                            <div>
+                              <p className="text-sm font-semibold">Pausa automática</p>
+                              <p className="text-xs text-muted-foreground">
+                                Defina quando o agente deve interromper o atendimento.
+                              </p>
+                            </div>
+                            <div className="space-y-2">
                               <div className="flex items-center gap-2 text-sm font-medium">
-                                <span>Agendas disponíveis</span>
+                                <span>Pausar por tags</span>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span className="inline-flex text-muted-foreground">
@@ -3902,53 +4052,123 @@ export function EditorAgente({
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    Selecione as agendas que o agente pode usar.
+                                    Tags aplicadas no lead ou contato pausam o agente.
                                   </TooltipContent>
                                 </Tooltip>
                               </div>
-                              {agendasDisponiveis.length ? (
+                              {tagsDisponiveis.length ? (
                                 <div className="space-y-3">
                                   <Select
-                                    value={agendaEmSelecao}
+                                    value={tagEmSelecao}
                                     onValueChange={(valor) => {
-                                      handleAdicionarAgenda(valor);
-                                      setAgendaEmSelecao("");
+                                      handleAdicionarTagPausa(valor);
+                                      setTagEmSelecao("");
                                     }}
                                   >
                                     <SelectTrigger>
-                                      <SelectValue placeholder="Selecione uma agenda" />
+                                      <SelectValue placeholder="Selecione uma tag" />
                                     </SelectTrigger>
                                     <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                      {agendasDisponiveis.map((agenda) => (
-                                        <SelectItem key={agenda.id} value={agenda.id}>
-                                          {agenda.titulo}
-                                          {agenda.primaria &&
-                                            " • Agenda principal (voce)"}
+                                      {tagsDisponiveis.map((tag) => (
+                                        <SelectItem key={tag.id} value={tag.id}>
+                                          {tag.nome}
                                         </SelectItem>
                                       ))}
                                     </SelectContent>
                                   </Select>
                                   <div className="flex flex-wrap gap-2">
-                                    {agendasSelecionadas.map((agendaId) => {
-                                      const agenda = agendasDisponiveis.find(
-                                        (item) => item.id === agendaId
+                                    {pausarTags.map((tagId) => {
+                                      const tag = tagsDisponiveis.find(
+                                        (item) => item.id === tagId
                                       );
-                                      if (!agenda) return null;
+                                      if (!tag) return null;
                                       return (
                                         <Badge
-                                          key={agendaId}
+                                          key={tagId}
                                           variant="secondary"
                                           className="flex items-center gap-1"
                                         >
-                                          {agenda.titulo}
-                                          {agenda.primaria && " (voce)"}
+                                          {tag.nome}
+                                          <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-4 w-4"
+                                            onClick={() => handleRemoverTagPausa(tagId)}
+                                          >
+                                            <X className="h-3 w-3" />
+                                          </Button>
+                                        </Badge>
+                                      );
+                                    })}
+                                    {pausarTags.length === 0 && (
+                                      <span className="text-xs text-muted-foreground">
+                                        Nenhuma tag selecionada.
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  Nenhuma tag disponível.
+                                </span>
+                              )}
+                            </div>
+                            <Separator />
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2 text-sm font-medium">
+                                <span>Pausar por etapas</span>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex text-muted-foreground">
+                                      <CircleHelp className="h-4 w-4" />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                    Etapas específicas interrompem o agente automaticamente.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                              {etapasFiltradas.length ? (
+                                <div className="space-y-3">
+                                  <Select
+                                    value={etapaEmSelecao}
+                                    onValueChange={(valor) => {
+                                      handleAdicionarEtapaPausa(valor);
+                                      setEtapaEmSelecao("");
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Selecione uma etapa" />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      {etapasFiltradas.map((etapa) => (
+                                        <SelectItem key={etapa.id} value={etapa.id}>
+                                          {etapa.nome}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <div className="flex flex-wrap gap-2">
+                                    {pausarEtapas.map((etapaId) => {
+                                      const etapa = etapasFiltradas.find(
+                                        (item) => item.id === etapaId
+                                      );
+                                      if (!etapa) return null;
+                                      return (
+                                        <Badge
+                                          key={etapaId}
+                                          variant="secondary"
+                                          className="flex items-center gap-1"
+                                        >
+                                          {etapa.nome}
                                           <Button
                                             type="button"
                                             variant="ghost"
                                             size="icon"
                                             className="h-4 w-4"
                                             onClick={() =>
-                                              handleRemoverAgenda(agendaId)
+                                              handleRemoverEtapaPausa(etapaId)
                                             }
                                           >
                                             <X className="h-3 w-3" />
@@ -3956,40 +4176,33 @@ export function EditorAgente({
                                         </Badge>
                                       );
                                     })}
-                                    {agendasSelecionadas.length === 0 && (
+                                    {pausarEtapas.length === 0 && (
                                       <span className="text-xs text-muted-foreground">
-                                        Nenhuma agenda selecionada.
+                                        Nenhuma etapa selecionada.
                                       </span>
                                     )}
                                   </div>
                                 </div>
                               ) : (
-                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
-                                  <span>Nenhuma agenda configurada.</span>
-                                  <Button asChild variant="outline" size="sm">
-                                    <Link href="/app/calendario">
-                                      Configurar agendas
-                                    </Link>
-                                  </Button>
-                                </div>
+                                <span className="text-xs text-muted-foreground">
+                                  Nenhuma etapa disponível.
+                                </span>
                               )}
                             </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                            <div className="rounded-[6px] border border-border/60 bg-muted/30 p-3 text-sm">
+                              <p className="font-medium">Escalonamento para humano</p>
+                              <p className="text-xs text-muted-foreground">
+                                Regras de pausa são configuradas acima por tags e etapas.
+                              </p>
+                            </div>
+                          </CardContent>
+                        </Card>
 
-                      <Card className="border-border/60">
-                        <CardContent className="space-y-4 p-4">
-                          <div>
-                            <p className="text-sm font-semibold">Idioma e tempo</p>
-                            <p className="text-xs text-muted-foreground">
-                              Controle o tempo de resposta e a localização do agente.
-                            </p>
-                          </div>
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <div className="grid gap-2">
-                              <div className="flex items-center gap-2 text-sm font-medium">
-                                <span>Tempo de resposta (segundos)</span>
+                        <Card className="border-border/60">
+                          <CardContent className="flex items-center justify-between gap-4 p-4 text-sm">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <p className="font-medium">Consentimento</p>
                                 <Tooltip>
                                   <TooltipTrigger asChild>
                                     <span className="inline-flex text-muted-foreground">
@@ -3997,212 +4210,369 @@ export function EditorAgente({
                                     </span>
                                   </TooltipTrigger>
                                   <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    Define o tempo alvo para responder aos leads.
+                                    Autorização para o uso de IA com dados do workspace.
                                   </TooltipContent>
                                 </Tooltip>
                               </div>
-                              <Input
-                                type="number"
-                                min={5}
-                                value={tempoResposta}
-                                onChange={(event) =>
-                                  setTempoResposta(Number(event.target.value || 0))
-                                }
-                              />
+                              <p className="text-xs text-muted-foreground">
+                                Confirme o uso de IA com dados do workspace.
+                              </p>
                             </div>
-                            <div className="grid gap-2">
-                              <div className="flex items-center gap-2 text-sm font-medium">
-                                <span>Timezone</span>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <span className="inline-flex text-muted-foreground">
-                                      <CircleHelp className="h-4 w-4" />
-                                    </span>
-                                  </TooltipTrigger>
-                                  <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    Usado para horários de atuação e follow-ups.
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
-                              <Input
-                                value={timezone}
-                                onChange={(event) => setTimezone(event.target.value)}
-                                placeholder="America/Sao_Paulo"
-                              />
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                            <Switch
+                              checked={consentimento}
+                              onCheckedChange={setConsentimento}
+                            />
+                          </CardContent>
+                        </Card>
+                      </div>
 
-                      <Card className="border-border/60">
-                        <CardContent className="space-y-4 p-4">
-                          <div>
-                            <p className="text-sm font-semibold">Pausa automática</p>
-                            <p className="text-xs text-muted-foreground">
-                              Defina quando o agente deve interromper o atendimento.
-                            </p>
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2 text-sm font-medium">
-                              <span>Pausar por tags</span>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="inline-flex text-muted-foreground">
-                                    <CircleHelp className="h-4 w-4" />
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                  Tags aplicadas no lead ou contato pausam o agente.
-                                </TooltipContent>
-                              </Tooltip>
+                      <div className="space-y-4">
+                        <Card className="border-border/60">
+                          <CardContent className="space-y-3 p-4 text-sm">
+                            <div>
+                              <p className="font-semibold">Checklist de publicação</p>
+                              <p className="text-xs text-muted-foreground">
+                                Complete o básico para liberar o agente.
+                              </p>
                             </div>
-                          {tagsDisponiveis.length ? (
-                            <div className="space-y-3">
-                              <Select
-                                value={tagEmSelecao}
-                                onValueChange={(valor) => {
-                                  handleAdicionarTagPausa(valor);
-                                  setTagEmSelecao("");
-                                }}
-                              >
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Selecione uma tag" />
-                                </SelectTrigger>
-                                <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                  {tagsDisponiveis.map((tag) => (
-                                    <SelectItem key={tag.id} value={tag.id}>
-                                      {tag.nome}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <div className="flex flex-wrap gap-2">
-                                {pausarTags.map((tagId) => {
-                                  const tag = tagsDisponiveis.find(
-                                    (item) => item.id === tagId
-                                  );
-                                  if (!tag) return null;
-                                  return (
-                                    <Badge
-                                      key={tagId}
-                                      variant="secondary"
-                                      className="flex items-center gap-1"
-                                    >
-                                      {tag.nome}
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-4 w-4"
-                                        onClick={() => handleRemoverTagPausa(tagId)}
-                                      >
-                                        <X className="h-3 w-3" />
-                                      </Button>
-                                    </Badge>
-                                  );
-                                })}
-                                {pausarTags.length === 0 && (
-                                  <span className="text-xs text-muted-foreground">
-                                    Nenhuma tag selecionada.
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">
-                              Nenhuma tag disponível.
-                            </span>
-                          )}
-                        </div>
-                        <Separator />
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-2 text-sm font-medium">
-                              <span>Pausar por etapas</span>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="inline-flex text-muted-foreground">
-                                    <CircleHelp className="h-4 w-4" />
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                  Etapas específicas interrompem o agente automaticamente.
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-                            {etapasFiltradas.length ? (
-                              <div className="space-y-3">
-                                <Select
-                                  value={etapaEmSelecao}
-                                  onValueChange={(valor) => {
-                                    handleAdicionarEtapaPausa(valor);
-                                    setEtapaEmSelecao("");
-                                  }}
+                            <div className="space-y-2">
+                              {checklistConfiguracao.map((item) => (
+                                <div
+                                  key={item.id}
+                                  className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/70 px-3 py-2 text-xs"
                                 >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione uma etapa" />
-                                  </SelectTrigger>
-                                  <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    {etapasFiltradas.map((etapa) => (
-                                      <SelectItem key={etapa.id} value={etapa.id}>
-                                        {etapa.nome}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                                <div className="flex flex-wrap gap-2">
-                                  {pausarEtapas.map((etapaId) => {
-                                    const etapa = etapasFiltradas.find(
-                                      (item) => item.id === etapaId
-                                    );
-                                    if (!etapa) return null;
-                                    return (
-                                      <Badge
-                                        key={etapaId}
-                                        variant="secondary"
-                                        className="flex items-center gap-1"
-                                      >
-                                        {etapa.nome}
-                                        <Button
-                                          type="button"
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-4 w-4"
-                                          onClick={() =>
-                                            handleRemoverEtapaPausa(etapaId)
-                                          }
-                                        >
-                                          <X className="h-3 w-3" />
-                                        </Button>
-                                      </Badge>
-                                    );
-                                  })}
-                                  {pausarEtapas.length === 0 && (
-                                    <span className="text-xs text-muted-foreground">
-                                      Nenhuma etapa selecionada.
-                                    </span>
+                                  <span>{item.label}</span>
+                                  {item.ok ? (
+                                    <Badge variant="secondary" className="gap-1">
+                                      <CheckCircle2 className="h-3 w-3" />
+                                      OK
+                                    </Badge>
+                                  ) : (
+                                    <Badge variant="outline">Pendente</Badge>
                                   )}
                                 </div>
-                              </div>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">
-                                Nenhuma etapa disponível.
-                              </span>
-                            )}
-                          </div>
-                          <div className="rounded-[6px] border border-border/60 bg-muted/30 p-3 text-sm">
-                            <p className="font-medium">Escalonamento para humano</p>
-                            <p className="text-xs text-muted-foreground">
-                              Regras de pausa são configuradas acima por tags e etapas.
-                            </p>
-                          </div>
-                        </CardContent>
-                      </Card>
+                              ))}
+                            </div>
+                          </CardContent>
+                        </Card>
 
+                        <Card className="border-border/60">
+                          <CardContent className="space-y-3 p-4 text-sm">
+                            <div>
+                              <p className="font-semibold">Variáveis do workspace</p>
+                              <p className="text-xs text-muted-foreground">
+                                Dados usados como contexto pelo agente.
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {variaveisWorkspace.map((item) => (
+                                <Badge key={item.id} variant="secondary">
+                                  {item.label}: {item.valor}
+                                </Badge>
+                              ))}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="acoes" className="pt-4">
+                    <div className="space-y-4">
                       <Card className="border-border/60">
                         <CardContent className="flex items-center justify-between gap-4 p-4 text-sm">
                           <div>
-                            <div className="flex items-center gap-2">
-                              <p className="font-medium">Consentimento</p>
+                            <p className="font-medium">Pausar quando humano responde</p>
+                            <p className="text-xs text-muted-foreground">
+                              Interrompe o agente quando alguém da equipe responde.
+                            </p>
+                          </div>
+                          <Switch checked={pausarHumano} onCheckedChange={setPausarHumano} />
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/60">
+                        <CardContent className="space-y-3 p-4 text-sm">
+                          <div>
+                            <p className="font-medium">Permissões do agente</p>
+                            <p className="text-xs text-muted-foreground">
+                              Controle exatamente o que o agente pode executar.
+                            </p>
+                          </div>
+                          <div className="space-y-4">
+                            {permissoesPorGrupo.map((grupo, index) => (
+                              <React.Fragment key={grupo.titulo}>
+                                <div className="space-y-2">
+                                  <p className="text-xs font-semibold uppercase text-muted-foreground">
+                                    {grupo.titulo}
+                                  </p>
+                                  {grupo.titulo === "Inbox" && (
+                                    <div className="space-y-2">
+                                      <div className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm">
+                                        <div>
+                                          <div className="flex items-center gap-2">
+                                            <p className="font-medium">Enviar para grupos</p>
+                                            <Tooltip>
+                                              <TooltipTrigger asChild>
+                                                <span className="inline-flex text-muted-foreground">
+                                                  <CircleHelp className="h-3.5 w-3.5" />
+                                                </span>
+                                              </TooltipTrigger>
+                                              <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                                Permite que o agente responda em conversas de grupo.
+                                              </TooltipContent>
+                                            </Tooltip>
+                                          </div>
+                                        </div>
+                                        <Switch
+                                          checked={enviarParaGrupos}
+                                          onCheckedChange={setEnviarParaGrupos}
+                                          disabled={!providerBaileys}
+                                        />
+                                      </div>
+                                      {providerBaileys && enviarParaGrupos && (
+                                        <div className="rounded-[6px] border border-border/60 bg-background/70 p-3">
+                                          <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div>
+                                              <p className="text-sm font-medium">Grupos autorizados</p>
+                                              <p className="text-xs text-muted-foreground">
+                                                Selecione quais grupos podem receber respostas do agente.
+                                              </p>
+                                            </div>
+                                            <Popover
+                                              open={popoverGruposAberto}
+                                              onOpenChange={setPopoverGruposAberto}
+                                            >
+                                              <PopoverTrigger asChild>
+                                                <Button
+                                                  type="button"
+                                                  variant="outline"
+                                                  size="sm"
+                                                  disabled={carregandoGrupos || !numeroSelecionado}
+                                                >
+                                                  {carregandoGrupos
+                                                    ? "Carregando..."
+                                                    : `Selecionar (${(gruposPermitidos ?? []).length}/${gruposBaileys.length})`}
+                                                </Button>
+                                              </PopoverTrigger>
+                                              <PopoverContent className="w-[340px] p-3" align="end">
+                                                {erroGrupos && (
+                                                  <p className="text-xs text-rose-600">{erroGrupos}</p>
+                                                )}
+                                                <div className="mt-2 space-y-2">
+                                                  <Input
+                                                    value={filtroGrupo}
+                                                    onChange={(event) =>
+                                                      setFiltroGrupo(event.target.value)
+                                                    }
+                                                    placeholder="Buscar grupo..."
+                                                  />
+                                                  <div className="flex items-center justify-between">
+                                                    <Button
+                                                      type="button"
+                                                      variant="ghost"
+                                                      size="sm"
+                                                      onClick={() =>
+                                                        setGruposPermitidos(
+                                                          gruposBaileys.map((item) => item.id)
+                                                        )
+                                                      }
+                                                      disabled={gruposBaileys.length === 0}
+                                                    >
+                                                      Selecionar todos
+                                                    </Button>
+                                                    <Button
+                                                      type="button"
+                                                      variant="ghost"
+                                                      size="sm"
+                                                      onClick={() => setGruposPermitidos([])}
+                                                      disabled={(gruposPermitidos ?? []).length === 0}
+                                                    >
+                                                      Limpar
+                                                    </Button>
+                                                  </div>
+                                                  <ScrollArea className="h-56 rounded-[6px] border border-border/60 p-2">
+                                                    <div className="space-y-2">
+                                                      {gruposFiltrados.map((grupo) => {
+                                                        const marcado = (gruposPermitidos ?? []).includes(
+                                                          grupo.id
+                                                        );
+                                                        return (
+                                                          <label
+                                                            key={grupo.id}
+                                                            className="flex cursor-pointer items-start gap-2 rounded-[6px] px-2 py-1 text-sm hover:bg-muted/40"
+                                                          >
+                                                            <Checkbox
+                                                              checked={marcado}
+                                                              onCheckedChange={(checked) => {
+                                                                setGruposPermitidos((atual) => {
+                                                                  const base = atual ?? [];
+                                                                  if (checked) {
+                                                                    return base.includes(grupo.id)
+                                                                      ? base
+                                                                      : [...base, grupo.id];
+                                                                  }
+                                                                  return base.filter(
+                                                                    (id) => id !== grupo.id
+                                                                  );
+                                                                });
+                                                              }}
+                                                            />
+                                                            <span className="flex-1">
+                                                              <span className="block font-medium">
+                                                                {grupo.subject || "Grupo sem nome"}
+                                                              </span>
+                                                              <span className="block text-xs text-muted-foreground">
+                                                                {grupo.id}
+                                                              </span>
+                                                            </span>
+                                                          </label>
+                                                        );
+                                                      })}
+                                                      {!gruposFiltrados.length && (
+                                                        <p className="px-2 py-3 text-xs text-muted-foreground">
+                                                          Nenhum grupo encontrado.
+                                                        </p>
+                                                      )}
+                                                    </div>
+                                                  </ScrollArea>
+                                                </div>
+                                              </PopoverContent>
+                                            </Popover>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                  <div className="space-y-2">
+                                    {grupo.ids.map((id) => {
+                                      const permissao = permissoesMap.get(id);
+                                      if (!permissao) return null;
+                                      return (
+                                        <div
+                                          key={permissao.id}
+                                          className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm"
+                                        >
+                                          <div>
+                                            <div className="flex items-center gap-2">
+                                              <p className="font-medium">{permissao.label}</p>
+                                              {descricaoPermissoes[permissao.id] && (
+                                                <Tooltip>
+                                                  <TooltipTrigger asChild>
+                                                    <span className="inline-flex text-muted-foreground">
+                                                      <CircleHelp className="h-3.5 w-3.5" />
+                                                    </span>
+                                                  </TooltipTrigger>
+                                                  <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                                    {descricaoPermissoes[permissao.id]}
+                                                  </TooltipContent>
+                                                </Tooltip>
+                                              )}
+                                            </div>
+                                            {permissao.bloqueado && (
+                                              <p className="text-xs text-muted-foreground">
+                                                Bloqueado nesta versão.
+                                              </p>
+                                            )}
+                                          </div>
+                                          <Switch
+                                            checked={permissoes[permissao.id]}
+                                            onCheckedChange={(valor) =>
+                                              handleTogglePermissao(permissao.id, valor)
+                                            }
+                                            disabled={permissao.bloqueado}
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                                {index < permissoesPorGrupo.length - 1 && <Separator />}
+                              </React.Fragment>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="conhecimento" className="pt-4">
+                    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                      <div className="space-y-4">
+                        <Card className="border-border/60">
+                          <CardContent className="space-y-3 p-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2 text-sm font-semibold">
+                                <span>Prompt do agente</span>
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <span className="inline-flex text-muted-foreground">
+                                      <CircleHelp className="h-4 w-4" />
+                                    </span>
+                                  </TooltipTrigger>
+                                  <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                    Instruções base e limites de atuação do agente.
+                                  </TooltipContent>
+                                </Tooltip>
+                              </div>
+                              <Dialog>
+                                <DialogTrigger asChild>
+                                  <Button variant="outline" size="icon" aria-label="Expandir prompt">
+                                    <Maximize2 className="h-4 w-4" />
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="max-w-3xl rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                  <DialogHeader>
+                                    <DialogTitle>Prompt do agente</DialogTitle>
+                                    <DialogDescription>
+                                      Até {PROMPT_MAX_PALAVRAS} palavras.
+                                    </DialogDescription>
+                                  </DialogHeader>
+                                  <Textarea
+                                    value={promptAgente}
+                                    onChange={(event) =>
+                                      setPromptAgente(
+                                        limitarTexto(
+                                          event.target.value,
+                                          PROMPT_MAX_PALAVRAS,
+                                          PROMPT_MAX_CARACTERES
+                                        )
+                                      )
+                                    }
+                                    placeholder="Descreva regras, tom e prioridades do agente."
+                                    rows={12}
+                                    maxLength={PROMPT_MAX_CARACTERES}
+                                    className="h-[60vh] min-h-[320px] resize-none overflow-y-auto [field-sizing:fixed]"
+                                  />
+                                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                    <span>
+                                      {promptWordCount} / {PROMPT_MAX_PALAVRAS} palavras
+                                    </span>
+                                  </div>
+                                  <DialogFooter>
+                                    <DialogClose asChild>
+                                      <Button variant="secondary">Concluir</Button>
+                                    </DialogClose>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
+                            </div>
+                            <div className="rounded-[6px] border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground whitespace-pre-wrap break-words">
+                              {promptAgente
+                                ? `${promptAgente.slice(0, 240)}${promptAgente.length > 240 ? "…" : ""}`
+                                : "Nenhum prompt configurado ainda."}
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>
+                                {promptWordCount} / {PROMPT_MAX_PALAVRAS} palavras
+                              </span>
+                            </div>
+                          </CardContent>
+                        </Card>
+
+                        <Card className="border-border/60">
+                          <CardContent className="space-y-3 p-4">
+                            <div className="flex items-center gap-2 text-sm font-semibold">
+                              <span>FAQ / Manual</span>
                               <Tooltip>
                                 <TooltipTrigger asChild>
                                   <span className="inline-flex text-muted-foreground">
@@ -4210,738 +4580,368 @@ export function EditorAgente({
                                   </span>
                                 </TooltipTrigger>
                                 <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                  Autorização para o uso de IA com dados do workspace.
+                                  Respostas rápidas, políticas e scripts internos.
                                 </TooltipContent>
                               </Tooltip>
                             </div>
-                            <p className="text-xs text-muted-foreground">
-                              Confirme o uso de IA com dados do workspace.
-                            </p>
-                          </div>
-                          <Switch
-                            checked={consentimento}
-                            onCheckedChange={setConsentimento}
-                          />
-                        </CardContent>
-                      </Card>
-                    </div>
-
-                    <div className="space-y-4">
-                      <Card className="border-border/60">
-                        <CardContent className="space-y-3 p-4 text-sm">
-                          <div>
-                            <p className="font-semibold">Checklist de publicação</p>
-                            <p className="text-xs text-muted-foreground">
-                              Complete o básico para liberar o agente.
-                            </p>
-                          </div>
-                          <div className="space-y-2">
-                            {checklistConfiguracao.map((item) => (
-                              <div
-                                key={item.id}
-                                className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/70 px-3 py-2 text-xs"
-                              >
-                                <span>{item.label}</span>
-                                {item.ok ? (
-                                  <Badge variant="secondary" className="gap-1">
-                                    <CheckCircle2 className="h-3 w-3" />
-                                    OK
-                                  </Badge>
-                                ) : (
-                                  <Badge variant="outline">Pendente</Badge>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-
-                      <Card className="border-border/60">
-                        <CardContent className="space-y-3 p-4 text-sm">
-                          <div>
-                            <p className="font-semibold">Variáveis do workspace</p>
-                            <p className="text-xs text-muted-foreground">
-                              Dados usados como contexto pelo agente.
-                            </p>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {variaveisWorkspace.map((item) => (
-                              <Badge key={item.id} variant="secondary">
-                                {item.label}: {item.valor}
-                              </Badge>
-                            ))}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </div>
-                  </div>
-                </TabsContent>
-
-              <TabsContent value="acoes" className="pt-4">
-                <div className="space-y-4">
-                  <Card className="border-border/60">
-                    <CardContent className="flex items-center justify-between gap-4 p-4 text-sm">
-                      <div>
-                        <p className="font-medium">Pausar quando humano responde</p>
-                        <p className="text-xs text-muted-foreground">
-                          Interrompe o agente quando alguém da equipe responde.
-                        </p>
-                      </div>
-                      <Switch checked={pausarHumano} onCheckedChange={setPausarHumano} />
-                    </CardContent>
-                  </Card>
-                  <Card className="border-border/60">
-                    <CardContent className="space-y-3 p-4 text-sm">
-                      <div>
-                        <p className="font-medium">Permissões do agente</p>
-                        <p className="text-xs text-muted-foreground">
-                          Controle exatamente o que o agente pode executar.
-                        </p>
-                      </div>
-                      <div className="space-y-4">
-                        {permissoesPorGrupo.map((grupo, index) => (
-                          <React.Fragment key={grupo.titulo}>
-                            <div className="space-y-2">
-                              <p className="text-xs font-semibold uppercase text-muted-foreground">
-                                {grupo.titulo}
-                              </p>
-                              {grupo.titulo === "Inbox" && (
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm">
-                                    <div>
-                                      <div className="flex items-center gap-2">
-                                        <p className="font-medium">Enviar para grupos</p>
-                                        <Tooltip>
-                                          <TooltipTrigger asChild>
-                                            <span className="inline-flex text-muted-foreground">
-                                              <CircleHelp className="h-3.5 w-3.5" />
-                                            </span>
-                                          </TooltipTrigger>
-                                          <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                            Permite que o agente responda em conversas de grupo.
-                                          </TooltipContent>
-                                        </Tooltip>
-                                      </div>
-                                    </div>
-                                    <Switch
-                                      checked={enviarParaGrupos}
-                                      onCheckedChange={setEnviarParaGrupos}
-                                      disabled={!providerBaileys}
-                                    />
-                                  </div>
-                                  {providerBaileys && enviarParaGrupos && (
-                                    <div className="rounded-[6px] border border-border/60 bg-background/70 p-3">
-                                      <div className="flex flex-wrap items-center justify-between gap-2">
-                                        <div>
-                                          <p className="text-sm font-medium">Grupos autorizados</p>
-                                          <p className="text-xs text-muted-foreground">
-                                            Selecione quais grupos podem receber respostas do agente.
-                                          </p>
-                                        </div>
-                                        <Popover
-                                          open={popoverGruposAberto}
-                                          onOpenChange={setPopoverGruposAberto}
-                                        >
-                                          <PopoverTrigger asChild>
-                                            <Button
-                                              type="button"
-                                              variant="outline"
-                                              size="sm"
-                                              disabled={carregandoGrupos || !numeroSelecionado}
-                                            >
-                                              {carregandoGrupos
-                                                ? "Carregando..."
-                                                : `Selecionar (${(gruposPermitidos ?? []).length}/${gruposBaileys.length})`}
-                                            </Button>
-                                          </PopoverTrigger>
-                                          <PopoverContent className="w-[340px] p-3" align="end">
-                                            {erroGrupos && (
-                                              <p className="text-xs text-rose-600">{erroGrupos}</p>
-                                            )}
-                                            <div className="mt-2 space-y-2">
-                                              <Input
-                                                value={filtroGrupo}
-                                                onChange={(event) =>
-                                                  setFiltroGrupo(event.target.value)
-                                                }
-                                                placeholder="Buscar grupo..."
-                                              />
-                                              <div className="flex items-center justify-between">
-                                                <Button
-                                                  type="button"
-                                                  variant="ghost"
-                                                  size="sm"
-                                                  onClick={() =>
-                                                    setGruposPermitidos(
-                                                      gruposBaileys.map((item) => item.id)
-                                                    )
-                                                  }
-                                                  disabled={gruposBaileys.length === 0}
-                                                >
-                                                  Selecionar todos
-                                                </Button>
-                                                <Button
-                                                  type="button"
-                                                  variant="ghost"
-                                                  size="sm"
-                                                  onClick={() => setGruposPermitidos([])}
-                                                  disabled={(gruposPermitidos ?? []).length === 0}
-                                                >
-                                                  Limpar
-                                                </Button>
-                                              </div>
-                                              <ScrollArea className="h-56 rounded-[6px] border border-border/60 p-2">
-                                                <div className="space-y-2">
-                                                  {gruposFiltrados.map((grupo) => {
-                                                    const marcado = (gruposPermitidos ?? []).includes(
-                                                      grupo.id
-                                                    );
-                                                    return (
-                                                      <label
-                                                        key={grupo.id}
-                                                        className="flex cursor-pointer items-start gap-2 rounded-[6px] px-2 py-1 text-sm hover:bg-muted/40"
-                                                      >
-                                                        <Checkbox
-                                                          checked={marcado}
-                                                          onCheckedChange={(checked) => {
-                                                            setGruposPermitidos((atual) => {
-                                                              const base = atual ?? [];
-                                                              if (checked) {
-                                                                return base.includes(grupo.id)
-                                                                  ? base
-                                                                  : [...base, grupo.id];
-                                                              }
-                                                              return base.filter(
-                                                                (id) => id !== grupo.id
-                                                              );
-                                                            });
-                                                          }}
-                                                        />
-                                                        <span className="flex-1">
-                                                          <span className="block font-medium">
-                                                            {grupo.subject || "Grupo sem nome"}
-                                                          </span>
-                                                          <span className="block text-xs text-muted-foreground">
-                                                            {grupo.id}
-                                                          </span>
-                                                        </span>
-                                                      </label>
-                                                    );
-                                                  })}
-                                                  {!gruposFiltrados.length && (
-                                                    <p className="px-2 py-3 text-xs text-muted-foreground">
-                                                      Nenhum grupo encontrado.
-                                                    </p>
-                                                  )}
-                                                </div>
-                                              </ScrollArea>
-                                            </div>
-                                          </PopoverContent>
-                                        </Popover>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              <div className="space-y-2">
-                                {grupo.ids.map((id) => {
-                                  const permissao = permissoesMap.get(id);
-                                  if (!permissao) return null;
-                                  return (
-                                    <div
-                                      key={permissao.id}
-                                        className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm"
-                                      >
-                                        <div>
-                                          <div className="flex items-center gap-2">
-                                            <p className="font-medium">{permissao.label}</p>
-                                            {descricaoPermissoes[permissao.id] && (
-                                              <Tooltip>
-                                                <TooltipTrigger asChild>
-                                                  <span className="inline-flex text-muted-foreground">
-                                                    <CircleHelp className="h-3.5 w-3.5" />
-                                                  </span>
-                                                </TooltipTrigger>
-                                                <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                                  {descricaoPermissoes[permissao.id]}
-                                                </TooltipContent>
-                                              </Tooltip>
-                                            )}
-                                          </div>
-                                          {permissao.bloqueado && (
-                                            <p className="text-xs text-muted-foreground">
-                                              Bloqueado nesta versão.
-                                            </p>
-                                          )}
-                                      </div>
-                                      <Switch
-                                        checked={permissoes[permissao.id]}
-                                        onCheckedChange={(valor) =>
-                                          handleTogglePermissao(permissao.id, valor)
-                                        }
-                                        disabled={permissao.bloqueado}
-                                      />
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                            {index < permissoesPorGrupo.length - 1 && <Separator />}
-                          </React.Fragment>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="conhecimento" className="pt-4">
-                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-                  <div className="space-y-4">
-                    <Card className="border-border/60">
-                      <CardContent className="space-y-3 p-4">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-2 text-sm font-semibold">
-                            <span>Prompt do agente</span>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="inline-flex text-muted-foreground">
-                                  <CircleHelp className="h-4 w-4" />
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                Instruções base e limites de atuação do agente.
-                              </TooltipContent>
-                            </Tooltip>
-                          </div>
-                          <Dialog>
-                            <DialogTrigger asChild>
-                              <Button variant="outline" size="icon" aria-label="Expandir prompt">
-                                <Maximize2 className="h-4 w-4" />
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-3xl rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                              <DialogHeader>
-                                <DialogTitle>Prompt do agente</DialogTitle>
-                                <DialogDescription>
-                                  Até {PROMPT_MAX_PALAVRAS} palavras.
-                                </DialogDescription>
-                              </DialogHeader>
-                              <Textarea
-                                value={promptAgente}
-                                onChange={(event) =>
-                                  setPromptAgente(
-                                    limitarTexto(
-                                      event.target.value,
-                                      PROMPT_MAX_PALAVRAS,
-                                      PROMPT_MAX_CARACTERES
-                                    )
-                                  )
-                                }
-                                placeholder="Descreva regras, tom e prioridades do agente."
-                                rows={12}
-                                maxLength={PROMPT_MAX_CARACTERES}
-                                className="h-[60vh] min-h-[320px] resize-none overflow-y-auto [field-sizing:fixed]"
-                              />
-                              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                                <span>
-                                  {promptWordCount} / {PROMPT_MAX_PALAVRAS} palavras
-                                </span>
-                              </div>
-                              <DialogFooter>
-                                <DialogClose asChild>
-                                  <Button variant="secondary">Concluir</Button>
-                                </DialogClose>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
-                        </div>
-                        <div className="rounded-[6px] border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground whitespace-pre-wrap break-words">
-                          {promptAgente
-                            ? `${promptAgente.slice(0, 240)}${promptAgente.length > 240 ? "…" : ""}`
-                            : "Nenhum prompt configurado ainda."}
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>
-                            {promptWordCount} / {PROMPT_MAX_PALAVRAS} palavras
-                          </span>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-border/60">
-                      <CardContent className="space-y-3 p-4">
-                        <div className="flex items-center gap-2 text-sm font-semibold">
-                          <span>FAQ / Manual</span>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <span className="inline-flex text-muted-foreground">
-                                <CircleHelp className="h-4 w-4" />
-                              </span>
-                            </TooltipTrigger>
-                            <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                              Respostas rápidas, políticas e scripts internos.
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                        <Textarea
-                          value={faq}
-                          onChange={(event) =>
-                            setFaq(
-                              limitarTexto(
-                                event.target.value,
-                                FAQ_MAX_PALAVRAS,
-                                FAQ_MAX_CARACTERES
-                              )
-                            )
-                          }
-                          placeholder="Adicione instruções, respostas e políticas internas."
-                          rows={6}
-                          maxLength={FAQ_MAX_CARACTERES}
-                        />
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>{faqWordCount} / {FAQ_MAX_PALAVRAS} palavras</span>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  <Card className="border-border/60">
-                    <CardContent className="space-y-4 p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-semibold">Arquivos de conhecimento</p>
-                          <p className="text-xs text-muted-foreground">
-                            Limite de 10 arquivos por agente.
-                          </p>
-                        </div>
-                        <Badge variant="outline">
-                          {arquivosConhecimento.length}/10
-                        </Badge>
-                      </div>
-                      <label className="flex cursor-pointer items-center gap-2 rounded-[6px] border border-dashed border-border/60 bg-muted/30 p-3 text-sm">
-                        <UploadCloud className="h-4 w-4" />
-                        Enviar arquivos
-                        <input
-                          type="file"
-                          className="hidden"
-                          multiple
-                          accept=".pdf,.txt,.docx,.png,.jpg,.jpeg"
-                          onChange={handleUploadConhecimento}
-                        />
-                      </label>
-                      <div className="space-y-2">
-                        {arquivosConhecimento.map((arquivo) => (
-                          <div
-                            key={arquivo.id}
-                            className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm"
-                          >
-                            <div>
-                              <p className="font-medium">{arquivo.nome}</p>
-                              <p className="text-xs text-muted-foreground">
-                                {arquivo.tipo.toUpperCase()}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge
-                                variant={
-                                  arquivo.status === "pronto"
-                                    ? "secondary"
-                                    : arquivo.status === "erro"
-                                      ? "destructive"
-                                      : "outline"
-                                }
-                              >
-                                {arquivo.status === "pronto"
-                                  ? "Pronto"
-                                  : arquivo.status === "erro"
-                                    ? "Erro"
-                                    : arquivo.status === "pendente"
-                                      ? "Pendente"
-                                      : "Processando"}
-                              </Badge>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleRemoverArquivo(arquivo.id)}
-                              >
-                                Remover
-                              </Button>
-                            </div>
-                          </div>
-                        ))}
-                        {!arquivosConhecimento.length && (
-                          <div className="rounded-[6px] border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
-                            Nenhum arquivo enviado ainda.
-                          </div>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="followup" className="pt-4">
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold">Follow-ups automáticos</p>
-                      {providerBaileys ? (
-                        <p className="text-xs text-muted-foreground">
-                          Follow-up liberado para API não oficial, sem janela de 24h.
-                        </p>
-                      ) : (
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span>
-                            Cada mensagem enviada fora da janela de 24h pode gerar custo na Meta.
-                          </span>
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <a
-                                href="https://developers.facebook.com/docs/whatsapp/pricing"
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-flex items-center text-muted-foreground hover:text-foreground"
-                              >
-                                <CircleHelp className="h-3.5 w-3.5" />
-                              </a>
-                            </TooltipTrigger>
-                            <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                              Confira os custos de templates e mensagens fora da janela.
-                            </TooltipContent>
-                          </Tooltip>
-                        </div>
-                      )}
-                    </div>
-                    <Button variant="outline" size="sm" onClick={handleAdicionarFollowup}>
-                      Adicionar follow-up
-                    </Button>
-                  </div>
-                  {erroTemplates && (
-                    <p className="text-xs text-destructive">{erroTemplates}</p>
-                  )}
-                  {followups.length === 0 && (
-                    <div className="rounded-[6px] border border-dashed border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
-                      Nenhum follow-up configurado.
-                    </div>
-                  )}
-                  <div className="space-y-3">
-                    {followups.map((followup) => (
-                      <Card key={followup.id} className="border-border/60">
-                        <CardContent className="space-y-4 p-4">
-                          <div className="flex flex-wrap items-center gap-3">
-                            <Input
-                              value={followup.nome}
+                            <Textarea
+                              value={faq}
                               onChange={(event) =>
-                                handleAtualizarFollowup(followup.id, {
-                                  nome: event.target.value,
-                                })
+                                setFaq(
+                                  limitarTexto(
+                                    event.target.value,
+                                    FAQ_MAX_PALAVRAS,
+                                    FAQ_MAX_CARACTERES
+                                  )
+                                )
                               }
-                              placeholder="Nome do follow-up"
-                              className="flex-1 min-w-[220px]"
+                              placeholder="Adicione instruções, respostas e políticas internas."
+                              rows={6}
+                              maxLength={FAQ_MAX_CARACTERES}
                             />
-                            <div className="flex items-center gap-2">
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="text-xs text-muted-foreground">
-                                    Ativo
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                  Ativa ou desativa este follow-up sem excluir.
-                                </TooltipContent>
-                              </Tooltip>
-                              <Switch
-                                checked={followup.ativo}
-                                onCheckedChange={(valor) =>
-                                  handleAtualizarFollowup(followup.id, { ativo: valor })
-                                }
-                              />
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                              <span>{faqWordCount} / {FAQ_MAX_PALAVRAS} palavras</span>
                             </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+
+                      <Card className="border-border/60">
+                        <CardContent className="space-y-4 p-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-semibold">Arquivos de conhecimento</p>
+                              <p className="text-xs text-muted-foreground">
+                                Limite de 10 arquivos por agente.
+                              </p>
+                            </div>
+                            <Badge variant="outline">
+                              {arquivosConhecimento.length}/10
+                            </Badge>
                           </div>
-                          <Separator />
-                          {!providerBaileys && (
-                            <>
-                              <div className="flex flex-wrap items-center gap-3 text-xs">
-                                <label className="flex items-center gap-2">
-                                  <Switch
-                                    checked={followup.somenteForaJanela ?? false}
-                                    onCheckedChange={(valor) =>
-                                      handleAtualizarFollowup(followup.id, {
-                                        somenteForaJanela: valor,
-                                      })
+                          <label className="flex cursor-pointer items-center gap-2 rounded-[6px] border border-dashed border-border/60 bg-muted/30 p-3 text-sm">
+                            <UploadCloud className="h-4 w-4" />
+                            Enviar arquivos
+                            <input
+                              type="file"
+                              className="hidden"
+                              multiple
+                              accept=".pdf,.txt,.docx,.png,.jpg,.jpeg"
+                              onChange={handleUploadConhecimento}
+                            />
+                          </label>
+                          <div className="space-y-2">
+                            {arquivosConhecimento.map((arquivo) => (
+                              <div
+                                key={arquivo.id}
+                                className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm"
+                              >
+                                <div>
+                                  <p className="font-medium">{arquivo.nome}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {arquivo.tipo.toUpperCase()}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge
+                                    variant={
+                                      arquivo.status === "pronto"
+                                        ? "secondary"
+                                        : arquivo.status === "erro"
+                                          ? "destructive"
+                                          : "outline"
                                     }
-                                  />
-                                  Somente fora da janela 24h
-                                </label>
-                              </div>
-                              <Separator />
-                            </>
-                          )}
-                          <div className="grid gap-3 md:grid-cols-2">
-                            <div className="grid gap-2">
-                              <label className="text-xs font-medium">
-                                Delay (minutos)
-                              </label>
-                              <Input
-                                type="number"
-                                min={1}
-                                value={followup.delayMinutos}
-                                onChange={(event) =>
-                                  handleAtualizarFollowup(followup.id, {
-                                    delayMinutos: Number(event.target.value || 0),
-                                  })
-                                }
-                              />
-                            </div>
-                            {providerBaileys ? (
-                              <div className="grid gap-2">
-                                <label className="text-xs font-medium">
-                                  Mensagem do follow-up
-                                </label>
-                                <Textarea
-                                  value={followup.mensagemTexto ?? ""}
-                                  onChange={(event) =>
-                                    handleAtualizarFollowup(followup.id, {
-                                      mensagemTexto: event.target.value,
-                                      usarTemplate: false,
-                                    })
-                                  }
-                                  rows={4}
-                                  placeholder="Digite a mensagem que sera enviada."
-                                />
-                              </div>
-                            ) : (
-                              <div className="grid gap-2">
-                                <div className="flex items-center justify-between gap-2">
-                                  <label className="text-xs font-medium">
-                                    Template WhatsApp
-                                  </label>
+                                  >
+                                    {arquivo.status === "pronto"
+                                      ? "Pronto"
+                                      : arquivo.status === "erro"
+                                        ? "Erro"
+                                        : arquivo.status === "pendente"
+                                          ? "Pendente"
+                                          : "Processando"}
+                                  </Badge>
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="h-7 px-2 text-xs"
-                                    onClick={handleSincronizarTemplates}
-                                    disabled={templateSyncDisabled}
+                                    onClick={() => handleRemoverArquivo(arquivo.id)}
                                   >
-                                    {templateSyncLabel}
+                                    Remover
                                   </Button>
                                 </div>
-                                <Select
-                                  value={followup.templateId ?? ""}
-                                  onValueChange={(valor) =>
-                                    handleAtualizarFollowup(followup.id, {
-                                      templateId: valor || undefined,
-                                    })
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Selecione o template" />
-                                  </SelectTrigger>
-                                  <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                    {templatesWhatsapp.map((template) => (
-                                      <SelectItem key={template.id} value={template.id}>
-                                        {template.nome} • {template.idioma}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                              </div>
+                            ))}
+                            {!arquivosConhecimento.length && (
+                              <div className="rounded-[6px] border border-dashed border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+                                Nenhum arquivo enviado ainda.
                               </div>
                             )}
                           </div>
-                          <Separator />
-                          <div className="flex items-center justify-end">
-                            <Dialog>
-                              <DialogTrigger asChild>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-destructive hover:text-destructive"
-                                  aria-label="Excluir follow-up"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                                <DialogHeader>
-                                  <DialogTitle>Excluir follow-up?</DialogTitle>
-                                  <DialogDescription>
-                                    Esta ação é permanente e não pode ser desfeita.
-                                  </DialogDescription>
-                                </DialogHeader>
-                                <DialogFooter>
-                                  <DialogClose asChild>
-                                    <Button variant="secondary">Cancelar</Button>
-                                  </DialogClose>
-                                  <Button
-                                    variant="destructive"
-                                    onClick={() => handleRemoverFollowup(followup.id)}
-                                  >
-                                    Excluir
-                                  </Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
-                          </div>
                         </CardContent>
                       </Card>
-                    ))}
-                  </div>
-                </div>
-              </TabsContent>
+                    </div>
+                  </TabsContent>
 
-              <TabsContent value="testar" className="pt-4">
-                {renderSandboxChat()}
-              </TabsContent>
-
-              <TabsContent value="auditoria" className="pt-4">
-                <div className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Select
-                      value={filtroAuditoriaPeriodo}
-                      onValueChange={setFiltroAuditoriaPeriodo}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Período" />
-                      </SelectTrigger>
-                      <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                        <SelectItem value="7d">Últimos 7 dias</SelectItem>
-                        <SelectItem value="30d">Últimos 30 dias</SelectItem>
-                        <SelectItem value="90d">Últimos 90 dias</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      value={filtroAuditoriaAcao}
-                      onChange={(event) => setFiltroAuditoriaAcao(event.target.value)}
-                      placeholder="Filtrar ação"
-                    />
-                  </div>
-                  <div className="space-y-3">
-                    {logsFiltrados.map((log) => (
-                      <div
-                        key={log.id}
-                        className="rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <p className="font-medium">{log.resumo}</p>
+                  <TabsContent value="followup" className="pt-4">
+                    <div className="space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">Follow-ups automáticos</p>
+                          {providerBaileys ? (
                             <p className="text-xs text-muted-foreground">
-                              {log.data}
+                              Follow-up liberado para API não oficial, sem janela de 24h.
+                            </p>
+                          ) : (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <span>
+                                Cada mensagem enviada fora da janela de 24h pode gerar custo na Meta.
+                              </span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <a
+                                    href="https://developers.facebook.com/docs/whatsapp/pricing"
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center text-muted-foreground hover:text-foreground"
+                                  >
+                                    <CircleHelp className="h-3.5 w-3.5" />
+                                  </a>
+                                </TooltipTrigger>
+                                <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                  Confira os custos de templates e mensagens fora da janela.
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          )}
+                        </div>
+                        <Button variant="outline" size="sm" onClick={handleAdicionarFollowup}>
+                          Adicionar follow-up
+                        </Button>
+                      </div>
+                      {erroTemplates && (
+                        <p className="text-xs text-destructive">{erroTemplates}</p>
+                      )}
+                      {followups.length === 0 && (
+                        <div className="rounded-[6px] border border-dashed border-border/60 bg-muted/20 p-4 text-sm text-muted-foreground">
+                          Nenhum follow-up configurado.
+                        </div>
+                      )}
+                      <div className="space-y-3">
+                        {followups.map((followup) => (
+                          <Card key={followup.id} className="border-border/60">
+                            <CardContent className="space-y-4 p-4">
+                              <div className="flex flex-wrap items-center gap-3">
+                                <Input
+                                  value={followup.nome}
+                                  onChange={(event) =>
+                                    handleAtualizarFollowup(followup.id, {
+                                      nome: event.target.value,
+                                    })
+                                  }
+                                  placeholder="Nome do follow-up"
+                                  className="flex-1 min-w-[220px]"
+                                />
+                                <div className="flex items-center gap-2">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="text-xs text-muted-foreground">
+                                        Ativo
+                                      </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                      Ativa ou desativa este follow-up sem excluir.
+                                    </TooltipContent>
+                                  </Tooltip>
+                                  <Switch
+                                    checked={followup.ativo}
+                                    onCheckedChange={(valor) =>
+                                      handleAtualizarFollowup(followup.id, { ativo: valor })
+                                    }
+                                  />
+                                </div>
+                              </div>
+                              <Separator />
+                              {!providerBaileys && (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-3 text-xs">
+                                    <label className="flex items-center gap-2">
+                                      <Switch
+                                        checked={followup.somenteForaJanela ?? false}
+                                        onCheckedChange={(valor) =>
+                                          handleAtualizarFollowup(followup.id, {
+                                            somenteForaJanela: valor,
+                                          })
+                                        }
+                                      />
+                                      Somente fora da janela 24h
+                                    </label>
+                                  </div>
+                                  <Separator />
+                                </>
+                              )}
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <div className="grid gap-2">
+                                  <label className="text-xs font-medium">
+                                    Delay (minutos)
+                                  </label>
+                                  <Input
+                                    type="number"
+                                    min={1}
+                                    value={followup.delayMinutos}
+                                    onChange={(event) =>
+                                      handleAtualizarFollowup(followup.id, {
+                                        delayMinutos: Number(event.target.value || 0),
+                                      })
+                                    }
+                                  />
+                                </div>
+                                {providerBaileys ? (
+                                  <div className="grid gap-2">
+                                    <label className="text-xs font-medium">
+                                      Mensagem do follow-up
+                                    </label>
+                                    <Textarea
+                                      value={followup.mensagemTexto ?? ""}
+                                      onChange={(event) =>
+                                        handleAtualizarFollowup(followup.id, {
+                                          mensagemTexto: event.target.value,
+                                          usarTemplate: false,
+                                        })
+                                      }
+                                      rows={4}
+                                      placeholder="Digite a mensagem que sera enviada."
+                                    />
+                                  </div>
+                                ) : (
+                                  <div className="grid gap-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <label className="text-xs font-medium">
+                                        Template WhatsApp
+                                      </label>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs"
+                                        onClick={handleSincronizarTemplates}
+                                        disabled={templateSyncDisabled}
+                                      >
+                                        {templateSyncLabel}
+                                      </Button>
+                                    </div>
+                                    <Select
+                                      value={followup.templateId ?? ""}
+                                      onValueChange={(valor) =>
+                                        handleAtualizarFollowup(followup.id, {
+                                          templateId: valor || undefined,
+                                        })
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Selecione o template" />
+                                      </SelectTrigger>
+                                      <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                        {templatesWhatsapp.map((template) => (
+                                          <SelectItem key={template.id} value={template.id}>
+                                            {template.nome} • {template.idioma}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                )}
+                              </div>
+                              <Separator />
+                              <div className="flex items-center justify-end">
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="text-destructive hover:text-destructive"
+                                      aria-label="Excluir follow-up"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                                    <DialogHeader>
+                                      <DialogTitle>Excluir follow-up?</DialogTitle>
+                                      <DialogDescription>
+                                        Esta ação é permanente e não pode ser desfeita.
+                                      </DialogDescription>
+                                    </DialogHeader>
+                                    <DialogFooter>
+                                      <DialogClose asChild>
+                                        <Button variant="secondary">Cancelar</Button>
+                                      </DialogClose>
+                                      <Button
+                                        variant="destructive"
+                                        onClick={() => handleRemoverFollowup(followup.id)}
+                                      >
+                                        Excluir
+                                      </Button>
+                                    </DialogFooter>
+                                  </DialogContent>
+                                </Dialog>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="testar" className="pt-4">
+                    {renderSandboxChat()}
+                  </TabsContent>
+
+                  <TabsContent value="auditoria" className="pt-4">
+                    <div className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <Select
+                          value={filtroAuditoriaPeriodo}
+                          onValueChange={setFiltroAuditoriaPeriodo}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Período" />
+                          </SelectTrigger>
+                          <SelectContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                            <SelectItem value="7d">Últimos 7 dias</SelectItem>
+                            <SelectItem value="30d">Últimos 30 dias</SelectItem>
+                            <SelectItem value="90d">Últimos 90 dias</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Input
+                          value={filtroAuditoriaAcao}
+                          onChange={(event) => setFiltroAuditoriaAcao(event.target.value)}
+                          placeholder="Filtrar ação"
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        {logsFiltrados.map((log) => (
+                          <div
+                            key={log.id}
+                            className="rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="font-medium">{log.resumo}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {log.data}
+                                </p>
+                              </div>
+                              <Badge variant="outline">OK</Badge>
+                            </div>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Registro de auditoria do agente.
                             </p>
                           </div>
-                          <Badge variant="outline">OK</Badge>
-                        </div>
-                        <p className="mt-2 text-xs text-muted-foreground">
-                          Registro de auditoria do agente.
-                        </p>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </TabsContent>
-            </Tabs>
-          </TooltipProvider>
-          </div>
+                    </div>
+                  </TabsContent>
+                </Tabs>
+              </TooltipProvider>
+            </div>
           )}
 
           <Separator />

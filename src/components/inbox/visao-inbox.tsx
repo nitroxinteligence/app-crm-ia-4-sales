@@ -717,7 +717,14 @@ export function VisaoInbox() {
     if (!options?.silencioso && paginaAtual === 0) {
       setCarregando(false);
     }
-  }, [workspaceId]);
+  }, [
+    workspaceId,
+    filtroBasico,
+    filtroCanal,
+    filtroNumero,
+    filtroOwner,
+    statusAtual,
+  ]);
 
   const carregarMensagens = React.useCallback(
     async (
@@ -841,14 +848,7 @@ export function VisaoInbox() {
         })
       );
     },
-    [
-      workspaceId,
-      filtroBasico,
-      filtroCanal,
-      filtroOwner,
-      filtroNumero,
-      statusAtual,
-    ]
+    []
   );
 
   const agendarRefresh = React.useCallback(() => {
@@ -1080,7 +1080,7 @@ export function VisaoInbox() {
         workspace_id: workspaceId ?? "",
       });
     },
-    [handleTagsUpdated]
+    [handleTagsUpdated, workspaceId]
   );
 
   React.useEffect(() => {

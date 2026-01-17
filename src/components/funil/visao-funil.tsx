@@ -331,28 +331,7 @@ export function VisaoFunil() {
   const [timelineDeal, setTimelineDeal] = React.useState<TimelineItem[]>([]);
   const [carregandoTimeline, setCarregandoTimeline] = React.useState(false);
 
-  // Helper to log activities
-  const registrarAtividade = React.useCallback(async (dealId: string, acao: string, detalhes: any = {}) => {
-    if (!workspaceId) return;
-    console.log("Registrando atividade:", { dealId, acao, detalhes });
 
-    const { error } = await supabaseClient.from("deal_audit").insert({
-      workspace_id: workspaceId,
-      deal_id: dealId,
-      acao,
-      detalhes,
-      autor_id: session?.user.id
-    });
-
-    if (error) {
-      console.error("Erro ao registrar atividade:", JSON.stringify(error, null, 2));
-      console.error("Detalhes do erro:", error.message, error.code, error.details);
-    } else {
-      console.log("Atividade registrada com sucesso");
-      // Optimistic update or refresh
-      carregarTimeline(dealId);
-    }
-  }, [workspaceId, session?.user.id]);
 
 
 
@@ -447,6 +426,29 @@ export function VisaoFunil() {
       setCarregandoTimeline(false);
     }
   }, [workspaceId]);
+
+  // Helper to log activities
+  const registrarAtividade = React.useCallback(async (dealId: string, acao: string, detalhes: any = {}) => {
+    if (!workspaceId) return;
+    console.log("Registrando atividade:", { dealId, acao, detalhes });
+
+    const { error } = await supabaseClient.from("deal_audit").insert({
+      workspace_id: workspaceId,
+      deal_id: dealId,
+      acao,
+      detalhes,
+      autor_id: session?.user.id
+    });
+
+    if (error) {
+      console.error("Erro ao registrar atividade:", JSON.stringify(error, null, 2));
+      console.error("Detalhes do erro:", error.message, error.code, error.details);
+    } else {
+      console.log("Atividade registrada com sucesso");
+      // Optimistic update or refresh
+      carregarTimeline(dealId);
+    }
+  }, [workspaceId, session?.user.id, carregarTimeline]);
 
   const [salvandoNotaEditada, setSalvandoNotaEditada] = React.useState(false);
   const [atividadesPorDeal, setAtividadesPorDeal] = React.useState<
@@ -889,7 +891,7 @@ export function VisaoFunil() {
     };
 
     void carregarDetalhes();
-  }, [dealAtivo, workspaceId]);
+  }, [dealAtivo, workspaceId, carregarTimeline]);
 
   const handleSelecionarPipeline = (pipelineId: string) => {
     setPipelineAtivoId(pipelineId);
@@ -1134,7 +1136,6 @@ export function VisaoFunil() {
     dentroDoPeriodo,
     filtroCanal,
     filtroDataCampo,
-    filtroDataPeriodo,
     filtroEtapa,
     filtroMotivoPerda,
     filtroOrigem,
