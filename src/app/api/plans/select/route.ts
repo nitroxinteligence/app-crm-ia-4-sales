@@ -1,9 +1,13 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { badRequest, forbidden, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
 const creditosPadrao: Record<string, number> = {
   Essential: 0,
@@ -11,10 +15,10 @@ const creditosPadrao: Record<string, number> = {
   Premium: 30000,
 };
 
-type Payload = {
-  plan?: "Essential" | "Pro" | "Premium";
-  period?: "mensal" | "semestral" | "anual";
-};
+const payloadSchema = z.object({
+  plan: z.enum(["Essential", "Pro", "Premium"]),
+  period: z.enum(["mensal", "semestral", "anual"]),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -27,12 +31,12 @@ function getUserClient(request: Request) {
 
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars.", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header.", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -41,7 +45,7 @@ export async function POST(request: Request) {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth.", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { data: membership } = await userClient
@@ -51,20 +55,18 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found.", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
   if (membership.role !== "ADMIN") {
-    return new Response("Forbidden.", { status: 403 });
+    return forbidden("Forbidden.");
   }
 
-  const body = (await request.json()) as Payload;
-  const plan = body?.plan;
-  const period = body?.period;
-
-  if (!plan || !period) {
-    return new Response("Invalid payload.", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
+  const { plan, period } = parsed.data;
 
   const agora = new Date();
   const trialEnds = new Date(agora.getTime() + 30 * 24 * 60 * 60 * 1000);
@@ -96,7 +98,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (workspaceError) {
-    return new Response(workspaceError.message, { status: 500 });
+    return serverError(workspaceError.message);
   }
 
   const creditsTotal = creditosPadrao[plan] ?? 0;

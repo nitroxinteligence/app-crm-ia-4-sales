@@ -17,6 +17,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { supabaseClient } from "@/lib/supabase/client";
+import { ToastAviso } from "@/components/ui/toast-aviso";
+import { Skeleton } from "@/components/ui/skeleton";
 
 type Produto = {
   id: string;
@@ -26,29 +29,13 @@ type Produto = {
   descricao: string;
 };
 
-const gerarId = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.round(Math.random() * 1000)}`;
-
 export function VisaoProdutosConfiguracoes() {
-  const { idioma } = useAutenticacao();
-  const [produtos, setProdutos] = React.useState<Produto[]>(() => [
-    {
-      id: gerarId(),
-      nome: "Assinatura Premium",
-      categoria: "Plano",
-      preco: "R$ 299,00",
-      descricao: "Acesso completo ao workspace com automações.",
-    },
-    {
-      id: gerarId(),
-      nome: "Onboarding Assistido",
-      categoria: "Serviço",
-      preco: "R$ 1.500,00",
-      descricao: "Setup guiado para times e playbooks.",
-    },
-  ]);
+  const { idioma, workspace } = useAutenticacao();
+  const workspaceId = workspace?.id;
+  const [produtos, setProdutos] = React.useState<Produto[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [deleting, setDeleting] = React.useState(false);
   const [busca, setBusca] = React.useState("");
   const [dialogAberto, setDialogAberto] = React.useState(false);
   const [dialogExcluir, setDialogExcluir] = React.useState(false);
@@ -58,11 +45,34 @@ export function VisaoProdutosConfiguracoes() {
   const [formCategoria, setFormCategoria] = React.useState("");
   const [formPreco, setFormPreco] = React.useState("");
   const [formDescricao, setFormDescricao] = React.useState("");
+  const [toastMensagem, setToastMensagem] = React.useState<string | null>(null);
 
   const t = React.useCallback(
     (pt: string, en: string) => texto(idioma, pt, en),
     [idioma]
   );
+
+  const carregarProdutos = React.useCallback(async () => {
+    if (!workspaceId) return;
+    setLoading(true);
+    const { data, error } = await supabaseClient
+      .from("products")
+      .select("*")
+      .eq("workspace_id", workspaceId)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Erro ao carregar produtos:", error);
+      setToastMensagem(t("Erro ao carregar produtos.", "Error loading products."));
+    } else if (data) {
+      setProdutos(data);
+    }
+    setLoading(false);
+  }, [workspaceId, t]);
+
+  React.useEffect(() => {
+    carregarProdutos();
+  }, [carregarProdutos]);
 
   const produtosFiltrados = React.useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -95,49 +105,79 @@ export function VisaoProdutosConfiguracoes() {
     setDialogExcluir(true);
   };
 
-  const handleSalvar = () => {
-    if (!formNome.trim()) {
+  const handleSalvar = async () => {
+    if (!formNome.trim() || !workspaceId) {
       return;
     }
 
-    if (produtoEditando) {
-      setProdutos((atual) =>
-        atual.map((item) =>
-          item.id === produtoEditando.id
-            ? {
-                ...item,
-                nome: formNome.trim(),
-                categoria: formCategoria.trim(),
-                preco: formPreco.trim(),
-                descricao: formDescricao.trim(),
-              }
-            : item
-        )
-      );
-    } else {
-      setProdutos((atual) => [
-        {
-          id: gerarId(),
-          nome: formNome.trim(),
-          categoria: formCategoria.trim(),
-          preco: formPreco.trim(),
-          descricao: formDescricao.trim(),
-        },
-        ...atual,
-      ]);
-    }
+    setSaving(true);
+    const payload = {
+      workspace_id: workspaceId,
+      nome: formNome.trim(),
+      categoria: formCategoria.trim(),
+      preco: formPreco.trim(),
+      descricao: formDescricao.trim(),
+    };
 
-    setDialogAberto(false);
-    setProdutoEditando(null);
+    try {
+      if (produtoEditando) {
+        const { error } = await supabaseClient
+          .from("products")
+          .update(payload)
+          .eq("id", produtoEditando.id);
+
+        if (error) throw error;
+
+        setProdutos((atual) =>
+          atual.map((item) =>
+            item.id === produtoEditando.id ? { ...item, ...payload } : item
+          )
+        );
+      } else {
+        const { data, error } = await supabaseClient
+          .from("products")
+          .insert(payload)
+          .select()
+          .single();
+
+        if (error) throw error;
+        if (data) {
+          setProdutos((atual) => [data, ...atual]);
+        }
+      }
+      setDialogAberto(false);
+      setProdutoEditando(null);
+    } catch (error) {
+      console.error("Erro ao salvar produto:", error);
+      setToastMensagem(t("Erro ao salvar produto.", "Error saving product."));
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleExcluir = () => {
+  const handleExcluir = async () => {
     if (!produtoExcluir) return;
-    setProdutos((atual) =>
-      atual.filter((produto) => produto.id !== produtoExcluir.id)
-    );
-    setDialogExcluir(false);
-    setProdutoExcluir(null);
+
+    setDeleting(true);
+    try {
+      const { error } = await supabaseClient
+        .from("products")
+        .delete()
+        .eq("id", produtoExcluir.id);
+
+      if (error) throw error;
+
+      setProdutos((atual) =>
+        atual.filter((produto) => produto.id !== produtoExcluir.id)
+      );
+      setDialogExcluir(false);
+      setProdutoExcluir(null);
+    } catch (error) {
+      console.error("Erro ao excluir produto:", error);
+      setToastMensagem(t("Erro ao excluir produto.", "Error deleting product."));
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -172,7 +212,25 @@ export function VisaoProdutosConfiguracoes() {
             </Badge>
           </div>
 
-          {produtosFiltrados.length === 0 ? (
+          {loading ? (
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="flex items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-muted/20 px-3 py-3"
+                >
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-[200px]" />
+                    <Skeleton className="h-3 w-[150px]" />
+                  </div>
+                  <div className="flex gap-2">
+                    <Skeleton className="h-8 w-8" />
+                    <Skeleton className="h-8 w-8" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : produtosFiltrados.length === 0 ? (
             <div className="rounded-[6px] border border-border/60 px-4 py-6 text-sm text-muted-foreground">
               {t("Nenhum produto encontrado.", "No products found.")}
             </div>
@@ -226,9 +284,11 @@ export function VisaoProdutosConfiguracoes() {
       <Dialog
         open={dialogAberto}
         onOpenChange={(aberto) => {
-          setDialogAberto(aberto);
-          if (!aberto) {
-            setProdutoEditando(null);
+          if (!saving) {
+            setDialogAberto(aberto);
+            if (!aberto) {
+              setProdutoEditando(null);
+            }
           }
         }}
       >
@@ -253,6 +313,7 @@ export function VisaoProdutosConfiguracoes() {
                 value={formNome}
                 onChange={(event) => setFormNome(event.target.value)}
                 placeholder={t("Ex: Plano Enterprise", "e.g. Enterprise plan")}
+                disabled={saving}
               />
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -264,14 +325,29 @@ export function VisaoProdutosConfiguracoes() {
                   value={formCategoria}
                   onChange={(event) => setFormCategoria(event.target.value)}
                   placeholder={t("Plano, Serviço...", "Plan, Service...")}
+                  disabled={saving}
                 />
               </div>
               <div className="space-y-2">
                 <label className="text-sm font-medium">{t("Preço", "Price")}</label>
                 <Input
                   value={formPreco}
-                  onChange={(event) => setFormPreco(event.target.value)}
+                  onChange={(e) => {
+                    const valor = e.target.value.replace(/\D/g, "");
+                    if (!valor) {
+                      setFormPreco("");
+                      return;
+                    }
+                    const numero = parseInt(valor, 10) / 100;
+                    setFormPreco(
+                      numero.toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL",
+                      })
+                    );
+                  }}
                   placeholder="R$ 0,00"
+                  disabled={saving}
                 />
               </div>
             </div>
@@ -283,19 +359,22 @@ export function VisaoProdutosConfiguracoes() {
                 value={formDescricao}
                 onChange={(event) => setFormDescricao(event.target.value)}
                 placeholder={t("Detalhes do produto", "Product details")}
+                disabled={saving}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogAberto(false)}>
+            <Button variant="outline" onClick={() => setDialogAberto(false)} disabled={saving}>
               {t("Cancelar", "Cancel")}
             </Button>
-            <Button onClick={handleSalvar}>{t("Salvar", "Save")}</Button>
+            <Button onClick={handleSalvar} disabled={saving}>
+              {saving ? t("Salvando...", "Saving...") : t("Salvar", "Save")}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={dialogExcluir} onOpenChange={setDialogExcluir}>
+      <Dialog open={dialogExcluir} onOpenChange={(open) => !deleting && setDialogExcluir(open)}>
         <DialogContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
           <DialogHeader>
             <DialogTitle>{t("Excluir produto", "Delete product")}</DialogTitle>
@@ -307,15 +386,20 @@ export function VisaoProdutosConfiguracoes() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogExcluir(false)}>
+            <Button variant="outline" onClick={() => setDialogExcluir(false)} disabled={deleting}>
               {t("Cancelar", "Cancel")}
             </Button>
-            <Button variant="destructive" onClick={handleExcluir}>
-              {t("Excluir", "Delete")}
+            <Button variant="destructive" onClick={handleExcluir} disabled={deleting}>
+              {deleting ? t("Excluindo...", "Deleting...") : t("Excluir", "Delete")}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ToastAviso
+        mensagem={toastMensagem}
+        onClose={() => setToastMensagem(null)}
+      />
     </div>
   );
 }

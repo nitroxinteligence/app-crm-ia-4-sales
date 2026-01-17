@@ -1,12 +1,13 @@
 import "server-only";
+import { getEnv } from "@/lib/config";
 
 type DispararAgenteParams = {
   agentId: string;
   conversationId: string;
 };
 
-const baseUrl = process.env.AGENTS_API_URL ?? "";
-const apiKey = process.env.AGENTS_API_KEY;
+const baseUrl = getEnv("AGENTS_API_URL");
+const apiKey = getEnv("AGENTS_API_KEY") || undefined;
 
 export async function dispararAgenteWhatsApp({
   agentId,

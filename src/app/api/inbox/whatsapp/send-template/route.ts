@@ -1,22 +1,37 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import {
   emitConversationUpdated,
   emitMessageCreated,
 } from "@/lib/pusher/events";
+import {
+  badRequest,
+  httpError,
+  notFound,
+  preconditionFailed,
+  serverError,
+  unauthorized,
+  unprocessableEntity,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
+import { parseGraphError } from "@/lib/whatsapp/graph";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-const whatsappGraphVersion = process.env.WHATSAPP_GRAPH_VERSION ?? "v20.0";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+const whatsappGraphVersion = getEnv("WHATSAPP_GRAPH_VERSION", "v20.0");
 
-type TemplatePayload = {
-  conversationId?: string;
-  templateName?: string;
-  language?: string;
-  variables?: string[];
-};
+const payloadSchema = z.object({
+  conversationId: z.string().trim().min(1),
+  templateName: z.string().trim().min(1),
+  language: z.string().trim().min(2).optional(),
+  variables: z
+    .array(z.union([z.string(), z.number(), z.boolean()]))
+    .optional(),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -27,28 +42,14 @@ function getUserClient(request: Request) {
   });
 }
 
-const parseGraphError = async (response: Response) => {
-  const text = await response.text().catch(() => "");
-  if (!text) return `Falha ao enviar template (${response.status}).`;
-  try {
-    const payload = JSON.parse(text) as { error?: { message?: string } };
-    if (payload?.error?.message) {
-      return payload.error.message;
-    }
-  } catch {
-    // ignore
-  }
-  return text;
-};
-
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars.", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header.", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -56,7 +57,7 @@ export async function POST(request: Request) {
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return new Response("Invalid auth.", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { data: membership } = await userClient
@@ -66,20 +67,18 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found.", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
-  const body = (await request.json()) as TemplatePayload;
-  const conversationId = body?.conversationId?.trim();
-  const templateName = body?.templateName?.trim();
-  const language = body?.language?.trim() || "pt_BR";
-  const variables = Array.isArray(body?.variables)
-    ? body.variables.map((value) => String(value ?? "").trim()).filter(Boolean)
-    : [];
-
-  if (!conversationId || !templateName) {
-    return new Response("Invalid payload.", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
+  const { conversationId, templateName } = parsed.data;
+  const language = parsed.data.language ?? "pt_BR";
+  const variables = (parsed.data.variables ?? [])
+    .map((value) => String(value).trim())
+    .filter(Boolean);
 
   const { data: conversation } = await userClient
     .from("conversations")
@@ -89,11 +88,11 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!conversation) {
-    return new Response("Conversation not found.", { status: 404 });
+    return notFound("Conversation not found.");
   }
 
   if (conversation.canal !== "whatsapp") {
-    return new Response("Canal nao suportado.", { status: 422 });
+    return unprocessableEntity("Canal nao suportado.");
   }
 
   let destinatario: string | null = null;
@@ -118,7 +117,7 @@ export async function POST(request: Request) {
   }
 
   if (!destinatario) {
-    return new Response("Contato sem telefone.", { status: 422 });
+    return unprocessableEntity("Contato sem telefone.");
   }
 
   const { data: integration } = await supabaseServer
@@ -130,7 +129,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!integration) {
-    return new Response("Integracao nao conectada.", { status: 412 });
+    return preconditionFailed("Integracao nao conectada.");
   }
 
   const accountQuery = supabaseServer
@@ -146,14 +145,12 @@ export async function POST(request: Request) {
   const { data: account } = await accountQuery.maybeSingle();
 
   if (!account) {
-    return new Response("Conta WhatsApp oficial nao encontrada.", {
-      status: 412,
-    });
+    return preconditionFailed("Conta WhatsApp oficial nao encontrada.");
   }
 
   const phoneNumberId = account?.phone_number_id ?? account?.identificador;
   if (!phoneNumberId) {
-    return new Response("Numero WhatsApp nao encontrado.", { status: 412 });
+    return preconditionFailed("Numero WhatsApp nao encontrado.");
   }
 
   const { data: tokenRow } = await supabaseServer
@@ -173,7 +170,7 @@ export async function POST(request: Request) {
   }
 
   if (!accessToken) {
-    return new Response("Token da integracao nao encontrado.", { status: 412 });
+    return preconditionFailed("Token da integracao nao encontrado.");
   }
 
   const templatePayload: Record<string, unknown> = {
@@ -208,9 +205,10 @@ export async function POST(request: Request) {
   );
 
   if (!response.ok) {
-    return new Response(await parseGraphError(response), {
-      status: response.status,
-    });
+    return httpError(
+      await parseGraphError(response, "Falha ao enviar template"),
+      response.status
+    );
   }
 
   const payload = (await response.json()) as {
@@ -232,9 +230,7 @@ export async function POST(request: Request) {
     .single();
 
   if (messageError || !message) {
-    return new Response(messageError?.message ?? "Failed to save message.", {
-      status: 500,
-    });
+    return serverError(messageError?.message ?? "Failed to save message.");
   }
 
   await userClient

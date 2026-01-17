@@ -1,17 +1,32 @@
+import { z } from "zod";
+import {
+  badGateway,
+  badRequest,
+  serverError,
+  serviceUnavailable,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
+
 export const runtime = "nodejs";
 
-const baseUrl = process.env.AGENTS_API_URL ?? "";
-const apiKey = process.env.AGENTS_API_KEY;
+const baseUrl = getEnv("AGENTS_API_URL");
+const apiKey = getEnv("AGENTS_API_KEY") || undefined;
+
+const payloadSchema = z.object({
+  eventId: z.string().trim().min(1),
+});
 
 export async function POST(request: Request) {
   if (!baseUrl) {
-    return new Response("Missing AGENTS_API_URL", { status: 500 });
+    return serverError("Missing AGENTS_API_URL");
   }
 
-  const { eventId } = await request.json();
-  if (!eventId) {
-    return new Response("Missing eventId", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Missing eventId");
   }
+  const { eventId } = parsed.data;
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (apiKey) {
@@ -26,7 +41,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({ event_id: eventId }),
     });
   } catch {
-    return new Response("Agents service unreachable", { status: 503 });
+    return serviceUnavailable("Agents service unreachable");
   }
 
   if (!response.ok) {
@@ -34,7 +49,7 @@ export async function POST(request: Request) {
     const mensagem = detalhe
       ? `Agent service error: ${detalhe}`
       : "Agent service error";
-    return new Response(mensagem, { status: 502 });
+    return badGateway(mensagem);
   }
 
   return new Response("OK", { status: 200 });

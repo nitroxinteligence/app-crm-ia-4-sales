@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI, Header, HTTPException, Request, UploadFile
 from starlette.datastructures import UploadFile as StarletteUploadFile
 
-from app.config import settings
+from app.config import settings, validate_settings
 from app.schemas import (
     AgentRunRequest,
     AgentRunResponse,
@@ -51,6 +51,7 @@ logger = logging.getLogger("uvicorn.error")
 logger.setLevel(logging.INFO)
 
 app = FastAPI(title="VP CRM Agents", version="0.1.0")
+validate_settings(settings, logger)
 
 
 @app.get("/health")

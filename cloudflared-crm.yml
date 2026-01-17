@@ -1,0 +1,9 @@
+tunnel: e955cc25-27c2-48b0-b971-e192ff913a66
+credentials-file: /Users/mateusmpz/.cloudflared/e955cc25-27c2-48b0-b971-e192ff913a66.json
+
+ingress:
+  - hostname: crm.iafoursales.com
+    service: http://localhost:3000
+    originRequest:
+      noTLSVerify: true
+  - service: http_status:404

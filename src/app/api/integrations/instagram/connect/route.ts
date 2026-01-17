@@ -1,17 +1,36 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import {
+  badRequest,
+  forbidden,
+  serverError,
+  unauthorized,
+  unprocessableEntity,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-const appId = process.env.INSTAGRAM_APP_ID ?? process.env.WHATSAPP_APP_ID ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+const appId = getEnv("INSTAGRAM_APP_ID") || getEnv("WHATSAPP_APP_ID");
 const appSecret =
-  process.env.INSTAGRAM_APP_SECRET ?? process.env.WHATSAPP_APP_SECRET ?? "";
+  getEnv("INSTAGRAM_APP_SECRET") || getEnv("WHATSAPP_APP_SECRET");
 const graphVersion =
-  process.env.INSTAGRAM_GRAPH_VERSION ??
-  process.env.WHATSAPP_GRAPH_VERSION ??
+  getEnv("INSTAGRAM_GRAPH_VERSION") ||
+  getEnv("WHATSAPP_GRAPH_VERSION") ||
   "v20.0";
+
+const payloadSchema = z.object({
+  workspaceId: z.string().trim().min(1),
+  code: z.string().trim().min(1).optional(),
+  redirectUri: z.string().trim().min(1).optional(),
+  accessToken: z.string().trim().min(1).optional(),
+  instagramAccountId: z.string().trim().min(1).optional(),
+  pageId: z.string().trim().min(1).optional(),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -192,29 +211,30 @@ async function subscribePage(accessToken: string, pageId: string) {
 export async function POST(request: Request) {
   try {
     if (!supabaseUrl || !supabaseAnonKey) {
-      return new Response("Missing Supabase env vars", { status: 500 });
+      return serverError("Missing Supabase env vars");
     }
 
     if (!appId || !appSecret) {
-      return new Response("Missing Instagram app env vars", { status: 500 });
+      return serverError("Missing Instagram app env vars");
     }
 
     const userClient = getUserClient(request);
     if (!userClient) {
-      return new Response("Missing auth header", { status: 401 });
+      return unauthorized("Missing auth header");
     }
 
-    const body = await request.json();
-    const workspaceId = body.workspaceId as string | undefined;
-    const code = body.code as string | undefined;
-    const redirectUri = body.redirectUri as string | undefined;
-    const accessTokenFromClient = body.accessToken as string | undefined;
-    const instagramAccountId = body.instagramAccountId as string | undefined;
-    const pageId = body.pageId as string | undefined;
-
-    if (!workspaceId) {
-      return new Response("Missing workspaceId", { status: 400 });
+    const parsed = await parseJsonBody(request, payloadSchema);
+    if (!parsed.ok) {
+      return badRequest("Missing workspaceId");
     }
+    const {
+      workspaceId,
+      code,
+      redirectUri,
+      accessToken: accessTokenFromClient,
+      instagramAccountId,
+      pageId,
+    } = parsed.data;
 
     const { data: membership } = await userClient
       .from("workspace_members")
@@ -223,7 +243,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (!membership) {
-      return new Response("Forbidden", { status: 403 });
+      return forbidden("Forbidden");
     }
 
     let tokenResponse: TokenResponse | null = null;
@@ -235,7 +255,7 @@ export async function POST(request: Request) {
     }
 
     if (!accessToken) {
-      return new Response("Missing access token", { status: 400 });
+      return badRequest("Missing access token");
     }
 
     const resolved = await resolveInstagramAccount(
@@ -245,9 +265,8 @@ export async function POST(request: Request) {
     );
 
     if (!resolved) {
-      return new Response(
-        "Nao foi possivel encontrar uma conta Instagram conectada.",
-        { status: 422 }
+      return unprocessableEntity(
+        "Nao foi possivel encontrar uma conta Instagram conectada."
       );
     }
 
@@ -270,9 +289,8 @@ export async function POST(request: Request) {
       .single();
 
     if (integrationError || !integration) {
-      return new Response(
-        integrationError?.message ?? "Failed to save integration",
-        { status: 500 }
+      return serverError(
+        integrationError?.message ?? "Failed to save integration"
       );
     }
 
@@ -307,7 +325,7 @@ export async function POST(request: Request) {
           .single();
 
     if (accountResult.error) {
-      return new Response(accountResult.error.message, { status: 500 });
+      return serverError(accountResult.error.message);
     }
 
     const accountId = existingAccount?.id ?? accountResult.data?.id ?? null;
@@ -339,7 +357,7 @@ export async function POST(request: Request) {
       : await supabaseServer.from("integration_tokens").insert(tokenPayload);
 
     if (tokenResult.error) {
-      return new Response(tokenResult.error.message, { status: 500 });
+      return serverError(tokenResult.error.message);
     }
 
     const { data: authData } = await userClient.auth.getUser();
@@ -374,6 +392,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Instagram connect failed:", message);
-    return new Response(message, { status: 500 });
+    return serverError(message);
   }
 }

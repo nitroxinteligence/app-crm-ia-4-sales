@@ -1,10 +1,26 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
+import {
+  badRequest,
+  forbidden,
+  notFound,
+  serverError,
+  unauthorized,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const payloadSchema = z.object({
+  leadId: z.string().trim().min(1),
+  empresa: z.string().trim().optional(),
+  companyName: z.string().trim().optional(),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -18,12 +34,12 @@ function getUserClient(request: Request) {
 export async function POST(request: Request) {
   try {
     if (!supabaseUrl || !supabaseAnonKey) {
-      return new Response("Missing Supabase env vars", { status: 500 });
+      return serverError("Missing Supabase env vars.");
     }
 
     const userClient = getUserClient(request);
     if (!userClient) {
-      return new Response("Missing auth header", { status: 401 });
+      return unauthorized("Missing auth header.");
     }
 
     const {
@@ -32,16 +48,15 @@ export async function POST(request: Request) {
     } = await userClient.auth.getUser();
 
     if (userError || !user) {
-      return new Response("Invalid auth", { status: 401 });
+      return unauthorized("Invalid auth.");
     }
 
-    const body = await request.json();
-    const leadId = body.leadId as string | undefined;
-    const empresa = (body.empresa ?? body.companyName) as string | undefined;
-
-    if (!leadId) {
-      return new Response("Missing leadId", { status: 400 });
+    const parsed = await parseJsonBody(request, payloadSchema);
+    if (!parsed.ok) {
+      return badRequest("Invalid payload.");
     }
+    const leadId = parsed.data.leadId;
+    const empresa = parsed.data.empresa ?? parsed.data.companyName;
 
     const { data: lead, error: leadError } = await supabaseServer
       .from("leads")
@@ -50,7 +65,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (leadError || !lead) {
-      return new Response("Lead not found", { status: 404 });
+      return notFound("Lead not found.");
     }
 
     const { data: membership } = await userClient
@@ -60,7 +75,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (!membership) {
-      return new Response("Forbidden", { status: 403 });
+      return forbidden("Forbidden.");
     }
 
     if (lead.contato_id) {
@@ -110,7 +125,7 @@ export async function POST(request: Request) {
         .single();
 
       if (contactError || !createdContact) {
-        return new Response("Failed to create contact", { status: 500 });
+        return serverError("Failed to create contact");
       }
 
       contactId = createdContact.id;
@@ -132,6 +147,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("Lead convert failed:", message);
-    return new Response(message, { status: 500 });
+    return serverError(message);
   }
 }

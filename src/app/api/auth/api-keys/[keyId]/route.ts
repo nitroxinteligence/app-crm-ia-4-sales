@@ -1,10 +1,17 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const paramsSchema = z.object({
+    keyId: z.string().trim().min(1),
+});
 
 function getUserClient(request: NextRequest) {
     const authHeader = request.headers.get("Authorization");
@@ -21,14 +28,18 @@ export async function DELETE(
     { params }: { params: Promise<{ keyId: string }> }
 ) {
     const { keyId } = await params;
+    const parsedParams = paramsSchema.safeParse({ keyId });
+    if (!parsedParams.success) {
+        return badRequest("Invalid api key id.");
+    }
 
     if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
+        return serverError("Missing Supabase env vars.");
     }
 
     const userClient = getUserClient(request);
     if (!userClient) {
-        return new Response("Missing auth header", { status: 401 });
+        return unauthorized("Missing auth header.");
     }
 
     const {
@@ -37,7 +48,7 @@ export async function DELETE(
     } = await userClient.auth.getUser();
 
     if (userError || !user) {
-        return new Response("Invalid auth", { status: 401 });
+        return unauthorized("Invalid auth.");
     }
 
     const { data: membership } = await userClient
@@ -47,18 +58,18 @@ export async function DELETE(
         .maybeSingle();
 
     if (!membership?.workspace_id) {
-        return new Response("Workspace not found", { status: 400 });
+        return badRequest("Workspace not found.");
     }
 
     // Deletar apenas se pertencer ao workspace do usuário
     const { error } = await userClient
         .from("api_keys")
         .delete()
-        .eq("id", keyId)
+        .eq("id", parsedParams.data.keyId)
         .eq("workspace_id", membership.workspace_id);
 
     if (error) {
-        return new Response(error.message, { status: 500 });
+        return serverError(error.message);
     }
 
     return Response.json({ success: true });

@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { getEnv } from "@/lib/config";
 
 type EnvMap = Record<string, string>;
 
@@ -54,7 +55,7 @@ export const resolveUazapiEnv = () => {
   const rootEnv = readEnvFile(path.join(root, ".env"));
   const appsEnv = readEnvFile(path.join(root, "apps", ".env"));
   const listCandidates = [
-    process.env.UAZAPI_BASE_URLS,
+    getEnv("UAZAPI_BASE_URLS"),
     rootEnv.UAZAPI_BASE_URLS,
     appsEnv.UAZAPI_BASE_URLS,
     localEnv.UAZAPI_BASE_URLS,
@@ -62,7 +63,7 @@ export const resolveUazapiEnv = () => {
   const baseCandidates = listCandidates.length
     ? listCandidates
     : [
-        process.env.UAZAPI_BASE_URL,
+        getEnv("UAZAPI_BASE_URL"),
         rootEnv.UAZAPI_BASE_URL,
         appsEnv.UAZAPI_BASE_URL,
         localEnv.UAZAPI_BASE_URL,
@@ -70,7 +71,7 @@ export const resolveUazapiEnv = () => {
   return {
     baseUrl: baseCandidates.join(","),
     adminToken: (
-      process.env.UAZAPI_ADMIN_TOKEN ??
+      getEnv("UAZAPI_ADMIN_TOKEN") ||
       rootEnv.UAZAPI_ADMIN_TOKEN ??
       appsEnv.UAZAPI_ADMIN_TOKEN ??
       localEnv.UAZAPI_ADMIN_TOKEN ??

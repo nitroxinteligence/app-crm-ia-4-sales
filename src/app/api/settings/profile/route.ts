@@ -1,9 +1,23 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const updateSchema = z
+  .object({
+    nome: z.string().trim().min(1).optional(),
+    avatarUrl: z.string().trim().optional().nullable(),
+    idioma: z.enum(["pt-BR", "en-US"]).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "No changes provided",
+  });
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -14,29 +28,37 @@ function getUserClient(request: Request) {
   });
 }
 
-async function getUser(request: Request) {
+type UserResult =
+  | { user: { id: string }; userClient: ReturnType<typeof getUserClient> }
+  | { error: { status: 401 | 500; message: string } };
+
+async function getUser(request: Request): Promise<UserResult> {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return { user: null, error: "Missing Supabase env vars." };
+    return { error: { status: 500, message: "Missing Supabase env vars." } };
   }
   const userClient = getUserClient(request);
   if (!userClient) {
-    return { user: null, error: "Missing auth header." };
+    return { error: { status: 401, message: "Missing auth header." } };
   }
   const {
     data: { user },
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return { user: null, error: "Invalid auth." };
+    return { error: { status: 401, message: "Invalid auth." } };
   }
   return { user, userClient };
 }
 
 export async function GET(request: Request) {
-  const { user, userClient, error } = await getUser(request);
-  if (!user || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const userResult = await getUser(request);
+  if ("error" in userResult) {
+    if (userResult.error.status === 401) {
+      return unauthorized(userResult.error.message);
+    }
+    return serverError(userResult.error.message);
   }
+  const { user, userClient } = userResult;
 
   const { data, error: profileError } = await userClient
     .from("profiles")
@@ -45,33 +67,33 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (profileError) {
-    return new Response(profileError.message, { status: 500 });
+    return serverError(profileError.message);
   }
 
   return Response.json({ profile: data });
 }
 
 export async function PATCH(request: Request) {
-  const { user, userClient, error } = await getUser(request);
-  if (!user || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const userResult = await getUser(request);
+  if ("error" in userResult) {
+    if (userResult.error.status === 401) {
+      return unauthorized(userResult.error.message);
+    }
+    return serverError(userResult.error.message);
   }
+  const { user, userClient } = userResult;
 
-  const body = await request.json();
-  const nome = typeof body?.nome === "string" ? body.nome.trim() : null;
-  const avatarUrlRaw = body?.avatarUrl;
-  const avatarUrl =
-    typeof avatarUrlRaw === "string" ? avatarUrlRaw.trim() : null;
-  const idioma = typeof body?.idioma === "string" ? body.idioma.trim() : null;
+  const parsed = await parseJsonBody(request, updateSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
+  }
 
   const updates: Record<string, string | null> = {};
-  if (nome) updates.nome = nome;
-  if ("avatarUrl" in body) updates.avatar_url = avatarUrl || null;
-  if (idioma) updates.idioma = idioma;
-
-  if (!Object.keys(updates).length) {
-    return new Response("No changes provided", { status: 400 });
+  if (parsed.data.nome) updates.nome = parsed.data.nome;
+  if ("avatarUrl" in parsed.data) {
+    updates.avatar_url = parsed.data.avatarUrl?.trim() || null;
   }
+  if (parsed.data.idioma) updates.idioma = parsed.data.idioma;
 
   const { data, error: updateError } = await userClient
     .from("profiles")
@@ -81,7 +103,7 @@ export async function PATCH(request: Request) {
     .maybeSingle();
 
   if (updateError) {
-    return new Response(updateError.message, { status: 500 });
+    return serverError(updateError.message);
   }
 
   return Response.json({ profile: data });

@@ -1,9 +1,22 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const updateSchema = z
+  .object({
+    mascarar_viewer: z.boolean().optional(),
+    retencao_dias: z.number().int().min(1).optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "No changes provided",
+  });
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -14,20 +27,24 @@ function getUserClient(request: Request) {
   });
 }
 
-async function getMembership(request: Request) {
+type MembershipResult =
+  | { membership: { workspace_id: string }; userClient: ReturnType<typeof getUserClient> }
+  | { error: { status: 400 | 401 | 500; message: string } };
+
+async function getMembership(request: Request): Promise<MembershipResult> {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return { error: "Missing Supabase env vars." };
+    return { error: { status: 500, message: "Missing Supabase env vars." } };
   }
   const userClient = getUserClient(request);
   if (!userClient) {
-    return { error: "Missing auth header." };
+    return { error: { status: 401, message: "Missing auth header." } };
   }
   const {
     data: { user },
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return { error: "Invalid auth." };
+    return { error: { status: 401, message: "Invalid auth." } };
   }
 
   const { data: membership, error: membershipError } = await userClient
@@ -37,17 +54,24 @@ async function getMembership(request: Request) {
     .maybeSingle();
 
   if (membershipError || !membership?.workspace_id) {
-    return { error: "Workspace not found." };
+    return { error: { status: 400, message: "Workspace not found." } };
   }
 
   return { membership, userClient };
 }
 
 export async function GET(request: Request) {
-  const { membership, userClient, error } = await getMembership(request);
-  if (!membership || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const membershipResult = await getMembership(request);
+  if ("error" in membershipResult) {
+    if (membershipResult.error.status === 400) {
+      return badRequest(membershipResult.error.message);
+    }
+    if (membershipResult.error.status === 401) {
+      return unauthorized(membershipResult.error.message);
+    }
+    return serverError(membershipResult.error.message);
   }
+  const { membership, userClient } = membershipResult;
 
   const { data, error: settingsError } = await userClient
     .from("workspace_settings")
@@ -56,7 +80,7 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (settingsError) {
-    return new Response(settingsError.message, { status: 500 });
+    return serverError(settingsError.message);
   }
 
   return Response.json({
@@ -69,23 +93,24 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const { membership, userClient, error } = await getMembership(request);
-  if (!membership || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const membershipResult = await getMembership(request);
+  if ("error" in membershipResult) {
+    if (membershipResult.error.status === 400) {
+      return badRequest(membershipResult.error.message);
+    }
+    if (membershipResult.error.status === 401) {
+      return unauthorized(membershipResult.error.message);
+    }
+    return serverError(membershipResult.error.message);
+  }
+  const { membership, userClient } = membershipResult;
+
+  const parsed = await parseJsonBody(request, updateSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
 
-  const body = await request.json();
-  const updates: Record<string, unknown> = {};
-  if (typeof body?.mascarar_viewer === "boolean") {
-    updates.mascarar_viewer = body.mascarar_viewer;
-  }
-  if (typeof body?.retencao_dias === "number") {
-    updates.retencao_dias = body.retencao_dias;
-  }
-
-  if (!Object.keys(updates).length) {
-    return new Response("No changes provided", { status: 400 });
-  }
+  const updates: Record<string, unknown> = { ...parsed.data };
 
   const { data, error: updateError } = await userClient
     .from("workspace_settings")
@@ -97,7 +122,7 @@ export async function PATCH(request: Request) {
     .maybeSingle();
 
   if (updateError) {
-    return new Response(updateError.message, { status: 500 });
+    return serverError(updateError.message);
   }
 
   return Response.json({ settings: data });

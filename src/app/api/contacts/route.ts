@@ -1,12 +1,35 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
 import { NextRequest } from "next/server";
 import { authenticateRequest } from "@/lib/auth/api-auth";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const querySchema = z.object({
+    pipeline_stage_id: z.string().trim().optional(),
+    owner_id: z.string().trim().optional(),
+    status: z.string().trim().optional(),
+    telefone: z.string().trim().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+});
+
+const createSchema = z.object({
+    nome: z.string().trim().min(1),
+    telefone: z.string().trim().optional(),
+    email: z.string().trim().email().optional(),
+    empresa: z.string().trim().optional(),
+    status: z.string().trim().optional(),
+    owner_id: z.string().trim().optional(),
+    pipeline_id: z.string().trim().optional(),
+    pipeline_stage_id: z.string().trim().optional(),
+});
 
 function getUserClient(request: NextRequest) {
     const authHeader = request.headers.get("Authorization");
@@ -20,23 +43,30 @@ function getUserClient(request: NextRequest) {
 // GET /api/contacts - Listar contacts
 export async function GET(request: NextRequest) {
     if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
+        return serverError("Missing Supabase env vars");
     }
 
     // Autenticar via API Key ou JWT
     const workspaceId = await authenticateRequest(request);
     if (!workspaceId) {
-        return new Response("Invalid auth", { status: 401 });
+        return unauthorized("Invalid auth");
     }
 
     // Extract query parameters
     const { searchParams } = new URL(request.url);
-    const pipelineStageId = searchParams.get("pipeline_stage_id");
-    const ownerId = searchParams.get("owner_id");
-    const status = searchParams.get("status");
-    const telefone = searchParams.get("telefone");
-    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
-    const offset = parseInt(searchParams.get("offset") || "0");
+    const parsed = querySchema.safeParse({
+        pipeline_stage_id: searchParams.get("pipeline_stage_id") ?? undefined,
+        owner_id: searchParams.get("owner_id") ?? undefined,
+        status: searchParams.get("status") ?? undefined,
+        telefone: searchParams.get("telefone") ?? undefined,
+        limit: searchParams.get("limit") ?? undefined,
+        offset: searchParams.get("offset") ?? undefined,
+    });
+    if (!parsed.success) {
+        return badRequest("Invalid query params");
+    }
+    const { pipeline_stage_id: pipelineStageId, owner_id: ownerId, status, telefone, limit, offset } =
+        parsed.data;
 
     // Build query
     let query = supabaseServer
@@ -55,7 +85,7 @@ export async function GET(request: NextRequest) {
     const { data: contacts, error, count } = await query;
 
     if (error) {
-        return new Response(error.message, { status: 500 });
+        return serverError(error.message);
     }
 
     const contactsWithTags = (contacts ?? []).map((contact: any) => {
@@ -82,35 +112,36 @@ export async function GET(request: NextRequest) {
 // POST /api/contacts - Criar contact
 export async function POST(request: NextRequest) {
     if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
+        return serverError("Missing Supabase env vars");
     }
 
     // Autenticar via API Key ou JWT
     const workspaceId = await authenticateRequest(request);
     if (!workspaceId) {
-        return new Response("Invalid auth", { status: 401 });
+        return unauthorized("Invalid auth");
     }
 
-    const body = await request.json();
-
-    if (!body.nome) {
-        return new Response("Nome is required", { status: 400 });
+    let parsed;
+    try {
+        parsed = createSchema.parse(await request.json());
+    } catch {
+        return badRequest("Nome is required");
     }
 
     const contactData: Record<string, any> = {
         workspace_id: workspaceId,
-        nome: body.nome,
-        telefone: body.telefone || null,
-        email: body.email || null,
-        empresa: body.empresa || null,
-        status: body.status || "novo",
-        owner_id: body.owner_id || null,
+        nome: parsed.nome,
+        telefone: parsed.telefone || null,
+        email: parsed.email || null,
+        empresa: parsed.empresa || null,
+        status: parsed.status || "novo",
+        owner_id: parsed.owner_id || null,
     };
 
     // Optional fields
-    if (body.pipeline_id) contactData.pipeline_id = body.pipeline_id;
-    if (body.pipeline_stage_id)
-        contactData.pipeline_stage_id = body.pipeline_stage_id;
+    if (parsed.pipeline_id) contactData.pipeline_id = parsed.pipeline_id;
+    if (parsed.pipeline_stage_id)
+        contactData.pipeline_stage_id = parsed.pipeline_stage_id;
 
     const { data: contact, error } = await supabaseServer
         .from("contacts")
@@ -119,7 +150,7 @@ export async function POST(request: NextRequest) {
         .single();
 
     if (error) {
-        return new Response(error.message, { status: 500 });
+        return serverError(error.message);
     }
 
     return Response.json(contact, { status: 201 });

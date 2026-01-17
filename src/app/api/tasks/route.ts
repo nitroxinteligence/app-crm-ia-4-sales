@@ -1,9 +1,17 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const tiposValidos = ["ligacao", "reuniao", "follow-up", "email", "outro"] as const;
+const relacionamentosValidos = ["lead", "deal", "conversa", "outro"] as const;
+const statusValidos = ["pendente", "concluida"] as const;
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -22,14 +30,31 @@ const formatarHora = (dataISO: string | null) => {
   return `${horas}:${minutos}`;
 };
 
+const querySchema = z.object({
+  status: z.enum([...statusValidos, "todos"] as const).optional(),
+  tipo: z.enum([...tiposValidos, "todos"] as const).optional(),
+  from: z.string().trim().optional(),
+  to: z.string().trim().optional(),
+});
+
+const createSchema = z.object({
+  titulo: z.string().trim().min(1),
+  tipo: z.enum(tiposValidos).optional(),
+  tipoOutro: z.string().trim().nullable().optional(),
+  data: z.string().trim().min(1),
+  hora: z.string().trim().optional(),
+  relacionamentoTipo: z.enum([...relacionamentosValidos, "nenhum"] as const).optional(),
+  relacionamentoNome: z.string().trim().nullable().optional(),
+});
+
 export async function GET(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -38,7 +63,7 @@ export async function GET(request: Request) {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { data: membership } = await userClient
@@ -49,14 +74,20 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
   const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status");
-  const tipo = searchParams.get("tipo");
-  const from = searchParams.get("from");
-  const to = searchParams.get("to");
+  const parsed = querySchema.safeParse({
+    status: searchParams.get("status") || undefined,
+    tipo: searchParams.get("tipo") || undefined,
+    from: searchParams.get("from") || undefined,
+    to: searchParams.get("to") || undefined,
+  });
+  if (!parsed.success) {
+    return badRequest("Invalid query params.");
+  }
+  const { status, tipo, from, to } = parsed.data;
 
   let query = userClient
     .from("tasks")
@@ -85,7 +116,7 @@ export async function GET(request: Request) {
 
   const { data: tasks, error } = await query;
   if (error) {
-    return new Response(error.message, { status: 500 });
+    return serverError(error.message);
   }
 
   const { data: profile } = await userClient
@@ -121,12 +152,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -135,7 +166,7 @@ export async function POST(request: Request) {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { data: membership } = await userClient
@@ -146,32 +177,29 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
-  const body = await request.json();
-  const titulo = body?.titulo?.trim();
-  const tipo = body?.tipo ?? "outro";
-  const tipoOutro = body?.tipoOutro ?? null;
-  const data = body?.data;
-  const hora = body?.hora ?? "09:00";
-  const relacionamentoTipo = body?.relacionamentoTipo ?? null;
-  const relacionamentoNome = body?.relacionamentoNome ?? null;
-
-  if (!titulo || !data) {
-    return new Response("Invalid payload", { status: 400 });
+  const parsed = await parseJsonBody(request, createSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
 
-  const dueAt = new Date(`${data}T${hora}:00`).toISOString();
+  const tipo = parsed.data.tipo ?? "outro";
+  const hora = parsed.data.hora ?? "09:00";
+  const relacionamentoTipo = parsed.data.relacionamentoTipo ?? null;
+  const relacionamentoNome = parsed.data.relacionamentoNome ?? null;
+
+  const dueAt = new Date(`${parsed.data.data}T${hora}:00`).toISOString();
 
   const { data: tarefa, error } = await userClient
     .from("tasks")
     .insert({
       workspace_id: membership.workspace_id,
       user_id: user.id,
-      titulo,
+      titulo: parsed.data.titulo,
       tipo,
-      tipo_outro: tipo === "outro" ? tipoOutro : null,
+      tipo_outro: tipo === "outro" ? parsed.data.tipoOutro ?? null : null,
       status: "pendente",
       due_at: dueAt,
       responsavel_id: user.id,
@@ -182,9 +210,7 @@ export async function POST(request: Request) {
     .single();
 
   if (error || !tarefa) {
-    return new Response(error?.message ?? "Failed to create task", {
-      status: 500,
-    });
+    return serverError(error?.message ?? "Failed to create task");
   }
 
   if (relacionamentoTipo && relacionamentoTipo !== "nenhum") {

@@ -1,10 +1,18 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const createSchema = z.object({
+    name: z.string().trim().min(1).optional(),
+});
 
 function getUserClient(request: NextRequest) {
     const authHeader = request.headers.get("Authorization");
@@ -18,12 +26,12 @@ function getUserClient(request: NextRequest) {
 // POST /api/auth/api-keys - Criar nova API Key
 export async function POST(request: NextRequest) {
     if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
+        return serverError("Missing Supabase env vars.");
     }
 
     const userClient = getUserClient(request);
     if (!userClient) {
-        return new Response("Missing auth header", { status: 401 });
+        return unauthorized("Missing auth header.");
     }
 
     const {
@@ -32,7 +40,7 @@ export async function POST(request: NextRequest) {
     } = await userClient.auth.getUser();
 
     if (userError || !user) {
-        return new Response("Invalid auth", { status: 401 });
+        return unauthorized("Invalid auth.");
     }
 
     const { data: membership } = await userClient
@@ -42,11 +50,14 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
     if (!membership?.workspace_id) {
-        return new Response("Workspace not found", { status: 400 });
+        return badRequest("Workspace not found.");
     }
 
-    const body = await request.json();
-    const name = body.name || "API Key";
+    const parsed = await parseJsonBody(request, createSchema);
+    if (!parsed.ok) {
+        return badRequest("Invalid payload.");
+    }
+    const name = parsed.data.name ?? "API Key";
 
     // Gerar API key usando a função do banco
     const { data: keyData, error: generateError } = await userClient
@@ -54,7 +65,7 @@ export async function POST(request: NextRequest) {
         .single();
 
     if (generateError || !keyData) {
-        return new Response("Failed to generate key", { status: 500 });
+        return serverError("Failed to generate key");
     }
 
     // Criar registro da API key
@@ -69,7 +80,7 @@ export async function POST(request: NextRequest) {
         .single();
 
     if (insertError) {
-        return new Response(insertError.message, { status: 500 });
+        return serverError(insertError.message);
     }
 
     return Response.json({
@@ -83,12 +94,12 @@ export async function POST(request: NextRequest) {
 // GET /api/auth/api-keys - Listar API Keys do workspace
 export async function GET(request: NextRequest) {
     if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
+        return serverError("Missing Supabase env vars.");
     }
 
     const userClient = getUserClient(request);
     if (!userClient) {
-        return new Response("Missing auth header", { status: 401 });
+        return unauthorized("Missing auth header.");
     }
 
     const {
@@ -97,7 +108,7 @@ export async function GET(request: NextRequest) {
     } = await userClient.auth.getUser();
 
     if (userError || !user) {
-        return new Response("Invalid auth", { status: 401 });
+        return unauthorized("Invalid auth.");
     }
 
     const { data: membership } = await userClient
@@ -107,7 +118,7 @@ export async function GET(request: NextRequest) {
         .maybeSingle();
 
     if (!membership?.workspace_id) {
-        return new Response("Workspace not found", { status: 400 });
+        return badRequest("Workspace not found.");
     }
 
     const { data: apiKeys, error } = await userClient
@@ -117,7 +128,7 @@ export async function GET(request: NextRequest) {
         .order("created_at", { ascending: false });
 
     if (error) {
-        return new Response(error.message, { status: 500 });
+        return serverError(error.message);
     }
 
     return Response.json({ api_keys: apiKeys || [] });

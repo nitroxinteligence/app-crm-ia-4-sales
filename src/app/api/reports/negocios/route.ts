@@ -1,9 +1,20 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { applyCanalFilter } from "@/lib/reports/filters";
+import { badRequest, forbidden, serverError, unauthorized } from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const querySchema = z.object({
+  workspaceId: z.string().trim().optional(),
+  canal: z.string().trim().optional(),
+  from: z.string().trim().optional(),
+  to: z.string().trim().optional(),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -72,12 +83,12 @@ function calcularVariacao(atual: number, anterior: number) {
 
 export async function GET(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -86,18 +97,29 @@ export async function GET(request: Request) {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { searchParams } = new URL(request.url);
-  const workspaceId = searchParams.get("workspaceId");
-  const canal = searchParams.get("canal");
-  const fromParam = searchParams.get("from");
-  const toParam = searchParams.get("to");
+  const parsed = querySchema.safeParse({
+    workspaceId: searchParams.get("workspaceId") ?? undefined,
+    canal: searchParams.get("canal") ?? undefined,
+    from: searchParams.get("from") ?? undefined,
+    to: searchParams.get("to") ?? undefined,
+  });
+  if (!parsed.success) {
+    return badRequest("Invalid query params.");
+  }
+  const {
+    workspaceId,
+    canal,
+    from: fromParam,
+    to: toParam,
+  } = parsed.data;
 
   const workspaceResolved = await resolveWorkspaceId(userClient, workspaceId);
   if (!workspaceResolved) {
-    return new Response("Forbidden", { status: 403 });
+    return forbidden("Forbidden.");
   }
 
   const hoje = new Date();
@@ -169,13 +191,11 @@ export async function GET(request: Request) {
     .gte("dia", from)
     .lte("dia", to);
 
-  if (canal && canal !== "todos") {
-    leadsQuery.eq("canal", canal);
-    leadsAnteriorQuery.eq("canal", canal);
-    inboxQuery.eq("canal", canal);
-    inboxAnteriorQuery.eq("canal", canal);
-    activityQuery.eq("canal", canal);
-  }
+  applyCanalFilter(leadsQuery, canal);
+  applyCanalFilter(leadsAnteriorQuery, canal);
+  applyCanalFilter(inboxQuery, canal);
+  applyCanalFilter(inboxAnteriorQuery, canal);
+  applyCanalFilter(activityQuery, canal);
 
   const refreshQuery = userClient
     .from("report_refresh_state")
@@ -220,7 +240,7 @@ export async function GET(request: Request) {
       inboxResult.error?.message ??
       inboxAnteriorResult.error?.message ??
       activityResult.error?.message;
-    return new Response(message ?? "Failed to load report", { status: 500 });
+    return serverError(message ?? "Failed to load report");
   }
 
   const leadsData = leadsResult.data ?? [];
@@ -342,7 +362,7 @@ export async function GET(request: Request) {
     : { data: [], error: null };
 
   if (stageResult.error) {
-    return new Response(stageResult.error.message, { status: 500 });
+    return serverError(stageResult.error.message);
   }
 
   const stageMap = new Map(

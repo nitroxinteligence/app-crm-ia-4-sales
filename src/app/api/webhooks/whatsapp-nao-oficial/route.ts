@@ -1,5 +1,7 @@
+import { gone } from "@/lib/api/responses";
+
 export const runtime = "nodejs";
 
 export async function POST() {
-  return new Response("UAZAPI desativado.", { status: 410 });
+  return gone("UAZAPI desativado.");
 }

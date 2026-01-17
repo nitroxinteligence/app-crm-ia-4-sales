@@ -1,16 +1,27 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import {
+  badRequest,
+  serverError,
+  unauthorized,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
-type QuickReplyPayload = {
-  titulo?: string;
-  atalho?: string;
-  conteudo?: string;
-  id?: string;
-};
+const createSchema = z.object({
+  titulo: z.string().trim().min(1),
+  atalho: z.string().trim().min(1).optional(),
+  conteudo: z.string().trim().min(1),
+});
+
+const deleteSchema = z.object({
+  id: z.string().trim().min(1),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -32,12 +43,12 @@ async function getMembership(userClient: any, userId: string) {
 
 export async function GET(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars.", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header.", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -45,12 +56,12 @@ export async function GET(request: Request) {
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return new Response("Invalid auth.", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const membership = await getMembership(userClient, user.id);
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found.", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
   const { data, error } = await userClient
@@ -60,7 +71,7 @@ export async function GET(request: Request) {
     .order("titulo", { ascending: true });
 
   if (error) {
-    return new Response(error.message, { status: 500 });
+    return serverError(error.message);
   }
 
   return Response.json({ quickReplies: data ?? [] });
@@ -68,12 +79,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars.", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header.", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -81,22 +92,20 @@ export async function POST(request: Request) {
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return new Response("Invalid auth.", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const membership = await getMembership(userClient, user.id);
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found.", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
-  const body = (await request.json()) as QuickReplyPayload;
-  const titulo = body?.titulo?.trim();
-  const conteudo = body?.conteudo?.trim();
-  const atalho = body?.atalho?.trim() || null;
-
-  if (!titulo || !conteudo) {
-    return new Response("Invalid payload.", { status: 400 });
+  const parsed = await parseJsonBody(request, createSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
+  const { titulo, conteudo } = parsed.data;
+  const atalho = parsed.data.atalho ?? null;
 
   const { data, error } = await userClient
     .from("quick_replies")
@@ -110,9 +119,7 @@ export async function POST(request: Request) {
     .single();
 
   if (error || !data) {
-    return new Response(error?.message ?? "Failed to create quick reply.", {
-      status: 500,
-    });
+    return serverError(error?.message ?? "Failed to create quick reply.");
   }
 
   return Response.json({ quickReply: data });
@@ -120,12 +127,12 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars.", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header.", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -133,19 +140,19 @@ export async function DELETE(request: Request) {
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return new Response("Invalid auth.", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const membership = await getMembership(userClient, user.id);
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found.", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
-  const body = (await request.json()) as QuickReplyPayload;
-  const id = body?.id?.trim();
-  if (!id) {
-    return new Response("Invalid payload.", { status: 400 });
+  const parsed = await parseJsonBody(request, deleteSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
+  const { id } = parsed.data;
 
   const { error } = await userClient
     .from("quick_replies")
@@ -154,7 +161,7 @@ export async function DELETE(request: Request) {
     .eq("id", id);
 
   if (error) {
-    return new Response(error.message, { status: 500 });
+    return serverError(error.message);
   }
 
   return new Response(null, { status: 204 });

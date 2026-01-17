@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
@@ -5,11 +6,31 @@ import {
   getIntegrationByUser,
   mapGoogleEvent,
 } from "@/lib/google-calendar/sync";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const querySchema = z.object({
+  from: z.string().trim().optional(),
+  to: z.string().trim().optional(),
+});
+
+const createSchema = z.object({
+  titulo: z.string().trim().min(1),
+  descricao: z.string().trim().optional().nullable(),
+  localizacao: z.string().trim().optional().nullable(),
+  startAt: z.string().trim().min(1),
+  endAt: z.string().trim().optional(),
+  isAllDay: z.boolean().optional(),
+  criarMeet: z.boolean().optional(),
+  colorId: z.union([z.string(), z.null()]).optional(),
+  timeZone: z.string().trim().optional(),
+});
 
 type GoogleEventPayload = {
   htmlLink?: string;
@@ -62,12 +83,12 @@ const defaultTo = () => {
 
 export async function GET(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -76,7 +97,7 @@ export async function GET(request: Request) {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const integration = await getIntegrationByUser(user.id);
@@ -85,8 +106,15 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
-  const from = searchParams.get("from") ?? defaultFrom();
-  const to = searchParams.get("to") ?? defaultTo();
+  const parsed = querySchema.safeParse({
+    from: searchParams.get("from") ?? undefined,
+    to: searchParams.get("to") ?? undefined,
+  });
+  if (!parsed.success) {
+    return badRequest("Invalid query params.");
+  }
+  const from = parsed.data.from ?? defaultFrom();
+  const to = parsed.data.to ?? defaultTo();
 
   const { data: events, error } = await userClient
     .from("calendar_events")
@@ -100,7 +128,7 @@ export async function GET(request: Request) {
     .order("start_at", { ascending: true });
 
   if (error) {
-    return new Response(error.message, { status: 500 });
+    return serverError(error.message);
   }
 
   const payload = (events ?? []).map((event) => {
@@ -127,12 +155,12 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -141,37 +169,36 @@ export async function POST(request: Request) {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const integration = await getIntegrationByUser(user.id);
   if (!integration || !integration.primary_calendar_id) {
-    return new Response("Google Calendar not connected", { status: 400 });
+    return badRequest("Google Calendar not connected.");
   }
 
-  const body = await request.json();
-  const titulo = body?.titulo?.trim();
-  const descricao = body?.descricao ?? null;
-  const localizacao = body?.localizacao ?? null;
-  const startAt = body?.startAt;
-  const endAt = body?.endAt;
-  const isAllDay = Boolean(body?.isAllDay);
-  const criarMeet = Boolean(body?.criarMeet);
-  const colorId = Object.prototype.hasOwnProperty.call(body ?? {}, "colorId")
-    ? body.colorId
-    : undefined;
-  const timeZone = body?.timeZone;
-
-  if (!titulo || !startAt) {
-    return new Response("Invalid payload", { status: 400 });
+  const parsed = await parseJsonBody(request, createSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
+  const {
+    titulo,
+    descricao = null,
+    localizacao = null,
+    startAt,
+    endAt,
+    isAllDay = false,
+    criarMeet = false,
+    colorId,
+    timeZone,
+  } = parsed.data;
 
   const accessToken = await getAccessToken(integration.id);
   const calendarId = integration.primary_calendar_id;
 
   const startDate = new Date(startAt);
   if (Number.isNaN(startDate.getTime())) {
-    return new Response("Invalid start time", { status: 400 });
+    return badRequest("Invalid start time.");
   }
 
   const endDate = isAllDay
@@ -179,11 +206,11 @@ export async function POST(request: Request) {
     : new Date(endAt ?? startAt);
 
   if (Number.isNaN(endDate.getTime())) {
-    return new Response("Invalid end time", { status: 400 });
+    return badRequest("Invalid end time.");
   }
 
   if (!isAllDay && endDate.getTime() <= startDate.getTime()) {
-    return new Response("Invalid time range", { status: 400 });
+    return badRequest("Invalid time range.");
   }
 
   const start = isAllDay
@@ -221,7 +248,7 @@ export async function POST(request: Request) {
       location: localizacao,
       start,
       end,
-      ...(colorId ? { colorId } : {}),
+      ...(colorId !== undefined ? { colorId } : {}),
       ...(criarMeet
         ? {
             conferenceData: {
@@ -237,7 +264,7 @@ export async function POST(request: Request) {
 
   if (!response.ok) {
     const text = await response.text();
-    return new Response(text || "Failed to create event", { status: 500 });
+    return serverError(text || "Failed to create event");
   }
 
   const event = await response.json();

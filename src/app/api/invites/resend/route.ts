@@ -1,13 +1,23 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import {
+  badRequest,
+  forbidden,
+  notFound,
+  serverError,
+  unauthorized,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
-type Payload = {
-  inviteId?: string;
-};
+const payloadSchema = z.object({
+  inviteId: z.string().trim().min(1),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -20,18 +30,18 @@ function getUserClient(request: Request) {
 
 async function getMembership(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return { error: "Missing Supabase env vars." };
+    return serverError("Missing Supabase env vars.");
   }
   const userClient = getUserClient(request);
   if (!userClient) {
-    return { error: "Missing auth header." };
+    return unauthorized("Missing auth header.");
   }
   const {
     data: { user },
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return { error: "Invalid auth." };
+    return unauthorized("Invalid auth.");
   }
 
   const { data: membership, error: membershipError } = await userClient
@@ -41,29 +51,28 @@ async function getMembership(request: Request) {
     .maybeSingle();
 
   if (membershipError || !membership?.workspace_id) {
-    return { error: "Workspace not found." };
+    return badRequest("Workspace not found.");
   }
 
   return { user, membership, userClient };
 }
 
 export async function POST(request: Request) {
-  const { membership, userClient, error } = await getMembership(request);
-  if (!membership || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const membershipResult = await getMembership(request);
+  if (membershipResult instanceof Response) {
+    return membershipResult;
   }
+  const { membership, userClient } = membershipResult;
 
   if (membership.role !== "ADMIN") {
-    return new Response("Forbidden.", { status: 403 });
+    return forbidden("Forbidden.");
   }
 
-  const body = (await request.json()) as Payload;
-  const inviteId =
-    typeof body?.inviteId === "string" ? body.inviteId.trim() : "";
-
-  if (!inviteId) {
-    return new Response("Invalid payload.", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
+  const { inviteId } = parsed.data;
 
   const token = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -81,9 +90,10 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (updateError || !data) {
-    return new Response(updateError?.message ?? "Invite not found.", {
-      status: 400,
-    });
+    if (updateError) {
+      return badRequest(updateError.message);
+    }
+    return notFound("Invite not found.");
   }
 
   return Response.json({ invite: data });

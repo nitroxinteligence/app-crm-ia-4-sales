@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -103,3 +104,33 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def _ensure_non_empty(value: str | None, key: str, errors: list[str]) -> None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        errors.append(key)
+
+
+def validate_settings(cfg: Settings, logger: logging.Logger | None = None) -> None:
+    errors: list[str] = []
+    _ensure_non_empty(cfg.supabase_url, "SUPABASE_URL", errors)
+    _ensure_non_empty(cfg.supabase_service_role_key, "SUPABASE_SERVICE_ROLE_KEY", errors)
+    _ensure_non_empty(cfg.redis_url, "REDIS_URL", errors)
+    _ensure_non_empty(cfg.pusher_app_id, "PUSHER_APP_ID", errors)
+    _ensure_non_empty(cfg.pusher_key, "PUSHER_KEY", errors)
+    _ensure_non_empty(cfg.pusher_secret, "PUSHER_SECRET", errors)
+    _ensure_non_empty(cfg.pusher_cluster, "PUSHER_CLUSTER", errors)
+    _ensure_non_empty(cfg.r2_account_id, "R2_ACCOUNT_ID", errors)
+    _ensure_non_empty(cfg.r2_access_key_id, "R2_ACCESS_KEY_ID", errors)
+    _ensure_non_empty(cfg.r2_secret_access_key, "R2_SECRET_ACCESS_KEY", errors)
+    _ensure_non_empty(cfg.r2_bucket_inbox_attachments, "R2_BUCKET_INBOX_ATTACHMENTS", errors)
+    _ensure_non_empty(cfg.r2_bucket_agent_knowledge, "R2_BUCKET_AGENT_KNOWLEDGE", errors)
+
+    if errors:
+        raise ValueError(f"Missing env vars: {', '.join(errors)}")
+
+    warn = logger.warning if logger else logging.getLogger(__name__).warning
+    if not cfg.agents_api_key:
+        warn("AGENTS_API_KEY not configured. Internal auth is disabled.")
+    if not cfg.baileys_api_url:
+        warn("BAILEYS_API_URL not configured. Baileys features are disabled.")

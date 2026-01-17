@@ -1,10 +1,24 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import type { Role } from "@/lib/types";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const roleSchema = z.enum(["ADMIN", "MANAGER", "MEMBER", "VIEWER"]);
+
+const createSchema = z.object({
+  email: z.string().trim().email(),
+  role: roleSchema,
+});
+
+const deleteSchema = z.object({
+  inviteId: z.string().trim().min(1),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -15,20 +29,24 @@ function getUserClient(request: Request) {
   });
 }
 
-async function getMembership(request: Request) {
+type MembershipResult =
+  | { membership: { workspace_id: string; role: string }; user: { id: string }; userClient: ReturnType<typeof getUserClient> }
+  | { error: { status: 400 | 401 | 500; message: string } };
+
+async function getMembership(request: Request): Promise<MembershipResult> {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return { error: "Missing Supabase env vars." };
+    return { error: { status: 500, message: "Missing Supabase env vars." } };
   }
   const userClient = getUserClient(request);
   if (!userClient) {
-    return { error: "Missing auth header." };
+    return { error: { status: 401, message: "Missing auth header." } };
   }
   const {
     data: { user },
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return { error: "Invalid auth." };
+    return { error: { status: 401, message: "Invalid auth." } };
   }
 
   const { data: membership, error: membershipError } = await userClient
@@ -38,17 +56,24 @@ async function getMembership(request: Request) {
     .maybeSingle();
 
   if (membershipError || !membership?.workspace_id) {
-    return { error: "Workspace not found." };
+    return { error: { status: 400, message: "Workspace not found." } };
   }
 
   return { user, membership, userClient };
 }
 
 export async function GET(request: Request) {
-  const { membership, userClient, error } = await getMembership(request);
-  if (!membership || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const membershipResult = await getMembership(request);
+  if ("error" in membershipResult) {
+    if (membershipResult.error.status === 400) {
+      return badRequest(membershipResult.error.message);
+    }
+    if (membershipResult.error.status === 401) {
+      return unauthorized(membershipResult.error.message);
+    }
+    return serverError(membershipResult.error.message);
   }
+  const { membership, userClient } = membershipResult;
 
   const { data, error: invitesError } = await userClient
     .from("workspace_invites")
@@ -57,24 +82,28 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: false });
 
   if (invitesError) {
-    return new Response(invitesError.message, { status: 500 });
+    return serverError(invitesError.message);
   }
 
   return Response.json({ invites: data ?? [] });
 }
 
 export async function POST(request: Request) {
-  const { membership, userClient, error } = await getMembership(request);
-  if (!membership || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const membershipResult = await getMembership(request);
+  if ("error" in membershipResult) {
+    if (membershipResult.error.status === 400) {
+      return badRequest(membershipResult.error.message);
+    }
+    if (membershipResult.error.status === 401) {
+      return unauthorized(membershipResult.error.message);
+    }
+    return serverError(membershipResult.error.message);
   }
+  const { membership, userClient } = membershipResult;
 
-  const body = await request.json();
-  const email = typeof body?.email === "string" ? body.email.trim() : "";
-  const role = body?.role as Role | undefined;
-
-  if (!email || !role) {
-    return new Response("Invalid payload", { status: 400 });
+  const parsed = await parseJsonBody(request, createSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
 
   const token = crypto.randomUUID();
@@ -84,8 +113,8 @@ export async function POST(request: Request) {
     .from("workspace_invites")
     .insert({
       workspace_id: membership.workspace_id,
-      email,
-      role,
+      email: parsed.data.email,
+      role: parsed.data.role,
       token,
       status: "pendente",
       expires_at: expiresAt,
@@ -94,32 +123,41 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (insertError) {
-    return new Response(insertError.message, { status: 500 });
+    return serverError(insertError.message);
   }
 
   return Response.json({ invite: data });
 }
 
 export async function DELETE(request: Request) {
-  const { membership, userClient, error } = await getMembership(request);
-  if (!membership || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const membershipResult = await getMembership(request);
+  if ("error" in membershipResult) {
+    if (membershipResult.error.status === 400) {
+      return badRequest(membershipResult.error.message);
+    }
+    if (membershipResult.error.status === 401) {
+      return unauthorized(membershipResult.error.message);
+    }
+    return serverError(membershipResult.error.message);
   }
+  const { membership, userClient } = membershipResult;
 
   const { searchParams } = new URL(request.url);
-  const inviteId = searchParams.get("inviteId");
-  if (!inviteId) {
-    return new Response("Missing inviteId", { status: 400 });
+  const parsed = deleteSchema.safeParse({
+    inviteId: searchParams.get("inviteId") ?? undefined,
+  });
+  if (!parsed.success) {
+    return badRequest("Missing inviteId.");
   }
 
   const { error: deleteError } = await userClient
     .from("workspace_invites")
     .delete()
-    .eq("id", inviteId)
+    .eq("id", parsed.data.inviteId)
     .eq("workspace_id", membership.workspace_id);
 
   if (deleteError) {
-    return new Response(deleteError.message, { status: 500 });
+    return serverError(deleteError.message);
   }
 
   return Response.json({ ok: true });

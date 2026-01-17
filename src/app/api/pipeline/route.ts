@@ -1,32 +1,24 @@
-import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
 import { NextRequest } from "next/server";
 import { authenticateRequest } from "@/lib/auth/api-auth";
+import { serverError, unauthorized } from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-
-function getUserClient(request: NextRequest) {
-    const authHeader = request.headers.get("Authorization");
-    if (!authHeader) return null;
-    return createClient(supabaseUrl, supabaseAnonKey, {
-        global: { headers: { Authorization: authHeader } },
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
-}
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
 // GET /api/pipeline - Listar pipelines
 export async function GET(request: NextRequest) {
     if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
+        return serverError("Missing Supabase env vars.");
     }
 
     // Autenticar via API Key ou JWT
     const workspaceId = await authenticateRequest(request);
     if (!workspaceId) {
-        return new Response("Invalid auth", { status: 401 });
+        return unauthorized("Invalid auth.");
     }
 
     const { data: pipelines, error } = await supabaseServer
@@ -36,7 +28,7 @@ export async function GET(request: NextRequest) {
         .order("created_at", { ascending: true });
 
     if (error) {
-        return new Response(error.message, { status: 500 });
+        return serverError(error.message);
     }
 
     return Response.json({

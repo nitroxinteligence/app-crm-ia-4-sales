@@ -1,136 +1,169 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
 import { NextRequest } from "next/server";
 import { authenticateRequest } from "@/lib/auth/api-auth";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const querySchema = z.object({
+  status: z.string().trim().optional(),
+  canal_origem: z.string().trim().optional(),
+  owner_id: z.string().trim().optional(),
+  telefone: z.string().trim().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+
+const createSchema = z.object({
+  nome: z.string().trim().min(1).optional(),
+  telefone: z.string().trim().optional(),
+  email: z.string().trim().email().optional(),
+  empresa: z.string().trim().optional(),
+  canal_origem: z.string().trim().optional(),
+  status: z.string().trim().optional(),
+  owner_id: z.string().trim().optional(),
+});
 
 function getUserClient(request: NextRequest) {
-    const authHeader = request.headers.get("Authorization");
-    if (!authHeader) return null;
-    return createClient(supabaseUrl, supabaseAnonKey, {
-        global: { headers: { Authorization: authHeader } },
-        auth: { persistSession: false, autoRefreshToken: false },
-    });
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader) return null;
+  return createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
 // GET /api/leads - Listar leads
 export async function GET(request: NextRequest) {
-    if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
-    }
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return serverError("Missing Supabase env vars.");
+  }
 
-    // Autenticar via API Key ou JWT
-    const workspaceId = await authenticateRequest(request);
-    if (!workspaceId) {
-        return new Response("Invalid auth", { status: 401 });
-    }
+  // Autenticar via API Key ou JWT
+  const workspaceId = await authenticateRequest(request);
+  if (!workspaceId) {
+    return unauthorized("Invalid auth.");
+  }
 
-    // Extract query parameters
-    const { searchParams } = new URL(request.url);
-    const status = searchParams.get("status");
-    const canalOrigem = searchParams.get("canal_origem");
-    const ownerId = searchParams.get("owner_id");
-    const telefone = searchParams.get("telefone"); // Filtro por telefone
-    const limit = Math.min(parseInt(searchParams.get("limit") || "50"), 100);
-    const offset = parseInt(searchParams.get("offset") || "0");
+  // Extract query parameters
+  const { searchParams } = new URL(request.url);
+  const parsed = querySchema.safeParse({
+    status: searchParams.get("status") ?? undefined,
+    canal_origem: searchParams.get("canal_origem") ?? undefined,
+    owner_id: searchParams.get("owner_id") ?? undefined,
+    telefone: searchParams.get("telefone") ?? undefined,
+    limit: searchParams.get("limit") ?? undefined,
+    offset: searchParams.get("offset") ?? undefined,
+  });
+  if (!parsed.success) {
+    return badRequest("Invalid query params.");
+  }
+  const { status, canal_origem: canalOrigem, owner_id: ownerId, telefone, limit, offset } =
+    parsed.data;
 
-    // Build query
-    let query = supabaseServer
-        .from("leads")
-        .select("*, lead_tags (tag_id, tags (id, nome, cor))", { count: "exact" })
-        .eq("workspace_id", workspaceId)
-        .order("created_at", { ascending: false })
-        .range(offset, offset + limit - 1);
+  // Build query
+  let query = supabaseServer
+    .from("leads")
+    .select("*, lead_tags (tag_id, tags (id, nome, cor))", { count: "exact" })
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .range(offset, offset + limit - 1);
 
-    // Apply filters
-    if (status) query = query.eq("status", status);
-    if (canalOrigem) query = query.eq("canal_origem", canalOrigem);
-    if (ownerId) query = query.eq("owner_id", ownerId);
-    if (telefone) query = query.eq("telefone", telefone); // Filtrar por telefone exato
+  // Apply filters
+  if (status) query = query.eq("status", status);
+  if (canalOrigem) query = query.eq("canal_origem", canalOrigem);
+  if (ownerId) query = query.eq("owner_id", ownerId);
+  if (telefone) query = query.eq("telefone", telefone); // Filtrar por telefone exato
 
-    const { data: leads, error, count } = await query;
+  const { data: leads, error, count } = await query;
 
-    if (error) {
-        return new Response(error.message, { status: 500 });
-    }
+  if (error) {
+    return serverError(error.message);
+  }
 
-    const leadsWithTags = (leads ?? []).map((lead: any) => {
-        const tags = (lead.lead_tags ?? [])
-            .map((item: any) => {
-                const tag = Array.isArray(item.tags) ? item.tags[0] : item.tags;
-                if (!tag?.id) return null;
-                return {
-                    id: tag.id,
-                    nome: tag.nome,
-                    cor: tag.cor ?? null,
-                };
-            })
-            .filter(Boolean);
-        return { ...lead, tags };
-    });
+  const leadsWithTags = (leads ?? []).map((lead: any) => {
+    const tags = (lead.lead_tags ?? [])
+      .map((item: any) => {
+        const tag = Array.isArray(item.tags) ? item.tags[0] : item.tags;
+        if (!tag?.id) return null;
+        return {
+          id: tag.id,
+          nome: tag.nome,
+          cor: tag.cor ?? null,
+        };
+      })
+      .filter(Boolean);
+    return { ...lead, tags };
+  });
 
-    return Response.json({
-        leads: leadsWithTags,
-        total: count || 0,
-    });
+  return Response.json({
+    leads: leadsWithTags,
+    total: count || 0,
+  });
 }
 
 // POST /api/leads - Criar lead
 export async function POST(request: NextRequest) {
-    if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
-    }
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return serverError("Missing Supabase env vars.");
+  }
 
-    const userClient = getUserClient(request);
-    if (!userClient) {
-        return new Response("Missing auth header", { status: 401 });
-    }
+  const userClient = getUserClient(request);
+  if (!userClient) {
+    return unauthorized("Missing auth header.");
+  }
 
-    const {
-        data: { user },
-        error: userError,
-    } = await userClient.auth.getUser();
+  const {
+    data: { user },
+    error: userError,
+  } = await userClient.auth.getUser();
 
-    if (userError || !user) {
-        return new Response("Invalid auth", { status: 401 });
-    }
+  if (userError || !user) {
+    return unauthorized("Invalid auth.");
+  }
 
-    const { data: membership } = await userClient
-        .from("workspace_members")
-        .select("workspace_id")
-        .eq("user_id", user.id)
-        .maybeSingle();
+  const { data: membership } = await userClient
+    .from("workspace_members")
+    .select("workspace_id")
+    .eq("user_id", user.id)
+    .maybeSingle();
 
-    if (!membership?.workspace_id) {
-        return new Response("Workspace not found", { status: 400 });
-    }
+  if (!membership?.workspace_id) {
+    return badRequest("Workspace not found.");
+  }
 
-    const body = await request.json();
+  const parsed = await parseJsonBody(request, createSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
+  }
 
-    const leadData: Record<string, any> = {
-        workspace_id: membership.workspace_id,
-        nome: body.nome || null,
-        telefone: body.telefone || null,
-        email: body.email || null,
-        empresa: body.empresa || null,
-        canal_origem: body.canal_origem || "whatsapp",
-        status: body.status || "novo",
-        owner_id: body.owner_id || user.id,
-    };
+  const leadData: Record<string, any> = {
+    workspace_id: membership.workspace_id,
+    nome: parsed.data.nome ?? null,
+    telefone: parsed.data.telefone ?? null,
+    email: parsed.data.email ?? null,
+    empresa: parsed.data.empresa ?? null,
+    canal_origem: parsed.data.canal_origem ?? "whatsapp",
+    status: parsed.data.status ?? "novo",
+    owner_id: parsed.data.owner_id ?? user.id,
+  };
 
-    const { data: lead, error } = await supabaseServer
-        .from("leads")
-        .insert(leadData)
-        .select()
-        .single();
+  const { data: lead, error } = await supabaseServer
+    .from("leads")
+    .insert(leadData)
+    .select()
+    .single();
 
-    if (error) {
-        return new Response(error.message, { status: 500 });
-    }
+  if (error) {
+    return serverError(error.message);
+  }
 
-    return Response.json(lead, { status: 201 });
+  return Response.json(lead, { status: 201 });
 }

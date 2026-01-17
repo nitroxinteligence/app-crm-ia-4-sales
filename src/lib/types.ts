@@ -396,4 +396,5 @@ export type DealFunil = {
   previsaoFechamento?: string;
   ultimaMudancaEtapa: string;
   customizadoEm?: string;
+  contact_id?: string;
 };

@@ -1,13 +1,14 @@
 import "server-only";
+import { getEnv } from "@/lib/config";
 
 const googleAuthBase = "https://accounts.google.com/o/oauth2/v2/auth";
 const googleTokenUrl = "https://oauth2.googleapis.com/token";
 const googleCalendarBase = "https://www.googleapis.com/calendar/v3";
 
-const clientId = process.env.GOOGLE_CLIENT_ID ?? "";
-const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? "";
-const redirectUri = process.env.GOOGLE_REDIRECT_URI ?? "";
-const webhookUrl = process.env.GOOGLE_WEBHOOK_URL ?? "";
+const clientId = getEnv("GOOGLE_CLIENT_ID");
+const clientSecret = getEnv("GOOGLE_CLIENT_SECRET");
+const redirectUri = getEnv("GOOGLE_REDIRECT_URI");
+const webhookUrl = getEnv("GOOGLE_WEBHOOK_URL");
 
 const scopes = ["https://www.googleapis.com/auth/calendar"];
 

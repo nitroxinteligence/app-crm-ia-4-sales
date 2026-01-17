@@ -1,9 +1,13 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
-const tiposValidos = ["ligacao", "reuniao", "follow-up", "email", "outro"];
-const relacionamentosValidos = ["lead", "deal", "conversa", "outro"];
-const statusValidos = ["pendente", "concluida"];
+const tiposValidos = ["ligacao", "reuniao", "follow-up", "email", "outro"] as const;
+const relacionamentosValidos = ["lead", "deal", "conversa", "outro"] as const;
+const statusValidos = ["pendente", "concluida"] as const;
 
 const formatarHora = (dataISO: string | null) => {
   if (!dataISO) return "";
@@ -15,8 +19,27 @@ const formatarHora = (dataISO: string | null) => {
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const paramsSchema = z.object({
+  taskId: z.string().trim().min(1),
+});
+
+const updateSchema = z
+  .object({
+    titulo: z.string().trim().min(1).optional(),
+    tipo: z.enum(tiposValidos).optional(),
+    tipoOutro: z.string().trim().nullable().optional(),
+    status: z.enum(statusValidos).optional(),
+    data: z.string().trim().optional(),
+    hora: z.string().trim().optional(),
+    relacionamentoTipo: z.enum([...relacionamentosValidos, "nenhum"] as const).optional(),
+    relacionamentoNome: z.string().trim().nullable().optional(),
+  })
+  .refine((data) => Object.keys(data).length > 0, {
+    message: "No valid fields to update",
+  });
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -32,13 +55,18 @@ export async function PATCH(
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   const { taskId } = await params;
+  const parsedParams = paramsSchema.safeParse({ taskId });
+  if (!parsedParams.success) {
+    return badRequest("Invalid task id.");
+  }
+
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -47,40 +75,30 @@ export async function PATCH(
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
-  const body = await request.json();
-  const titulo = body?.titulo?.trim();
-  const tipo = body?.tipo;
-  const tipoOutro = body?.tipoOutro ?? null;
-  const status = body?.status;
-  const data = body?.data;
-  const hora = body?.hora;
-  const relacionamentoTipo = body?.relacionamentoTipo;
-  const relacionamentoNome = body?.relacionamentoNome ?? null;
-
-  if (tipo && !tiposValidos.includes(tipo)) {
-    return new Response("Invalid type", { status: 400 });
+  const parsed = await parseJsonBody(request, updateSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
 
-  if (status && !statusValidos.includes(status)) {
-    return new Response("Invalid status", { status: 400 });
-  }
+  const {
+    titulo,
+    tipo,
+    tipoOutro,
+    status,
+    data,
+    hora,
+    relacionamentoTipo,
+    relacionamentoNome,
+  } = parsed.data;
 
-  if (
-    relacionamentoTipo &&
-    relacionamentoTipo !== "nenhum" &&
-    !relacionamentosValidos.includes(relacionamentoTipo)
-  ) {
-    return new Response("Invalid relation type", { status: 400 });
-  }
-
-  const updates: Record<string, string> = {};
+  const updates: Record<string, string | null> = {};
   if (titulo) updates.titulo = titulo;
   if (tipo) updates.tipo = tipo;
   if (tipo !== undefined) {
-    updates.tipo_outro = tipo === "outro" ? tipoOutro : null;
+    updates.tipo_outro = tipo === "outro" ? tipoOutro ?? null : null;
   }
   if (status) updates.status = status;
   if (data && hora) {
@@ -94,7 +112,7 @@ export async function PATCH(
       .eq("id", taskId);
 
     if (error) {
-      return new Response(error.message, { status: 500 });
+      return serverError(error.message);
     }
   }
 
@@ -122,9 +140,7 @@ export async function PATCH(
     .maybeSingle();
 
   if (tarefaError || !tarefa) {
-    return new Response(tarefaError?.message ?? "Task not found", {
-      status: 500,
-    });
+    return serverError(tarefaError?.message ?? "Task not found");
   }
 
   const { data: profile } = await userClient
@@ -162,13 +178,18 @@ export async function DELETE(
   { params }: { params: Promise<{ taskId: string }> }
 ) {
   const { taskId } = await params;
+  const parsedParams = paramsSchema.safeParse({ taskId });
+  if (!parsedParams.success) {
+    return badRequest("Invalid task id.");
+  }
+
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -177,13 +198,13 @@ export async function DELETE(
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { error } = await userClient.from("tasks").delete().eq("id", taskId);
 
   if (error) {
-    return new Response(error.message, { status: 500 });
+    return serverError(error.message);
   }
 
   return Response.json({ ok: true });

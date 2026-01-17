@@ -1,14 +1,29 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import {
+  badGateway,
+  badRequest,
+  forbidden,
+  notFound,
+  serverError,
+  unauthorized,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-const baileysApiUrl = process.env.BAILEYS_API_URL ?? "";
-const baileysApiKey = process.env.BAILEYS_API_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+const baileysApiUrl = getEnv("BAILEYS_API_URL");
+const baileysApiKey = getEnv("BAILEYS_API_KEY");
 
 const PROVIDER_BAILEYS = "whatsapp_baileys";
+
+const payloadSchema = z.object({
+  integrationAccountId: z.string().trim().min(1),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -21,23 +36,23 @@ function getUserClient(request: Request) {
 
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars");
   }
 
   if (!baileysApiUrl) {
-    return new Response("Missing BAILEYS_API_URL", { status: 500 });
+    return serverError("Missing BAILEYS_API_URL");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header");
   }
 
-  const body = await request.json();
-  const integrationAccountId = body.integrationAccountId as string | undefined;
-  if (!integrationAccountId) {
-    return new Response("Missing integrationAccountId", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Missing integrationAccountId");
   }
+  const { integrationAccountId } = parsed.data;
 
   const { data: account } = await supabaseServer
     .from("integration_accounts")
@@ -49,14 +64,14 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!account) {
-    return new Response("Conta nao encontrada", { status: 404 });
+    return notFound("Conta nao encontrada");
   }
 
   const workspaceId = Array.isArray(account.integrations)
     ? account.integrations[0]?.workspace_id
     : (account.integrations as any)?.workspace_id;
   if (!workspaceId) {
-    return new Response("Conta sem workspace", { status: 500 });
+    return serverError("Conta sem workspace");
   }
 
   const { data: membership } = await userClient
@@ -66,13 +81,11 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!membership) {
-    return new Response("Forbidden", { status: 403 });
+    return forbidden("Forbidden");
   }
 
   if (membership.role !== "ADMIN") {
-    return new Response("Apenas administradores podem desconectar canais.", {
-      status: 403,
-    });
+    return forbidden("Apenas administradores podem desconectar canais.");
   }
 
   const headers: Record<string, string> = {
@@ -92,7 +105,7 @@ export async function POST(request: Request) {
 
   if (!response.ok) {
     const detalhe = await response.text().catch(() => "");
-    return new Response(detalhe || "Falha ao desconectar", { status: 502 });
+    return badGateway(detalhe || "Falha ao desconectar");
   }
 
   await supabaseServer

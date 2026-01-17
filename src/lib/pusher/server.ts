@@ -1,16 +1,13 @@
 import Pusher from "pusher";
+import { requireEnv } from "@/lib/config";
 
 let pusherServer: Pusher | null = null;
 
 export const getPusherServer = () => {
-  const appId = process.env.PUSHER_APP_ID ?? "";
-  const key = process.env.PUSHER_KEY ?? "";
-  const secret = process.env.PUSHER_SECRET ?? "";
-  const cluster = process.env.PUSHER_CLUSTER ?? "";
-
-  if (!appId || !key || !secret || !cluster) {
-    throw new Error("Missing Pusher env vars.");
-  }
+  const appId = requireEnv("PUSHER_APP_ID");
+  const key = requireEnv("PUSHER_KEY");
+  const secret = requireEnv("PUSHER_SECRET");
+  const cluster = requireEnv("PUSHER_CLUSTER");
 
   if (!pusherServer) {
     pusherServer = new Pusher({

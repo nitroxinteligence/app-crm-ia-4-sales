@@ -1,9 +1,21 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { applyCanalFilter } from "@/lib/reports/filters";
+import { badRequest, forbidden, serverError, unauthorized } from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const querySchema = z.object({
+  workspaceId: z.string().trim().optional(),
+  from: z.string().trim().min(1),
+  to: z.string().trim().min(1),
+  tipo: z.enum(["negocios", "atendimentos"]),
+  canal: z.string().trim().optional(),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -50,12 +62,12 @@ async function resolveWorkspaceId(
 
 export async function GET(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -64,27 +76,25 @@ export async function GET(request: Request) {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { searchParams } = new URL(request.url);
-  const workspaceId = searchParams.get("workspaceId");
-  const from = searchParams.get("from");
-  const to = searchParams.get("to");
-  const tipo = searchParams.get("tipo");
-  const canal = searchParams.get("canal");
-
-  if (!from || !to) {
-    return new Response("Missing from/to", { status: 400 });
+  const parsed = querySchema.safeParse({
+    workspaceId: searchParams.get("workspaceId") ?? undefined,
+    from: searchParams.get("from") ?? undefined,
+    to: searchParams.get("to") ?? undefined,
+    tipo: searchParams.get("tipo") ?? undefined,
+    canal: searchParams.get("canal") ?? undefined,
+  });
+  if (!parsed.success) {
+    return badRequest("Invalid query params.");
   }
-
-  if (!tipo || !["negocios", "atendimentos"].includes(tipo)) {
-    return new Response("Invalid tipo", { status: 400 });
-  }
+  const { workspaceId, from, to, tipo, canal } = parsed.data;
 
   const workspaceResolved = await resolveWorkspaceId(userClient, workspaceId);
   if (!workspaceResolved) {
-    return new Response("Forbidden", { status: 403 });
+    return forbidden("Forbidden.");
   }
 
   if (tipo === "negocios") {
@@ -96,13 +106,11 @@ export async function GET(request: Request) {
       .lte("dia", to)
       .order("dia", { ascending: true });
 
-    if (canal && canal !== "todos") {
-      query.eq("canal", canal);
-    }
+    applyCanalFilter(query, canal);
 
     const { data, error } = await query;
     if (error) {
-      return new Response(error.message, { status: 500 });
+      return serverError(error.message);
     }
 
     const header = ["dia", "canal", "leads_criados", "leads_convertidos"];
@@ -136,13 +144,11 @@ export async function GET(request: Request) {
     .lte("dia", to)
     .order("dia", { ascending: true });
 
-  if (canal && canal !== "todos") {
-    query.eq("canal", canal);
-  }
+  applyCanalFilter(query, canal);
 
   const { data, error } = await query;
   if (error) {
-    return new Response(error.message, { status: 500 });
+    return serverError(error.message);
   }
 
   const header = [

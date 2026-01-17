@@ -1,16 +1,26 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { emitTagsUpdated } from "@/lib/pusher/events";
+import {
+  badRequest,
+  notFound,
+  serverError,
+  unauthorized,
+  unprocessableEntity,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
-type TagsPayload = {
-  conversationId?: string;
-  tagIds?: string[];
-  action?: "add" | "remove";
-};
+const payloadSchema = z.object({
+  conversationId: z.string().trim().min(1),
+  tagIds: z.array(z.string().trim().min(1)).min(1),
+  action: z.enum(["add", "remove"]).optional(),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -23,12 +33,12 @@ function getUserClient(request: Request) {
 
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars.", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header.", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -36,7 +46,7 @@ export async function POST(request: Request) {
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return new Response("Invalid auth.", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { data: membership } = await userClient
@@ -46,17 +56,14 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found.", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
-  const body = (await request.json()) as TagsPayload;
-  const conversationId = body?.conversationId?.trim();
-  const tagIds = (body?.tagIds ?? []).filter(Boolean);
-  const action = body?.action ?? "add";
-
-  if (!conversationId || !tagIds.length) {
-    return new Response("Invalid payload.", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
+  const { conversationId, tagIds, action = "add" } = parsed.data;
 
   const { data: conversation } = await userClient
     .from("conversations")
@@ -66,7 +73,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!conversation) {
-    return new Response("Conversation not found.", { status: 404 });
+    return notFound("Conversation not found.");
   }
 
   const uniqueTags = Array.from(new Set(tagIds));
@@ -77,7 +84,7 @@ export async function POST(request: Request) {
     .in("id", uniqueTags);
   const validIds = new Set((validTags ?? []).map((tag) => tag.id));
   if (!validIds.size) {
-    return new Response("Tags invalidas.", { status: 422 });
+    return unprocessableEntity("Tags invalidas.");
   }
   const tagsFiltradas = uniqueTags.filter((tagId) => validIds.has(tagId));
   const remover = action === "remove";
@@ -91,9 +98,7 @@ export async function POST(request: Request) {
         .eq("workspace_id", membership.workspace_id)
         .in("tag_id", tagsFiltradas);
       if (leadDeleteError) {
-        return new Response(leadDeleteError.message ?? "Failed to remove tags.", {
-          status: 500,
-        });
+        return serverError(leadDeleteError.message ?? "Failed to remove tags.");
       }
     } else {
       const { error: leadUpsertError } = await userClient.from("lead_tags").upsert(
@@ -105,9 +110,7 @@ export async function POST(request: Request) {
         { onConflict: "lead_id,tag_id" }
       );
       if (leadUpsertError) {
-        return new Response(leadUpsertError.message ?? "Failed to add tags.", {
-          status: 500,
-        });
+        return serverError(leadUpsertError.message ?? "Failed to add tags.");
       }
     }
   }
@@ -121,9 +124,8 @@ export async function POST(request: Request) {
         .eq("workspace_id", membership.workspace_id)
         .in("tag_id", tagsFiltradas);
       if (contactDeleteError) {
-        return new Response(
-          contactDeleteError.message ?? "Failed to remove tags.",
-          { status: 500 }
+        return serverError(
+          contactDeleteError.message ?? "Failed to remove tags."
         );
       }
     } else {
@@ -137,9 +139,9 @@ export async function POST(request: Request) {
         { onConflict: "contact_id,tag_id" }
       );
       if (contactUpsertError) {
-        return new Response(contactUpsertError.message ?? "Failed to add tags.", {
-          status: 500,
-        });
+        return serverError(
+          contactUpsertError.message ?? "Failed to add tags."
+        );
       }
     }
   }
@@ -153,9 +155,7 @@ export async function POST(request: Request) {
       conversation.lead_id ?? conversation.contact_id
     );
   if (tagsResponse.error) {
-    return new Response(tagsResponse.error.message ?? "Failed to load tags.", {
-      status: 500,
-    });
+    return serverError(tagsResponse.error.message ?? "Failed to load tags.");
   }
 
   const tagsAtualizadas = (tagsResponse.data ?? [])

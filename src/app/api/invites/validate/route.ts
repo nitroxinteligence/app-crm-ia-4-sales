@@ -1,14 +1,20 @@
+import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
+import { badRequest, forbidden, notFound } from "@/lib/api/responses";
 
 export const runtime = "nodejs";
 
+const tokenSchema = z.string().trim().min(1);
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const token = searchParams.get("token")?.trim();
+  const tokenParam = searchParams.get("token");
+  const tokenResult = tokenSchema.safeParse(tokenParam);
 
-  if (!token) {
-    return new Response("Missing token.", { status: 400 });
+  if (!tokenResult.success) {
+    return badRequest("Missing token.");
   }
+  const token = tokenResult.data;
 
   const { data, error } = await supabaseServer
     .from("workspace_invites")
@@ -17,15 +23,15 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (error || !data) {
-    return new Response("Invite not found.", { status: 404 });
+    return notFound("Invite not found.");
   }
 
   if (data.status !== "pendente") {
-    return new Response("Invite already used.", { status: 400 });
+    return badRequest("Invite already used.");
   }
 
   if (data.expires_at && new Date(data.expires_at).getTime() < Date.now()) {
-    return new Response("Invite expired.", { status: 400 });
+    return badRequest("Invite expired.");
   }
 
   const { data: workspace } = await supabaseServer
@@ -36,7 +42,7 @@ export async function GET(request: Request) {
   if (workspace?.trial_ends_at) {
     const trialEndsAt = new Date(workspace.trial_ends_at).getTime();
     if (trialEndsAt < Date.now()) {
-      return new Response("Workspace trial expired.", { status: 403 });
+      return forbidden("Workspace trial expired.");
     }
   }
 

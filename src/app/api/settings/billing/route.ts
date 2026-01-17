@@ -1,9 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
 const creditosPadrao: Record<string, number> = {
   Essential: 0,
@@ -42,18 +44,18 @@ function getUserClient(request: Request) {
 
 export async function GET(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars.", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header.", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
   const {
     data: { user },
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return new Response("Invalid auth.", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { data: membership } = await userClient
@@ -63,7 +65,7 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found.", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
   const { data: workspace, error: workspaceError } = await userClient
@@ -73,7 +75,7 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (workspaceError) {
-    return new Response(workspaceError.message, { status: 500 });
+    return serverError(workspaceError.message);
   }
 
   const planoWorkspace = normalizarPlano(workspace?.plano);

@@ -1,15 +1,34 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import {
+  badRequest,
+  badGateway,
+  conflict,
+  forbidden,
+  notFound,
+  paymentRequired,
+  serverError,
+  unauthorized,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
 import { normalizarPlano, planosConfig } from "@/lib/planos";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-const baileysApiUrl = process.env.BAILEYS_API_URL ?? "";
-const baileysApiKey = process.env.BAILEYS_API_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+const baileysApiUrl = getEnv("BAILEYS_API_URL");
+const baileysApiKey = getEnv("BAILEYS_API_KEY");
 
 const PROVIDER_BAILEYS = "whatsapp_baileys";
+
+const payloadSchema = z.object({
+  workspaceId: z.string().trim().min(1),
+  integrationAccountId: z.string().trim().min(1).optional(),
+  forceNew: z.boolean().optional(),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -29,39 +48,23 @@ const isTrialExpired = (trialEndsAt?: string | null) => {
 
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header");
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return new Response("Invalid JSON body", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Missing workspaceId");
   }
-
-  const workspaceId =
-    body && typeof body === "object" && "workspaceId" in body
-      ? String((body as { workspaceId?: string }).workspaceId ?? "")
-      : "";
-  const accountIdRequest =
-    body && typeof body === "object" && "integrationAccountId" in body
-      ? String(
-          (body as { integrationAccountId?: string }).integrationAccountId ?? ""
-        )
-      : "";
-  const forceNew =
-    body && typeof body === "object" && "forceNew" in body
-      ? Boolean((body as { forceNew?: boolean }).forceNew)
-      : false;
-
-  if (!workspaceId) {
-    return new Response("Missing workspaceId", { status: 400 });
-  }
+  const {
+    workspaceId,
+    integrationAccountId: accountIdRequest,
+    forceNew = false,
+  } = parsed.data;
 
   const { data: membership } = await userClient
     .from("workspace_members")
@@ -70,7 +73,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!membership) {
-    return new Response("Forbidden", { status: 403 });
+    return forbidden("Forbidden");
   }
 
   const { data: workspace } = await supabaseServer
@@ -80,11 +83,11 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!workspace) {
-    return new Response("Workspace nao encontrado", { status: 404 });
+    return notFound("Workspace nao encontrado");
   }
 
   if (isTrialExpired(workspace.trial_ends_at ?? undefined)) {
-    return new Response("Trial expirado.", { status: 402 });
+    return paymentRequired("Trial expirado.");
   }
 
   const plano = normalizarPlano(workspace.plano);
@@ -99,9 +102,7 @@ export async function POST(request: Request) {
 
     const totalAtivo = (contasAtivas ?? []).length;
     if (totalAtivo >= limiteCanais) {
-      return new Response("Limite de canais atingido para o seu plano.", {
-        status: 409,
-      });
+      return conflict("Limite de canais atingido para o seu plano.");
     }
   }
 
@@ -120,7 +121,7 @@ export async function POST(request: Request) {
     .single();
 
   if (!integration) {
-    return new Response("Falha ao salvar integracao.", { status: 500 });
+    return serverError("Falha ao salvar integracao.");
   }
 
   let integrationAccountId: string | null = null;
@@ -167,9 +168,7 @@ export async function POST(request: Request) {
       .single();
 
     if (!newAccount?.id) {
-      return new Response("Falha ao criar conta da API não oficial.", {
-        status: 500,
-      });
+      return serverError("Falha ao criar conta da API não oficial.");
     }
 
     integrationAccountId = newAccount.id;
@@ -181,7 +180,7 @@ export async function POST(request: Request) {
     .eq("id", integrationAccountId);
 
   if (!baileysApiUrl) {
-    return new Response("Missing BAILEYS_API_URL", { status: 500 });
+    return serverError("Missing BAILEYS_API_URL");
   }
 
   const headers: Record<string, string> = {
@@ -204,19 +203,12 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Baileys connect fetch failed:", error);
-    return new Response("Falha ao acessar a API do Baileys.", {
-      status: 502,
-    });
+    return badGateway("Falha ao acessar a API do Baileys.");
   }
 
   if (!response.ok) {
     const detalhe = await response.text().catch(() => "");
-    return new Response(
-      detalhe || "Falha ao iniciar sessão da API não oficial.",
-      {
-        status: 502,
-      }
-    );
+    return badGateway(detalhe || "Falha ao iniciar sessão da API não oficial.");
   }
 
   const payload = await response.json();

@@ -1,25 +1,32 @@
+import { z } from "zod";
 import { NextResponse } from "next/server";
+import {
+  badGateway,
+  badRequest,
+  serverError,
+  serviceUnavailable,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
-const baseUrl = process.env.AGENTS_API_URL ?? "";
-const apiKey = process.env.AGENTS_API_KEY;
+const baseUrl = getEnv("AGENTS_API_URL");
+const apiKey = getEnv("AGENTS_API_KEY") || undefined;
+
+const payloadSchema = z.object({
+  workspaceId: z.string().trim().min(1),
+  integrationAccountId: z.string().trim().min(1).optional(),
+});
 
 export async function POST(request: Request) {
   if (!baseUrl) {
-    return new Response("Missing AGENTS_API_URL", { status: 500 });
+    return serverError("Missing AGENTS_API_URL");
   }
 
-  let body: { workspaceId?: string; integrationAccountId?: string } | null = null;
-  try {
-    body = await request.json();
-  } catch {
-    return new Response("Invalid payload", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Missing workspaceId");
   }
-
-  const workspaceId = body?.workspaceId;
-  const integrationAccountId = body?.integrationAccountId;
-  if (!workspaceId) {
-    return new Response("Missing workspaceId", { status: 400 });
-  }
+  const { workspaceId, integrationAccountId } = parsed.data;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -42,7 +49,7 @@ export async function POST(request: Request) {
       }
     );
   } catch {
-    return new Response("Agents service unreachable", { status: 503 });
+    return serviceUnavailable("Agents service unreachable");
   }
 
   if (!response.ok) {
@@ -50,7 +57,7 @@ export async function POST(request: Request) {
     const mensagem = detalhe
       ? `Agent service error: ${detalhe}`
       : "Agent service error";
-    return new Response(mensagem, { status: 502 });
+    return badGateway(mensagem);
   }
 
   const data = await response.json();

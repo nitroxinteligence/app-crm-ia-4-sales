@@ -1,20 +1,21 @@
 import { S3Client } from "@aws-sdk/client-s3";
+import { getEnv } from "@/lib/config";
 
-const accountId = process.env.R2_ACCOUNT_ID ?? "";
-const accessKeyId = process.env.R2_ACCESS_KEY_ID ?? "";
-const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY ?? "";
+const accountId = getEnv("R2_ACCOUNT_ID");
+const accessKeyId = getEnv("R2_ACCESS_KEY_ID");
+const secretAccessKey = getEnv("R2_SECRET_ACCESS_KEY");
 const endpoint =
-  process.env.R2_ENDPOINT ??
+  getEnv("R2_ENDPOINT") ||
   (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "");
 
-const defaultBucket = process.env.R2_BUCKET_NAME ?? "ia-four-sales-crm";
+const defaultBucket = getEnv("R2_BUCKET_NAME", "ia-four-sales-crm");
 
 export const r2Buckets = {
-  inboxAttachments: process.env.R2_BUCKET_INBOX_ATTACHMENTS ?? defaultBucket,
-  contactFiles: process.env.R2_BUCKET_CONTACT_FILES ?? defaultBucket,
-  contactAvatars: process.env.R2_BUCKET_CONTACT_AVATARS ?? defaultBucket,
-  userAvatars: process.env.R2_BUCKET_USER_AVATARS ?? defaultBucket,
-  agentKnowledge: process.env.R2_BUCKET_AGENT_KNOWLEDGE ?? defaultBucket,
+  inboxAttachments: getEnv("R2_BUCKET_INBOX_ATTACHMENTS") || defaultBucket,
+  contactFiles: getEnv("R2_BUCKET_CONTACT_FILES") || defaultBucket,
+  contactAvatars: getEnv("R2_BUCKET_CONTACT_AVATARS") || defaultBucket,
+  userAvatars: getEnv("R2_BUCKET_USER_AVATARS") || defaultBucket,
+  agentKnowledge: getEnv("R2_BUCKET_AGENT_KNOWLEDGE") || defaultBucket,
 };
 
 type BucketInfo = {

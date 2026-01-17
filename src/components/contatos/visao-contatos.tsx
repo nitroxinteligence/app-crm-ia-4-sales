@@ -3,9 +3,12 @@
 import * as React from "react";
 import type { Session } from "@supabase/supabase-js";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Camera,
   FileDown,
+  History,
+  MessageSquare,
   Paperclip,
   PencilLine,
   Search,
@@ -296,6 +299,7 @@ const parseCsvTexto = (conteudo: string) => {
 
 export function VisaoContatos() {
   const { session } = useAutenticacao();
+  const searchParams = useSearchParams();
   const [workspaceId, setWorkspaceId] = React.useState<string | null>(null);
   const [role, setRole] = React.useState<
     "ADMIN" | "MANAGER" | "MEMBER" | "VIEWER"
@@ -610,11 +614,35 @@ export function VisaoContatos() {
   }, [carregarWorkspace, session]);
 
   React.useEffect(() => {
+    if (!workspaceId || contatos.length === 0) return;
+
+    const idParam = searchParams.get("id");
+    if (idParam) {
+      const contatoAlvo = contatos.find(c => c.id === idParam);
+      if (contatoAlvo) {
+        setContatoAtivo(contatoAlvo);
+      }
+    }
+  }, [workspaceId, contatos, searchParams]);
+
+  React.useEffect(() => {
     if (!workspaceId) return;
     carregarContatos();
     carregarPipelines();
     carregarTagsExistentes();
   }, [carregarContatos, carregarPipelines, carregarTagsExistentes, workspaceId]);
+
+  React.useEffect(() => {
+    if (!workspaceId || contatos.length === 0) return;
+
+    const idParam = searchParams.get("id");
+    if (idParam) {
+      const contatoAlvo = contatos.find(c => c.id === idParam);
+      if (contatoAlvo) {
+        setContatoAtivo(contatoAlvo);
+      }
+    }
+  }, [workspaceId, contatos, searchParams]);
 
   React.useEffect(() => {
     if (!contatoAtivo || !workspaceId) {
@@ -738,6 +766,7 @@ export function VisaoContatos() {
   }, [tagEditarInput, tagsEditadas, tagsExistentes]);
 
   const contatosFiltrados = React.useMemo(() => {
+    const termo = busca.trim().toLowerCase();
     return contatos.filter((contato) => {
       if (filtroStatus !== "todos" && contato.status !== filtroStatus) {
         return false;
@@ -758,8 +787,7 @@ export function VisaoContatos() {
       if (filtroSomenteComTags && contato.tags.length === 0) {
         return false;
       }
-      if (!busca) return true;
-      const termo = busca.toLowerCase();
+      if (!termo) return true;
       return (
         contato.nome.toLowerCase().includes(termo) ||
         contato.telefone.toLowerCase().includes(termo) ||
@@ -776,6 +804,11 @@ export function VisaoContatos() {
     filtroStatus,
     filtroTag,
   ]);
+
+  const selecionadosSet = React.useMemo(
+    () => new Set(selecionados),
+    [selecionados]
+  );
 
   const pipelineContato = React.useMemo(() => {
     if (!contatoAtivo) return null;
@@ -799,10 +832,10 @@ export function VisaoContatos() {
   const idsVisiveis = contatosVisiveis.map((contato) => contato.id);
   const todosSelecionados =
     idsVisiveis.length > 0 &&
-    idsVisiveis.every((id) => selecionados.includes(id));
+    idsVisiveis.every((id) => selecionadosSet.has(id));
   const algumSelecionado =
     idsVisiveis.length > 0 &&
-    idsVisiveis.some((id) => selecionados.includes(id));
+    idsVisiveis.some((id) => selecionadosSet.has(id));
 
   const filtroAtivoCount = [
     busca.trim().length > 0,
@@ -2844,7 +2877,7 @@ export function VisaoContatos() {
           }
         }}
       >
-        <DialogContent className="left-auto right-0 top-0 h-full max-w-[420px] translate-x-0 translate-y-0 rounded-[6px] border-l bg-background p-0 shadow-none flex flex-col overflow-hidden">
+        <DialogContent className="left-auto right-0 top-0 h-full max-w-[500px] translate-x-0 translate-y-0 rounded-none border-l bg-white dark:bg-slate-950 p-0 shadow-none flex flex-col overflow-hidden">
           <DialogHeader className="sr-only">
             <DialogTitle>Detalhes do contato</DialogTitle>
             <DialogDescription>
@@ -2852,19 +2885,18 @@ export function VisaoContatos() {
             </DialogDescription>
           </DialogHeader>
           {contatoAtivo && (
-            <ScrollArea className="flex-1 min-h-0" type="always" scrollHideDelay={0}>
-              <div className="flex min-h-full flex-col">
-                <div className="border-b border-border/60 p-4">
-                  <div className="flex items-center gap-3">
+            <>
+              {/* HEADER: Modern, Clean, High Hierarchy */}
+              <div className="flex-none px-6 py-5 border-b border-border/60 bg-white dark:bg-slate-950 z-10">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-4">
                     <div className="relative">
-                      <Avatar className="h-12 w-12 rounded-[6px]">
+                      <Avatar className="h-14 w-14 border-2 border-slate-100 dark:border-slate-800">
                         <AvatarImage
-                          src={
-                            contatoAtivo.avatarUrl ?? "/avatars/contato-placeholder.svg"
-                          }
+                          src={contatoAtivo.avatarUrl ?? "/avatars/contato-placeholder.svg"}
                           alt={contatoAtivo.nome}
                         />
-                        <AvatarFallback className="rounded-[6px]">
+                        <AvatarFallback className="bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300 font-semibold text-lg">
                           {iniciaisContato(contatoAtivo.nome)}
                         </AvatarFallback>
                       </Avatar>
@@ -2872,12 +2904,12 @@ export function VisaoContatos() {
                         type="button"
                         size="icon"
                         variant="secondary"
-                        className="absolute -bottom-2 -right-2 h-7 w-7 rounded-[6px] shadow-none"
+                        className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full shadow-none border border-slate-200 dark:border-slate-700"
                         onClick={() => avatarInputRef.current?.click()}
                         disabled={enviandoAvatar}
                         aria-label="Alterar foto do contato"
                       >
-                        <Camera className="h-4 w-4" />
+                        <Camera className="h-3 w-3" />
                       </Button>
                       <input
                         ref={avatarInputRef}
@@ -2887,299 +2919,291 @@ export function VisaoContatos() {
                         onChange={handleSelecionarAvatar}
                       />
                     </div>
-                    <div>
-                      <p className="text-lg font-semibold">{contatoAtivo.nome}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {exibirTelefone(contatoAtivo.telefone)} ·{" "}
-                        {exibirEmail(contatoAtivo.email)}
+                    <div className="space-y-1">
+                      <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50 line-clamp-1">
+                        {contatoAtivo.nome}
+                      </h2>
+                      <p className="text-sm text-muted-foreground">
+                        {exibirTelefone(contatoAtivo.telefone)}
                       </p>
                     </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
+                  <div className="text-right">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-1">Status</p>
                     <Badge
-                      className="rounded-[6px] text-[10px] text-white"
+                      className="text-white text-xs px-2.5 py-0.5 rounded-[6px] shadow-none"
                       style={{ backgroundColor: obterEtapaContato(contatoAtivo).cor }}
                     >
                       {obterEtapaContato(contatoAtivo).nome}
                     </Badge>
-                    {contatoAtivo.tags.map((tag) => (
-                      <Badge
-                        key={tag}
-                        className="rounded-[6px] text-[10px] text-white"
-                        style={{ backgroundColor: corDaTag(tag) }}
-                      >
-                        {tag}
-                      </Badge>
-                    ))}
-                    <Badge variant="outline" className="rounded-[6px]">
-                      {contatoAtivo.owner}
-                    </Badge>
                   </div>
                 </div>
 
-                <div className="space-y-4 p-4">
-                  <div className="grid gap-2 rounded-[6px] border border-border/60 bg-card/40 p-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Empresa</span>
-                      <span>{contatoAtivo.empresa ?? "Sem empresa"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Pipeline</span>
-                      <span>{pipelineContato?.pipeline?.nome ?? "Não definido"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Estágio</span>
-                      <span>{pipelineContato?.etapa?.nome ?? "Não definido"}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Owner</span>
-                      <span>{contatoAtivo.owner}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">
-                        Última atividade
-                      </span>
-                      <span>{contatoAtivo.ultimaAtividade}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3 rounded-[6px] border border-border/60 bg-card/40 p-3 text-sm">
-                    <div className="grid gap-2">
-                      <Button
-                        variant="outline"
-                        className="w-full rounded-[6px] shadow-none"
-                        asChild
-                      >
-                        <Link href="/app/inbox">Ir para conversa</Link>
+                {/* Toolbar: Iconic & Minimal */}
+                <div className="flex items-center gap-2 mt-4">
+                  <div className="flex-1 flex gap-2">
+                    <Link href="/app/inbox" className="h-8">
+                      <Button variant="outline" size="sm" className="h-8 text-xs font-medium border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 shadow-none rounded-[6px]">
+                        <MessageSquare className="w-3.5 h-3.5 mr-1.5 text-blue-600" />
+                        Conversa
                       </Button>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1 gap-2 rounded-[6px] shadow-none"
-                          onClick={handleAbrirEditarContato}
-                        >
-                          <PencilLine className="h-4 w-4" />
-                          Editar contato
-                        </Button>
-                        <Select
-                          value={contatoAtivo.ownerId ?? OWNER_SEM}
-                          onValueChange={handleAtualizarOwnerContato}
-                        >
-                          <SelectTrigger className="w-[170px] rounded-[6px] shadow-none">
-                            <SelectValue placeholder="Atribuir owner" />
-                          </SelectTrigger>
-                          <SelectContent className="rounded-[6px] shadow-none">
-                            {owners
-                              .filter((owner) => owner !== "todos")
-                              .map((owner) => (
-                                <SelectItem
-                                  key={owner}
-                                  value={owner}
-                                  className="rounded-[6px]"
-                                >
-                                  {owner === OWNER_SEM
-                                    ? "Sem owner"
-                                    : labelOwner(owner)}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-9 w-9 p-0 rounded-[6px] shadow-none text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                          onClick={() => setDialogExcluirContatoAberto(true)}
-                          aria-label="Excluir contato"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </div>
-                    <Separator />
+                    </Link>
+                    <Button onClick={handleAbrirEditarContato} variant="outline" size="sm" className="h-8 text-xs font-medium border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 shadow-none rounded-[6px]">
+                      <PencilLine className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                      Editar
+                    </Button>
                   </div>
+                  <Button
+                    onClick={() => setDialogExcluirContatoAberto(true)}
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-muted-foreground hover:bg-rose-50 hover:text-rose-600 rounded-[6px] shadow-none"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
 
-                  <Tabs defaultValue="visao-geral">
-                    <TabsList className="grid w-full grid-cols-3 rounded-[6px]">
-                      <TabsTrigger
-                        value="visao-geral"
-                        className="rounded-[6px] data-[state=active]:shadow-none"
-                      >
-                        Visão geral
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="conversas"
-                        className="rounded-[6px] data-[state=active]:shadow-none"
-                      >
-                        Conversas
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="atividades"
-                        className="rounded-[6px] data-[state=active]:shadow-none"
-                      >
-                        Atividades
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="visao-geral" className="pt-4">
-                      <div className="space-y-3 text-sm">
-                        <p className="font-medium">Resumo do contato</p>
-                        <p className="text-muted-foreground">
-                          Histórico resumido de interações e negócios vinculados.
-                        </p>
-                        <Separator />
-                        <div className="grid gap-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">Email</span>
-                            <span>{exibirEmail(contatoAtivo.email)}</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">Telefone</span>
-                            <span>{exibirTelefone(contatoAtivo.telefone)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </TabsContent>
-                    <TabsContent value="conversas" className="pt-4">
-                      {carregandoDetalhes ? (
-                        <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                          Carregando conversas...
-                        </div>
-                      ) : conversaContato ? (
-                        <div className="rounded-[6px] border border-border/60 bg-card/40 p-4 text-sm">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs text-muted-foreground">
-                              Última conversa ({conversaContato.canal})
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {formatarDataHora(conversaContato.ultima_mensagem_em)}
-                            </span>
-                          </div>
-                          <p className="mt-2 text-muted-foreground">
-                            {conversaContato.ultima_mensagem ?? "Sem mensagem registrada."}
+              {/* BODY: Content */}
+              <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-950 min-h-0">
+                <div className="flex flex-col min-h-full">
+                  <Tabs defaultValue="visao-geral" className="flex-1 flex flex-col">
+                    {/* Tab Navigation: Underline Style */}
+                    <div className="px-6 border-b border-border/60 sticky top-0 bg-white/95 dark:bg-slate-950/95 backdrop-blur-sm z-10">
+                      <TabsList className="w-full justify-start h-11 p-0 bg-transparent gap-6 border-none shadow-none text-muted-foreground">
+                        <TabsTrigger value="visao-geral" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
+                          Visão Geral
+                        </TabsTrigger>
+                        <TabsTrigger value="notas" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
+                          Notas
+                        </TabsTrigger>
+                        <TabsTrigger value="arquivos" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
+                          Arquivos <span className="ml-1.5 text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-full text-slate-600 dark:text-slate-400">{arquivosContato.length}</span>
+                        </TabsTrigger>
+                        <TabsTrigger value="auditoria" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
+                          Histórico
+                        </TabsTrigger>
+                      </TabsList>
+                    </div>
+
+                    {/* TAB: OVERVIEW */}
+                    <TabsContent value="visao-geral" className="p-6 m-0 space-y-6">
+                      {/* Properties Grid */}
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Email
+                          </label>
+                          <p className="text-sm text-foreground">
+                            {exibirEmail(contatoAtivo.email) || "—"}
                           </p>
                         </div>
-                      ) : (
-                        <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                          Nenhuma conversa vinculada a este contato.
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Telefone
+                          </label>
+                          <p className="text-sm text-foreground">
+                            {exibirTelefone(contatoAtivo.telefone) || "—"}
+                          </p>
                         </div>
-                      )}
-                    </TabsContent>
-                    <TabsContent value="atividades" className="pt-4">
-                      <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                        Nenhuma atividade registrada para este contato.
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Empresa
+                          </label>
+                          <p className="text-sm text-foreground">
+                            {contatoAtivo.empresa || "—"}
+                          </p>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Owner
+                          </label>
+                          <Select
+                            value={contatoAtivo.ownerId ?? OWNER_SEM}
+                            onValueChange={handleAtualizarOwnerContato}
+                          >
+                            <SelectTrigger className="h-9 w-full bg-slate-50 dark:bg-slate-900 border-border/60 shadow-none rounded-[6px]">
+                              <SelectValue placeholder="Selecionar" />
+                            </SelectTrigger>
+                            <SelectContent className="shadow-none border-border/60 rounded-[6px]">
+                              {owners
+                                .filter((owner) => owner !== "todos")
+                                .map((owner) => (
+                                  <SelectItem key={owner} value={owner} className="rounded-[6px]">
+                                    {owner === OWNER_SEM ? "Sem owner" : labelOwner(owner)}
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                       </div>
-                    </TabsContent>
-                  </Tabs>
 
-                  <Tabs value={abaContato} onValueChange={setAbaContato}>
-                    <TabsList className="grid w-full grid-cols-3 rounded-[6px]">
-                      <TabsTrigger
-                        value="notas"
-                        className="rounded-[6px] data-[state=active]:shadow-none"
-                      >
-                        Notas
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="arquivos"
-                        className="rounded-[6px] data-[state=active]:shadow-none"
-                      >
-                        Arquivos
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="auditoria"
-                        className="rounded-[6px] data-[state=active]:shadow-none"
-                      >
-                        Auditoria
-                      </TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="notas" className="pt-4">
+                      <Separator className="bg-border/60" />
+
+                      {/* Pipeline Info */}
                       <div className="space-y-3">
-                        <div className="rounded-[6px] border border-border/60 bg-card/40 p-3">
-                          <p className="text-xs text-muted-foreground">
-                            Nova nota
-                          </p>
+                        <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                          Pipeline
+                        </h3>
+                        <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                              Funil
+                            </label>
+                            <p className="text-sm text-foreground">
+                              {pipelineContato?.pipeline?.nome ?? "Não definido"}
+                            </p>
+                          </div>
+                          <div className="space-y-1.5">
+                            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                              Etapa
+                            </label>
+                            <p className="text-sm text-foreground">
+                              {pipelineContato?.etapa?.nome ?? "Não definido"}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <Separator className="bg-border/60" />
+
+                      {/* Tags Section */}
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                          Tags
+                        </h3>
+                        <div className="flex flex-wrap gap-2">
+                          {contatoAtivo.tags.map((tag) => (
+                            <Badge
+                              key={tag}
+                              className="text-white text-xs px-2.5 py-1 rounded-[6px] shadow-none"
+                              style={{ backgroundColor: corDaTag(tag) }}
+                            >
+                              {tag}
+                            </Badge>
+                          ))}
+                          {contatoAtivo.tags.length === 0 && (
+                            <p className="text-xs text-muted-foreground">Nenhuma tag atribuída</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <Separator className="bg-border/60" />
+
+                      {/* Conversation Info */}
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                          Última Conversa
+                        </h3>
+                        {carregandoDetalhes ? (
+                          <div className="text-sm text-muted-foreground">Carregando...</div>
+                        ) : conversaContato ? (
+                          <div className="flex items-start gap-4 p-3 border border-border/60 bg-white hover:bg-slate-50/80 dark:bg-slate-900 dark:hover:bg-slate-800/80 transition-colors cursor-pointer rounded-[6px] shadow-none">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-xs text-muted-foreground capitalize">{conversaContato.canal}</span>
+                                <span className="text-xs text-muted-foreground">{formatarDataHora(conversaContato.ultima_mensagem_em)}</span>
+                              </div>
+                              <p className="text-sm text-foreground line-clamp-2">
+                                {conversaContato.ultima_mensagem ?? "Sem mensagem registrada."}
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">Nenhuma conversa vinculada</p>
+                        )}
+                      </div>
+                    </TabsContent>
+
+                    {/* TAB: NOTES */}
+                    <TabsContent value="notas" className="p-6 m-0 space-y-6">
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                          Nova Nota
+                        </h3>
+                        <div className="relative">
                           <Textarea
                             value={notaAtual}
                             onChange={(event) => setNotaAtual(event.target.value)}
-                            placeholder="Escreva uma nota interna sobre este contato"
-                            className="mt-2 min-h-[96px] rounded-[6px] shadow-none"
+                            className="min-h-[120px] text-sm bg-slate-50/50 dark:bg-slate-900 border-border/60 resize-none font-normal focus:bg-white dark:focus:bg-slate-950 transition-colors leading-relaxed p-4 shadow-none rounded-[6px]"
+                            placeholder="Escreva uma nota interna sobre este contato..."
                           />
-                          <Button
-                            size="sm"
-                            className="mt-3 rounded-[6px] shadow-none"
-                            onClick={handleAdicionarNota}
-                            disabled={!notaAtual.trim() || enviandoNota}
-                          >
-                            {enviandoNota ? "Salvando..." : "Adicionar nota"}
-                          </Button>
+                          <div className="absolute bottom-2 right-2">
+                            <Button
+                              size="sm"
+                              onClick={handleAdicionarNota}
+                              disabled={!notaAtual.trim() || enviandoNota}
+                              className="h-7 text-xs shadow-none border border-transparent rounded-[6px]"
+                            >
+                              {enviandoNota ? "Salvando..." : "Adicionar"}
+                            </Button>
+                          </div>
                         </div>
-                        {carregandoDetalhes ? (
-                          <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                            Carregando notas...
-                          </div>
-                        ) : notasContato.length === 0 ? (
-                          <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                            Nenhuma nota adicionada ainda.
-                          </div>
-                        ) : (
+                      </div>
+
+                      {/* Note List */}
+                      {carregandoDetalhes ? (
+                        <div className="text-center text-sm text-muted-foreground py-8">
+                          Carregando notas...
+                        </div>
+                      ) : notasContato.length === 0 ? (
+                        <div className="text-center text-sm text-muted-foreground py-8">
+                          Nenhuma nota adicionada ainda.
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Notas Anteriores
+                          </h4>
                           <div className="space-y-2">
                             {notasContato.map((nota) => (
                               <div
                                 key={nota.id}
-                                className="rounded-[6px] border border-border/60 bg-background/80 p-3 text-xs text-muted-foreground"
+                                className="rounded-[6px] border border-border/60 bg-background/80 p-3 text-sm"
                               >
-                                <div className="flex items-start justify-between gap-2 text-[10px] text-muted-foreground">
+                                <div className="flex items-start justify-between gap-2 text-[10px] text-muted-foreground mb-2">
                                   <div>
                                     <p>{formatarDataHora(nota.created_at)}</p>
-                                    <p>
-                                      {nota.autor_id === session?.user.id
-                                        ? "Você"
-                                        : "Equipe"}
-                                    </p>
+                                    <p>{nota.autor_id === session?.user.id ? "Você" : "Equipe"}</p>
                                   </div>
                                   <div className="flex items-center gap-1">
                                     <Button
                                       type="button"
                                       size="icon"
                                       variant="ghost"
-                                      className="rounded-[6px] shadow-none"
+                                      className="h-6 w-6 rounded-[6px] shadow-none"
                                       onClick={() => handleIniciarEdicaoNota(nota)}
                                       disabled={salvandoNotaEditada}
                                       aria-label="Editar nota"
                                     >
-                                      <PencilLine className="h-3.5 w-3.5" />
+                                      <PencilLine className="h-3 w-3" />
                                     </Button>
                                     <Button
                                       type="button"
                                       size="icon"
                                       variant="ghost"
-                                      className="rounded-[6px] shadow-none"
+                                      className="h-6 w-6 rounded-[6px] shadow-none hover:text-destructive"
                                       onClick={() => handleExcluirNota(nota.id)}
                                       disabled={salvandoNotaEditada}
                                       aria-label="Excluir nota"
                                     >
-                                      <Trash2 className="h-3.5 w-3.5" />
+                                      <Trash2 className="h-3 w-3" />
                                     </Button>
                                   </div>
                                 </div>
                                 {notaEditandoId === nota.id ? (
-                                  <div className="mt-2 space-y-2">
+                                  <div className="space-y-2">
                                     <Textarea
                                       value={notaEditandoConteudo}
-                                      onChange={(event) =>
-                                        setNotaEditandoConteudo(event.target.value)
-                                      }
-                                      className="min-h-[96px] rounded-[6px] shadow-none text-sm"
+                                      onChange={(event) => setNotaEditandoConteudo(event.target.value)}
+                                      className="min-h-[80px] rounded-[6px] shadow-none text-sm"
                                     />
                                     <div className="flex items-center gap-2">
                                       <Button
                                         size="sm"
                                         className="rounded-[6px] shadow-none"
                                         onClick={handleSalvarNotaEditada}
-                                        disabled={
-                                          !notaEditandoConteudo.trim() ||
-                                          salvandoNotaEditada
-                                        }
+                                        disabled={!notaEditandoConteudo.trim() || salvandoNotaEditada}
                                       >
                                         {salvandoNotaEditada ? "Salvando..." : "Salvar"}
                                       </Button>
@@ -3194,126 +3218,130 @@ export function VisaoContatos() {
                                     </div>
                                   </div>
                                 ) : (
-                                  <p className="mt-2 text-sm text-foreground">
-                                    {nota.conteudo}
-                                  </p>
+                                  <p className="text-foreground">{nota.conteudo}</p>
                                 )}
                               </div>
                             ))}
                           </div>
-                        )}
-                      </div>
-                    </TabsContent>
-                    <TabsContent value="arquivos" className="pt-4">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between rounded-[6px] border border-border/60 bg-card/40 p-3 text-sm">
-                          <span className="text-xs text-muted-foreground">
-                            Arquivos anexados
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="rounded-[6px] shadow-none"
-                            onClick={() => arquivoInputRef.current?.click()}
-                            disabled={enviandoArquivo}
-                          >
-                            {enviandoArquivo ? "Enviando..." : "Adicionar"}
-                          </Button>
                         </div>
-                        {carregandoDetalhes ? (
-                          <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                            Carregando arquivos...
-                          </div>
-                        ) : arquivosContato.length === 0 ? (
-                          <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                            Nenhum arquivo enviado ainda.
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {arquivosContato.map((arquivo) => (
-                              <div
-                                key={arquivo.id}
-                                className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/80 p-3 text-xs"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <Paperclip className="h-4 w-4 text-muted-foreground" />
-                                  <div>
-                                    <p className="text-sm font-medium">
-                                      {arquivo.file_name}
-                                    </p>
-                                    <p className="text-[10px] text-muted-foreground">
-                                      {formatarBytes(arquivo.tamanho_bytes)} ·{" "}
-                                      {formatarDataHora(arquivo.created_at)}
-                                    </p>
-                                  </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {arquivo.publicUrl && (
-                                    <Button
-                                      size="sm"
-                                      variant="link"
-                                      className="rounded-[6px] shadow-none"
-                                      asChild
-                                    >
-                                      <a
-                                        href={arquivo.publicUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                      >
-                                        Abrir
-                                      </a>
-                                    </Button>
-                                  )}
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    className="rounded-[6px] shadow-none"
-                                    onClick={() => handleExcluirArquivo(arquivo)}
-                                    disabled={arquivoExcluindoId === arquivo.id}
-                                    aria-label="Excluir arquivo"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      )}
                     </TabsContent>
-                    <TabsContent value="auditoria" className="pt-4">
-                      {carregandoAuditoria ? (
-                        <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                          Carregando auditoria...
+
+                    {/* TAB: FILES */}
+                    <TabsContent value="arquivos" className="p-6 m-0 space-y-4">
+                      {carregandoDetalhes ? (
+                        <div className="text-center text-sm text-muted-foreground py-8">
+                          Carregando arquivos...
                         </div>
-                      ) : logsAuditoria.length === 0 ? (
-                        <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                          Nenhuma alteração registrada para este contato.
+                      ) : arquivosContato.length === 0 ? (
+                        <div
+                          className="border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 p-8 flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer group rounded-[6px] shadow-none"
+                          onClick={() => arquivoInputRef.current?.click()}
+                        >
+                          <div className="w-10 h-10 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mb-3 text-slate-500 border border-slate-100 dark:border-slate-700 group-hover:scale-110 transition-transform shadow-none">
+                            <Paperclip className="w-5 h-5" />
+                          </div>
+                          <p className="text-sm font-medium text-foreground">Clique para fazer upload</p>
+                          <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, JPG ou PNG (max 10MB)</p>
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {logsAuditoria.map((log) => (
+                          <div
+                            className="border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 p-4 flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer group rounded-[6px] shadow-none mb-4"
+                            onClick={() => arquivoInputRef.current?.click()}
+                          >
+                            <p className="text-xs font-medium text-foreground flex items-center gap-2">
+                              <Upload className="w-3 h-3" /> Adicionar novo arquivo
+                            </p>
+                          </div>
+                          {arquivosContato.map((arquivo) => (
                             <div
-                              key={log.id}
-                              className="rounded-[6px] border border-border/60 bg-background/80 p-3 text-xs"
+                              key={arquivo.id}
+                              className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/80 p-3 text-xs"
                             >
-                              <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <Paperclip className="h-4 w-4 text-muted-foreground" />
                                 <div>
-                                  <p className="text-sm font-medium">{log.acao}</p>
+                                  <p className="text-sm font-medium">{arquivo.file_name}</p>
                                   <p className="text-[10px] text-muted-foreground">
-                                    {formatarDataHora(log.created_at)} ·{" "}
-                                    {log.autor_id === session?.user.id
-                                      ? "Você"
-                                      : "Equipe"}
+                                    {formatarBytes(arquivo.tamanho_bytes)} · {formatarDataHora(arquivo.created_at)}
                                   </p>
                                 </div>
                               </div>
-                              {formatarDetalhesAuditoria(log.detalhes) && (
-                                <p className="mt-2 text-xs text-muted-foreground">
-                                  {formatarDetalhesAuditoria(log.detalhes)}
-                                </p>
-                              )}
+                              <div className="flex items-center gap-2">
+                                {arquivo.publicUrl && (
+                                  <Button size="sm" variant="link" className="rounded-[6px] shadow-none" asChild>
+                                    <a href={arquivo.publicUrl} target="_blank" rel="noreferrer">Abrir</a>
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 rounded-[6px] shadow-none"
+                                  onClick={() => handleExcluirArquivo(arquivo)}
+                                  disabled={arquivoExcluindoId === arquivo.id}
+                                  aria-label="Excluir arquivo"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <input
+                        ref={arquivoInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={handleSelecionarArquivo}
+                      />
+                    </TabsContent>
+
+                    {/* TAB: AUDIT/HISTORY */}
+                    <TabsContent value="auditoria" className="p-6 m-0 space-y-4">
+                      {carregandoAuditoria ? (
+                        <div className="text-center text-sm text-muted-foreground py-8">
+                          Carregando histórico...
+                        </div>
+                      ) : logsAuditoria.length === 0 ? (
+                        <div className="text-center text-sm text-muted-foreground py-8">
+                          Nenhuma alteração registrada.
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {logsAuditoria.map((log, i) => (
+                            <div key={log.id} className="flex gap-4 group">
+                              <div className="flex flex-col items-center relative">
+                                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white z-10 border-2 border-white dark:border-slate-950 shadow-none bg-slate-400">
+                                  <History className="w-3.5 h-3.5" />
+                                </div>
+                                {i !== logsAuditoria.length - 1 && (
+                                  <div className="absolute top-8 bottom-[-16px] w-[2px] bg-slate-100 dark:bg-slate-800" />
+                                )}
+                              </div>
+                              <div className="flex-1 pb-2">
+                                <div className="flex items-center gap-2 mb-1.5">
+                                  <span className="text-sm font-semibold capitalize text-slate-900 dark:text-slate-100">{log.acao}</span>
+                                  <span className="text-xs text-muted-foreground">•</span>
+                                  <span className="text-xs text-muted-foreground">{formatarDataHora(log.created_at)}</span>
+                                </div>
+                                {formatarDetalhesAuditoria(log.detalhes) && (
+                                  <div className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                                    {formatarDetalhesAuditoria(log.detalhes)}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-1.5 mt-2">
+                                  <Avatar className="w-4 h-4">
+                                    <AvatarFallback className="text-[8px] bg-slate-200">
+                                      {log.autor_id === session?.user.id ? "VC" : "EQ"}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-xs text-muted-foreground font-medium">
+                                    {log.autor_id === session?.user.id ? "Você" : "Equipe"}
+                                  </span>
+                                </div>
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -3322,13 +3350,18 @@ export function VisaoContatos() {
                   </Tabs>
                 </div>
               </div>
-              <input
-                ref={arquivoInputRef}
-                type="file"
-                className="hidden"
-                onChange={handleSelecionarArquivo}
-              />
-            </ScrollArea>
+
+              {/* FOOTER: Sticky Info Bar */}
+              <div className="flex-none px-6 py-3 border-t border-border bg-white dark:bg-slate-950 flex items-center justify-between z-20 shadow-none">
+                <div className="flex items-center gap-1.5 text-[10px] sm:text-xs text-muted-foreground">
+                  <History className="w-3.5 h-3.5" />
+                  <span>Última atividade: {contatoAtivo.ultimaAtividade}</span>
+                </div>
+                <Badge variant="outline" className="text-xs rounded-[6px] shadow-none">
+                  {contatoAtivo.owner}
+                </Badge>
+              </div>
+            </>
           )}
         </DialogContent>
       </Dialog>

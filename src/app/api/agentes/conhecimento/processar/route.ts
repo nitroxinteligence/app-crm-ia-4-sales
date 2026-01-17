@@ -1,25 +1,26 @@
-import { NextResponse } from "next/server";
+import { z } from "zod";
+import { badGateway, badRequest, serverError } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
-const baseUrl = process.env.AGENTS_API_URL ?? "";
-const apiKey = process.env.AGENTS_API_KEY;
+const baseUrl = getEnv("AGENTS_API_URL");
+const apiKey = getEnv("AGENTS_API_KEY");
+
+const payloadSchema = z.object({
+  agentId: z.string().trim().min(1),
+  fileId: z.string().trim().min(1),
+});
 
 export async function POST(request: Request) {
   if (!baseUrl) {
-    return new Response("Missing AGENTS_API_URL", { status: 500 });
+    return serverError("Missing AGENTS_API_URL");
   }
 
-  let body: { agentId?: string; fileId?: string } | null = null;
-  try {
-    body = await request.json();
-  } catch {
-    return new Response("Invalid payload", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload");
   }
-  const agentId = body?.agentId;
-  const fileId = body?.fileId;
-
-  if (!agentId || !fileId) {
-    return new Response("Invalid payload", { status: 400 });
-  }
+  const { agentId, fileId } = parsed.data;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -41,7 +42,7 @@ export async function POST(request: Request) {
       }
     );
   } catch {
-    return NextResponse.json(
+    return Response.json(
       { status: "pending", reason: "service_unreachable" },
       { status: 202 }
     );
@@ -52,13 +53,13 @@ export async function POST(request: Request) {
     const mensagem = detalhe
       ? `Agent service error: ${detalhe}`
       : "Agent service error";
-    return NextResponse.json({ status: "error", detail: mensagem });
+    return badGateway(mensagem);
   }
 
   try {
     const data = await response.json();
-    return NextResponse.json(data ?? { status: "processed" });
+    return Response.json(data ?? { status: "processed" });
   } catch {
-    return NextResponse.json({ status: "processed" });
+    return Response.json({ status: "processed" });
   }
 }

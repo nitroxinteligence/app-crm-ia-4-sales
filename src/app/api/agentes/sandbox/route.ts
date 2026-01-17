@@ -1,11 +1,30 @@
-import { NextResponse } from "next/server";
+import { z } from "zod";
+import {
+  badGateway,
+  badRequest,
+  serverError,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
-const baseUrl = process.env.AGENTS_API_URL ?? "";
-const apiKey = process.env.AGENTS_API_KEY;
+const baseUrl = getEnv("AGENTS_API_URL");
+const apiKey = getEnv("AGENTS_API_KEY");
+
+const agentIdSchema = z.string().trim().min(1);
+
+const jsonSchema = z
+  .object({
+    agentId: z.string().trim().min(1),
+    messages: z.array(z.unknown()).optional(),
+    inputText: z.string().trim().min(1).optional(),
+  })
+  .refine((data) => (data.messages?.length ?? 0) > 0 || data.inputText, {
+    message: "Invalid payload",
+  });
 
 export async function POST(request: Request) {
   if (!baseUrl) {
-    return new Response("Missing AGENTS_API_URL", { status: 500 });
+    return serverError("Missing AGENTS_API_URL");
   }
 
   const contentType = request.headers.get("content-type") ?? "";
@@ -13,6 +32,10 @@ export async function POST(request: Request) {
     const url = new URL(request.url);
     const agentIdParam = url.searchParams.get("agentId");
     if (agentIdParam && request.body) {
+      const parsedAgent = agentIdSchema.safeParse(agentIdParam);
+      if (!parsedAgent.success) {
+        return badRequest("Invalid payload");
+      }
       const headers: Record<string, string> = {
         "Content-Type": contentType,
       };
@@ -27,18 +50,19 @@ export async function POST(request: Request) {
       } as RequestInit);
 
       if (!response.ok) {
-        return new Response("Agent service error", { status: 502 });
+        return badGateway("Agent service error");
       }
 
       const data = await response.json();
-      return NextResponse.json(data);
+      return Response.json(data);
     }
 
     const form = await request.formData();
     const agentId = (agentIdParam || form.get("agentId")?.toString()) ?? "";
+    const parsedAgent = agentIdSchema.safeParse(agentId);
 
-    if (!agentId) {
-      return new Response("Invalid payload", { status: 400 });
+    if (!parsedAgent.success) {
+      return badRequest("Invalid payload");
     }
 
     const payload = new FormData();
@@ -71,23 +95,20 @@ export async function POST(request: Request) {
     });
 
     if (!response.ok) {
-      return new Response("Agent service error", { status: 502 });
+      return badGateway("Agent service error");
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    return Response.json(data);
   }
 
-  const body = await request.json();
-  const agentId = body?.agentId;
-  const messages = Array.isArray(body?.messages) ? body.messages : [];
-  const inputText = body?.inputText as string | undefined;
-
-  if (!agentId || (!messages.length && !inputText)) {
-    return new Response("Invalid payload", { status: 400 });
+  const parsed = await parseJsonBody(request, jsonSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload");
   }
+  const { agentId, messages, inputText } = parsed.data;
 
-  const payload = messages.length ? { messages } : { input_text: inputText };
+  const payload = (messages?.length ?? 0) > 0 ? { messages } : { input_text: inputText };
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
@@ -102,9 +123,9 @@ export async function POST(request: Request) {
   });
 
   if (!response.ok) {
-    return new Response("Agent service error", { status: 502 });
+    return badGateway("Agent service error");
   }
 
   const data = await response.json();
-  return NextResponse.json(data);
+  return Response.json(data);
 }

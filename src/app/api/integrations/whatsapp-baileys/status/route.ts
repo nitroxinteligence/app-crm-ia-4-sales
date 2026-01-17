@@ -1,10 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  badRequest,
+  forbidden,
+  serverError,
+  unauthorized,
+} from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
 const PROVIDER_BAILEYS = "whatsapp_baileys";
 const PROVIDER_LEGADO = "whatsapp_nao_oficial";
@@ -26,18 +33,18 @@ function getUserClient(request: Request) {
 
 export async function GET(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header");
   }
 
   const { searchParams } = new URL(request.url);
   const workspaceId = searchParams.get("workspaceId");
   if (!workspaceId) {
-    return new Response("Missing workspaceId", { status: 400 });
+    return badRequest("Missing workspaceId");
   }
 
   const { data: membership } = await userClient
@@ -47,7 +54,7 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (!membership) {
-    return new Response("Forbidden", { status: 403 });
+    return forbidden("Forbidden");
   }
 
   const accountSelectBase =

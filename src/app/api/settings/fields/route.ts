@@ -1,11 +1,23 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
-type EntidadeCampo = "lead" | "deal";
+const entitySchema = z.enum(["lead", "deal"]);
+
+const createSchema = z.object({
+  entity: entitySchema.optional(),
+  nome: z.string().trim().min(1),
+  tipo: z.string().trim().min(1),
+  obrigatorio: z.boolean().optional(),
+  opcoes: z.array(z.unknown()).optional(),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -16,20 +28,24 @@ function getUserClient(request: Request) {
   });
 }
 
-async function getMembership(request: Request) {
+type MembershipResult =
+  | { membership: { workspace_id: string }; userClient: ReturnType<typeof getUserClient> }
+  | { error: { status: 400 | 401 | 500; message: string } };
+
+async function getMembership(request: Request): Promise<MembershipResult> {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return { error: "Missing Supabase env vars." };
+    return { error: { status: 500, message: "Missing Supabase env vars." } };
   }
   const userClient = getUserClient(request);
   if (!userClient) {
-    return { error: "Missing auth header." };
+    return { error: { status: 401, message: "Missing auth header." } };
   }
   const {
     data: { user },
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return { error: "Invalid auth." };
+    return { error: { status: 401, message: "Invalid auth." } };
   }
 
   const { data: membership, error: membershipError } = await userClient
@@ -39,7 +55,7 @@ async function getMembership(request: Request) {
     .maybeSingle();
 
   if (membershipError || !membership?.workspace_id) {
-    return { error: "Workspace not found." };
+    return { error: { status: 400, message: "Workspace not found." } };
   }
 
   return { membership, userClient };
@@ -51,13 +67,24 @@ const getTabela = (entidade: string | null) => {
 };
 
 export async function GET(request: Request) {
-  const { membership, userClient, error } = await getMembership(request);
-  if (!membership || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const membershipResult = await getMembership(request);
+  if ("error" in membershipResult) {
+    if (membershipResult.error.status === 400) {
+      return badRequest(membershipResult.error.message);
+    }
+    if (membershipResult.error.status === 401) {
+      return unauthorized(membershipResult.error.message);
+    }
+    return serverError(membershipResult.error.message);
   }
+  const { membership, userClient } = membershipResult;
 
   const { searchParams } = new URL(request.url);
-  const entidade = searchParams.get("entity") ?? "lead";
+  const parsedQuery = entitySchema.safeParse(searchParams.get("entity") ?? "lead");
+  if (!parsedQuery.success) {
+    return badRequest("Invalid entity.");
+  }
+  const entidade = parsedQuery.data;
   const tabela = getTabela(entidade);
 
   const { data, error: fieldsError } = await userClient
@@ -68,29 +95,34 @@ export async function GET(request: Request) {
     .order("created_at", { ascending: true });
 
   if (fieldsError) {
-    return new Response(fieldsError.message, { status: 500 });
+    return serverError(fieldsError.message);
   }
 
   return Response.json({ fields: data ?? [], entity: entidade });
 }
 
 export async function POST(request: Request) {
-  const { membership, userClient, error } = await getMembership(request);
-  if (!membership || !userClient) {
-    return new Response(error ?? "Unauthorized", { status: 401 });
+  const membershipResult = await getMembership(request);
+  if ("error" in membershipResult) {
+    if (membershipResult.error.status === 400) {
+      return badRequest(membershipResult.error.message);
+    }
+    if (membershipResult.error.status === 401) {
+      return unauthorized(membershipResult.error.message);
+    }
+    return serverError(membershipResult.error.message);
+  }
+  const { membership, userClient } = membershipResult;
+
+  const parsed = await parseJsonBody(request, createSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
 
-  const body = await request.json();
-  const entidade = (body?.entity ?? "lead") as EntidadeCampo;
+  const entidade = parsed.data.entity ?? "lead";
   const tabela = getTabela(entidade);
-  const nome = typeof body?.nome === "string" ? body.nome.trim() : "";
-  const tipo = typeof body?.tipo === "string" ? body.tipo : null;
-  const obrigatorio = Boolean(body?.obrigatorio);
-  const opcoes = Array.isArray(body?.opcoes) ? body.opcoes : null;
-
-  if (!nome || !tipo) {
-    return new Response("Invalid payload", { status: 400 });
-  }
+  const obrigatorio = parsed.data.obrigatorio ?? false;
+  const opcoes = parsed.data.opcoes ?? null;
 
   const { data: ultimo } = await userClient
     .from(tabela)
@@ -116,7 +148,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (insertError) {
-    return new Response(insertError.message, { status: 500 });
+    return serverError(insertError.message);
   }
 
   return Response.json({ field: data });

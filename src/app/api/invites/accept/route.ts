@@ -1,22 +1,22 @@
+import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
+import { badRequest, forbidden, notFound } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
 
 export const runtime = "nodejs";
 
-type Payload = {
-  token?: string;
-  nome?: string;
-  senha?: string;
-};
+const payloadSchema = z.object({
+  token: z.string().trim().min(1),
+  nome: z.string().trim().min(1),
+  senha: z.string().min(1),
+});
 
 export async function POST(request: Request) {
-  const body = (await request.json()) as Payload;
-  const token = typeof body?.token === "string" ? body.token.trim() : "";
-  const nome = typeof body?.nome === "string" ? body.nome.trim() : "";
-  const senha = typeof body?.senha === "string" ? body.senha : "";
-
-  if (!token || !nome || !senha) {
-    return new Response("Invalid payload.", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
+  const { token, nome, senha } = parsed.data;
 
   const { data: invite, error: inviteError } = await supabaseServer
     .from("workspace_invites")
@@ -25,15 +25,15 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (inviteError || !invite) {
-    return new Response("Invite not found.", { status: 404 });
+    return notFound("Invite not found.");
   }
 
   if (invite.status !== "pendente") {
-    return new Response("Invite already used.", { status: 400 });
+    return badRequest("Invite already used.");
   }
 
   if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
-    return new Response("Invite expired.", { status: 400 });
+    return badRequest("Invite expired.");
   }
 
   const workspace = Array.isArray(invite.workspaces)
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
   if (workspace?.trial_ends_at) {
     const trialEndsAt = new Date(workspace.trial_ends_at).getTime();
     if (trialEndsAt < Date.now()) {
-      return new Response("Workspace trial expired.", { status: 403 });
+      return forbidden("Workspace trial expired.");
     }
   }
 
@@ -57,9 +57,7 @@ export async function POST(request: Request) {
   });
 
   if (error || !data.user) {
-    return new Response(error?.message ?? "Failed to create user.", {
-      status: 400,
-    });
+    return badRequest(error?.message ?? "Failed to create user.");
   }
 
   return Response.json({ ok: true });

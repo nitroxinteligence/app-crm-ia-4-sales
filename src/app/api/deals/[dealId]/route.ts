@@ -1,11 +1,33 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
 import { NextRequest } from "next/server";
+import { badRequest, notFound, serverError, unauthorized } from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const paramsSchema = z.object({
+    dealId: z.string().trim().min(1),
+});
+
+const updateSchema = z
+    .object({
+        stage_id: z.string().trim().optional(),
+        titulo: z.string().trim().optional(),
+        valor: z.union([z.number(), z.string()]).optional(),
+        moeda: z.string().trim().optional(),
+        owner_id: z.string().trim().optional(),
+        empresa: z.string().trim().optional(),
+        pipeline_id: z.string().trim().optional(),
+    })
+    .refine((data) => Object.keys(data).length > 0, {
+        message: "No valid fields to update",
+    });
 
 function getUserClient(request: NextRequest) {
     const authHeader = request.headers.get("Authorization");
@@ -21,13 +43,18 @@ export async function GET(
     request: NextRequest,
     { params }: { params: { dealId: string } }
 ) {
+    const parsedParams = paramsSchema.safeParse({ dealId: params.dealId });
+    if (!parsedParams.success) {
+        return badRequest("Invalid deal id.");
+    }
+
     if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
+        return serverError("Missing Supabase env vars.");
     }
 
     const userClient = getUserClient(request);
     if (!userClient) {
-        return new Response("Missing auth header", { status: 401 });
+        return unauthorized("Missing auth header.");
     }
 
     const {
@@ -36,7 +63,7 @@ export async function GET(
     } = await userClient.auth.getUser();
 
     if (userError || !user) {
-        return new Response("Invalid auth", { status: 401 });
+        return unauthorized("Invalid auth.");
     }
 
     const { data: membership } = await userClient
@@ -46,22 +73,22 @@ export async function GET(
         .maybeSingle();
 
     if (!membership?.workspace_id) {
-        return new Response("Workspace not found", { status: 400 });
+        return badRequest("Workspace not found.");
     }
 
     const { data: deal, error } = await supabaseServer
         .from("deals")
         .select("*")
-        .eq("id", params.dealId)
+        .eq("id", parsedParams.data.dealId)
         .eq("workspace_id", membership.workspace_id)
         .maybeSingle();
 
     if (error) {
-        return new Response(error.message, { status: 500 });
+        return serverError(error.message);
     }
 
     if (!deal) {
-        return new Response("Deal not found", { status: 404 });
+        return notFound("Deal not found.");
     }
 
     return Response.json(deal);
@@ -72,13 +99,18 @@ export async function PATCH(
     request: NextRequest,
     { params }: { params: { dealId: string } }
 ) {
+    const parsedParams = paramsSchema.safeParse({ dealId: params.dealId });
+    if (!parsedParams.success) {
+        return badRequest("Invalid deal id.");
+    }
+
     if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
+        return serverError("Missing Supabase env vars.");
     }
 
     const userClient = getUserClient(request);
     if (!userClient) {
-        return new Response("Missing auth header", { status: 401 });
+        return unauthorized("Missing auth header.");
     }
 
     const {
@@ -87,7 +119,7 @@ export async function PATCH(
     } = await userClient.auth.getUser();
 
     if (userError || !user) {
-        return new Response("Invalid auth", { status: 401 });
+        return unauthorized("Invalid auth.");
     }
 
     const { data: membership } = await userClient
@@ -97,57 +129,40 @@ export async function PATCH(
         .maybeSingle();
 
     if (!membership?.workspace_id) {
-        return new Response("Workspace not found", { status: 400 });
+        return badRequest("Workspace not found.");
     }
 
     // Verify deal exists and belongs to workspace
     const { data: existingDeal } = await supabaseServer
         .from("deals")
         .select("id, workspace_id")
-        .eq("id", params.dealId)
+        .eq("id", parsedParams.data.dealId)
         .eq("workspace_id", membership.workspace_id)
         .maybeSingle();
 
     if (!existingDeal) {
-        return new Response("Deal not found", { status: 404 });
+        return notFound("Deal not found.");
     }
 
-    const body = await request.json();
-
-    // Allowed fields to update
-    const allowedFields = [
-        "stage_id",
-        "titulo",
-        "valor",
-        "moeda",
-        "owner_id",
-        "empresa",
-        "pipeline_id",
-    ];
-
-    const updateData: Record<string, any> = {};
-    for (const field of allowedFields) {
-        if (body[field] !== undefined) {
-            updateData[field] = body[field];
-        }
+    const parsed = await parseJsonBody(request, updateSchema);
+    if (!parsed.ok) {
+        return badRequest("No valid fields to update.");
     }
 
-    if (Object.keys(updateData).length === 0) {
-        return new Response("No valid fields to update", { status: 400 });
-    }
+    const updateData: Record<string, any> = { ...parsed.data };
 
     updateData.updated_at = new Date().toISOString();
 
     const { data: updatedDeal, error } = await supabaseServer
         .from("deals")
         .update(updateData)
-        .eq("id", params.dealId)
+        .eq("id", parsedParams.data.dealId)
         .eq("workspace_id", membership.workspace_id)
         .select()
         .single();
 
     if (error) {
-        return new Response(error.message, { status: 500 });
+        return serverError(error.message);
     }
 
     return Response.json(updatedDeal);
@@ -158,13 +173,18 @@ export async function DELETE(
     request: NextRequest,
     { params }: { params: { dealId: string } }
 ) {
+    const parsedParams = paramsSchema.safeParse({ dealId: params.dealId });
+    if (!parsedParams.success) {
+        return badRequest("Invalid deal id.");
+    }
+
     if (!supabaseUrl || !supabaseAnonKey) {
-        return new Response("Missing Supabase env vars", { status: 500 });
+        return serverError("Missing Supabase env vars.");
     }
 
     const userClient = getUserClient(request);
     if (!userClient) {
-        return new Response("Missing auth header", { status: 401 });
+        return unauthorized("Missing auth header.");
     }
 
     const {
@@ -173,7 +193,7 @@ export async function DELETE(
     } = await userClient.auth.getUser();
 
     if (userError || !user) {
-        return new Response("Invalid auth", { status: 401 });
+        return unauthorized("Invalid auth.");
     }
 
     const { data: membership } = await userClient
@@ -183,17 +203,17 @@ export async function DELETE(
         .maybeSingle();
 
     if (!membership?.workspace_id) {
-        return new Response("Workspace not found", { status: 400 });
+        return badRequest("Workspace not found.");
     }
 
     const { error } = await supabaseServer
         .from("deals")
         .delete()
-        .eq("id", params.dealId)
+        .eq("id", parsedParams.data.dealId)
         .eq("workspace_id", membership.workspace_id);
 
     if (error) {
-        return new Response(error.message, { status: 500 });
+        return serverError(error.message);
     }
 
     return new Response(null, { status: 204 });

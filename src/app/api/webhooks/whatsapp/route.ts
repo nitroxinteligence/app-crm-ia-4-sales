@@ -1,12 +1,21 @@
 import { createHmac, timingSafeEqual } from "crypto";
+import {
+  badRequest,
+  badGateway,
+  forbidden,
+  serverError,
+  serviceUnavailable,
+  unauthorized,
+} from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN ?? "";
-const appSecret = process.env.WHATSAPP_APP_SECRET ?? "";
-const baseUrl = process.env.AGENTS_API_URL ?? "";
-const apiKey = process.env.AGENTS_API_KEY;
+const verifyToken = getEnv("WHATSAPP_VERIFY_TOKEN");
+const appSecret = getEnv("WHATSAPP_APP_SECRET");
+const baseUrl = getEnv("AGENTS_API_URL");
+const apiKey = getEnv("AGENTS_API_KEY") || undefined;
 
 function isValidSignature(rawBody: string, signatureHeader: string | null) {
   if (!appSecret || !signatureHeader) return false;
@@ -24,26 +33,34 @@ export async function GET(request: Request) {
   const token = searchParams.get("hub.verify_token");
   const challenge = searchParams.get("hub.challenge");
 
+  if (!verifyToken) {
+    return serverError("Missing WHATSAPP_VERIFY_TOKEN");
+  }
+
   if (mode === "subscribe" && token && token === verifyToken) {
     return new Response(challenge ?? "", { status: 200 });
   }
 
-  return new Response("Forbidden", { status: 403 });
+  return forbidden("Forbidden");
 }
 
 export async function POST(request: Request) {
   const rawBody = await request.text();
   const signature = request.headers.get("x-hub-signature-256");
 
+  if (!appSecret) {
+    return serverError("Missing WHATSAPP_APP_SECRET");
+  }
+
   if (!isValidSignature(rawBody, signature)) {
-    return new Response("Invalid signature", { status: 401 });
+    return unauthorized("Invalid signature");
   }
 
   let payload: unknown = null;
   try {
     payload = JSON.parse(rawBody);
   } catch {
-    return new Response("Invalid payload", { status: 400 });
+    return badRequest("Invalid payload");
   }
 
   const { data, error } = await supabaseServer
@@ -56,11 +73,11 @@ export async function POST(request: Request) {
     .single();
 
   if (error) {
-    return new Response("Database error", { status: 500 });
+    return serverError("Database error");
   }
 
   if (!baseUrl) {
-    return new Response("Missing AGENTS_API_URL", { status: 500 });
+    return serverError("Missing AGENTS_API_URL");
   }
 
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -76,7 +93,7 @@ export async function POST(request: Request) {
       body: JSON.stringify({ event_id: data.id }),
     });
   } catch {
-    return new Response("Agents service unreachable", { status: 503 });
+    return serviceUnavailable("Agents service unreachable");
   }
 
   if (!response.ok) {
@@ -84,7 +101,7 @@ export async function POST(request: Request) {
     const mensagem = detalhe
       ? `Agent service error: ${detalhe}`
       : "Agent service error";
-    return new Response(mensagem, { status: 502 });
+    return badGateway(mensagem);
   }
 
   return new Response("OK", { status: 200 });

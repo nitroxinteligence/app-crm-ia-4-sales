@@ -4,6 +4,7 @@ import {
   GetObjectCommand,
   PutObjectCommand,
 } from "@aws-sdk/client-s3";
+import { z } from "zod";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import {
   buildR2Key,
@@ -12,11 +13,28 @@ import {
   resolveBucket,
   stripR2Prefix,
 } from "@/lib/r2/server";
+import {
+  badRequest,
+  forbidden,
+  serverError,
+  unauthorized,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+
+const payloadSchema = z.object({
+  action: z.enum(["upload", "download", "delete"]).optional(),
+  bucket: z.string().trim().min(1),
+  key: z.string().trim().min(1),
+  contentType: z.string().trim().optional(),
+  expiresIn: z.number().int().optional(),
+  scopeId: z.string().trim().optional(),
+});
 
 type SignedUrlPayload = {
   action?: "upload" | "download" | "delete";
@@ -57,12 +75,12 @@ function isKeyAllowed(params: {
 
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars.", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header.", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -70,7 +88,7 @@ export async function POST(request: Request) {
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return new Response("Invalid auth.", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { data: membership } = await userClient
@@ -80,24 +98,20 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found.", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
-  const body = (await request.json()) as SignedUrlPayload;
-  const action = body?.action ?? "download";
-  const bucketAlias = body?.bucket?.trim() ?? "";
-  const key = body?.key?.trim() ?? "";
-
-  if (!bucketAlias || !key) {
-    return new Response("Invalid payload.", { status: 400 });
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
   }
-
-  if (!["upload", "download", "delete"].includes(action)) {
-    return new Response("Acao invalida.", { status: 400 });
-  }
+  const body = parsed.data as SignedUrlPayload;
+  const action = body.action ?? "download";
+  const bucketAlias = body.bucket?.trim() ?? "";
+  const key = body.key?.trim() ?? "";
 
   if (!isBucketAllowed(bucketAlias)) {
-    return new Response("Bucket nao permitido.", { status: 403 });
+    return forbidden("Bucket nao permitido.");
   }
 
   const keyForAuth = stripR2Prefix(bucketAlias, key);
@@ -110,12 +124,12 @@ export async function POST(request: Request) {
       scopeId: body.scopeId,
     })
   ) {
-    return new Response("Chave nao permitida.", { status: 403 });
+    return forbidden("Chave nao permitida.");
   }
 
   const bucketName = resolveBucket(bucketAlias);
   if (!bucketName) {
-    return new Response("Bucket invalido.", { status: 400 });
+    return badRequest("Bucket invalido.");
   }
 
   const objectKey = buildR2Key(bucketAlias, key);
@@ -125,7 +139,7 @@ export async function POST(request: Request) {
     client = getR2Client();
   } catch (error) {
     const detail = error instanceof Error ? error.message : "R2 not configured.";
-    return new Response(detail, { status: 500 });
+    return serverError(detail);
   }
 
   if (action === "delete") {

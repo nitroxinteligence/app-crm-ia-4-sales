@@ -1,10 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
 import { syncCalendarEvents } from "@/lib/google-calendar/sync";
+import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -17,12 +19,12 @@ function getUserClient(request: Request) {
 
 export async function POST(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -31,7 +33,7 @@ export async function POST(request: Request) {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response("Invalid auth", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { data: integration } = await userClient
@@ -46,7 +48,7 @@ export async function POST(request: Request) {
   }
 
   if (!integration.primary_calendar_id) {
-    return new Response("Primary calendar not found", { status: 400 });
+    return badRequest("Primary calendar not found.");
   }
 
   await syncCalendarEvents({

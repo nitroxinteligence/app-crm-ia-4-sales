@@ -3,12 +3,22 @@
 import * as React from "react";
 import type { Session } from "@supabase/supabase-js";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
+  Archive,
   ArrowDown,
   ArrowUp,
+
   ArrowRightLeft,
   CalendarDays,
   Check,
+  CheckCircle2,
+  Phone,
+  Mail,
+  Building2,
+  MessageSquare,
+  History,
+  XCircle,
   GripVertical,
   Package,
   Paperclip,
@@ -42,6 +52,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetFooter,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
@@ -208,6 +225,7 @@ type LogAuditoriaContato = {
 
 export function VisaoFunil() {
   const { usuario, session } = useAutenticacao();
+  const router = useRouter();
   const podeVerValores = podeVerDadosSensiveis(usuario.role);
   const [workspaceId, setWorkspaceId] = React.useState<string | null>(null);
   const [carregando, setCarregando] = React.useState(true);
@@ -226,6 +244,7 @@ export function VisaoFunil() {
   const [etapas, setEtapas] = React.useState<EtapaFunil[]>([]);
   const [funisDisponiveis, setFunisDisponiveis] =
     React.useState<FunilConfig[]>([]);
+  const [produtosDisponiveis, setProdutosDisponiveis] = React.useState<{ id: string, nome: string }[]>([]);
   const [busca, setBusca] = React.useState("");
   const [filtroOwner, setFiltroOwner] = React.useState("todos");
   const [filtroTag, setFiltroTag] = React.useState("todas");
@@ -289,6 +308,146 @@ export function VisaoFunil() {
     null
   );
   const [notaEditandoConteudo, setNotaEditandoConteudo] = React.useState("");
+  const [notaVisualizada, setNotaVisualizada] = React.useState<{
+    id: string;
+    conteudo: string;
+    created_at: string;
+    autor_id: string;
+  } | null>(null);
+
+  // Timeline Types & State
+  type TimelineItem = {
+    id: string;
+    tipo_item: "audit" | "tarefa";
+    titulo: string;
+    descricao?: string;
+    data: string; // created_at or due_at
+    autor_nome?: string; // resolved owner/creator name
+    autor_id?: string;
+    metadata?: any;
+    icone?: any;
+  };
+
+  const [timelineDeal, setTimelineDeal] = React.useState<TimelineItem[]>([]);
+  const [carregandoTimeline, setCarregandoTimeline] = React.useState(false);
+
+  // Helper to log activities
+  const registrarAtividade = React.useCallback(async (dealId: string, acao: string, detalhes: any = {}) => {
+    if (!workspaceId) return;
+    console.log("Registrando atividade:", { dealId, acao, detalhes });
+
+    const { error } = await supabaseClient.from("deal_audit").insert({
+      workspace_id: workspaceId,
+      deal_id: dealId,
+      acao,
+      detalhes,
+      autor_id: session?.user.id
+    });
+
+    if (error) {
+      console.error("Erro ao registrar atividade:", JSON.stringify(error, null, 2));
+      console.error("Detalhes do erro:", error.message, error.code, error.details);
+    } else {
+      console.log("Atividade registrada com sucesso");
+      // Optimistic update or refresh
+      carregarTimeline(dealId);
+    }
+  }, [workspaceId, session?.user.id]);
+
+
+
+  const carregarTimeline = React.useCallback(async (dealId: string) => {
+    if (!dealId || !workspaceId) return;
+    setCarregandoTimeline(true);
+
+    try {
+      // 1. Fetch Audit Logs
+      const { data: audits } = await supabaseClient
+        .from("deal_audit")
+        .select("*")
+        .eq("deal_id", dealId)
+        .order("created_at", { ascending: false });
+
+      // 2. Fetch Tasks (via relations)
+      const { data: relations } = await supabaseClient
+        .from("task_relations")
+        .select("task_id")
+        .eq("relacionamento_tipo", "deal")
+        .eq("relacionamento_id", dealId);
+
+      let tasks: any[] = [];
+      if (relations && relations.length > 0) {
+        const taskIds = relations.map(r => r.task_id);
+        const { data: tasksData } = await supabaseClient
+          .from("tasks")
+          .select("*")
+          .in("id", taskIds)
+          .order("due_at", { ascending: false });
+        tasks = tasksData ?? [];
+      }
+
+      // 3. Merge & Map
+      const timelineItems: TimelineItem[] = [];
+
+      // Map Audits
+      audits?.forEach(audit => {
+        let titulo = "Atividade registrada";
+        let descricao = "";
+
+        switch (audit.acao) {
+          case "criacao": titulo = "Negócio criado"; break;
+          case "edicao": titulo = "Negócio atualizado"; descricao = "Informações editadas"; break;
+          case "movimentacao":
+            titulo = "Mudança de etapa";
+            descricao = `${audit.detalhes?.de_etapa_nome || '...'} → ${audit.detalhes?.para_etapa_nome || '...'}`;
+            break;
+          case "nota_adicionada": titulo = "Nota adicionada"; break;
+          case "tag_adicionada": titulo = "Tag adicionada"; descricao = audit.detalhes?.tag; break;
+          case "tag_removida": titulo = "Tag removida"; descricao = audit.detalhes?.tag; break;
+          case "owner_alterado": titulo = "Responsável alterado"; descricao = `Novo responsável: ${audit.detalhes?.novo_owner}`; break;
+          case "ganho": titulo = "Marcado como Ganho"; break;
+          case "perdido": titulo = "Marcado como Perdido"; break;
+          case "arquivo_adicionado": titulo = "Arquivo anexado"; descricao = audit.detalhes?.nome_arquivo; break;
+          case "arquivo_removido": titulo = "Arquivo removido"; descricao = audit.detalhes?.nome_arquivo; break;
+          default: titulo = audit.acao;
+        }
+
+        timelineItems.push({
+          id: audit.id,
+          tipo_item: "audit",
+          titulo,
+          descricao,
+          data: audit.created_at,
+          autor_id: audit.autor_id,
+          metadata: audit.detalhes
+        });
+      });
+
+      // Map Tasks
+      tasks?.forEach(task => {
+        timelineItems.push({
+          id: task.id,
+          tipo_item: "tarefa",
+          titulo: task.titulo,
+          descricao: task.descricao || "Tarefa agendada",
+          data: task.due_at || task.created_at, // Use due date if available
+          autor_id: task.responsavel_id,
+          metadata: { status: task.status, tipo: task.tipo }
+        });
+      });
+
+      // Sort by date desc
+      timelineItems.sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+
+      setTimelineDeal(timelineItems);
+
+    } catch (err) {
+      console.error("Erro ao carregar timeline:", err);
+    } finally {
+      setCarregandoTimeline(false);
+    }
+  }, [workspaceId]);
+
   const [salvandoNotaEditada, setSalvandoNotaEditada] = React.useState(false);
   const [atividadesPorDeal, setAtividadesPorDeal] = React.useState<
     Record<
@@ -655,7 +814,26 @@ export function VisaoFunil() {
   }, [carregarDeals, pipelineAtivoId, workspaceId]);
 
   React.useEffect(() => {
+    if (!workspaceId) return;
+
+    const carregarProdutos = async () => {
+      const { data } = await supabaseClient
+        .from("products")
+        .select("id, nome")
+        .eq("workspace_id", workspaceId)
+        .order("nome");
+
+      if (data) {
+        setProdutosDisponiveis(data);
+      }
+    };
+
+    carregarProdutos();
+  }, [workspaceId]);
+
+  React.useEffect(() => {
     if (!dealAtivo || !workspaceId) {
+      setDialogNotaAberto(false);
       setNotaAtual("");
       setNotasDeal([]);
       setArquivosDeal([]);
@@ -671,6 +849,10 @@ export function VisaoFunil() {
     const carregarDetalhes = async () => {
       setCarregandoDetalhesDeal(true);
       setCarregandoAuditoriaDeal(true);
+
+      if (dealAtivo) {
+        carregarTimeline(dealAtivo.id);
+      }
 
       const { data: notas } = await supabaseClient
         .from("contact_notes")
@@ -983,10 +1165,8 @@ export function VisaoFunil() {
   const motivosPerdaBase =
     motivosPerdaValidos.length > 0
       ? motivosPerdaValidos
-      : ["Sem orçamento", "Sem resposta", "Concorrência", "Outros"];
-  const motivosPerdaOpcoes = motivosPerdaBase.includes("Outro")
-    ? motivosPerdaBase
-    : [...motivosPerdaBase, "Outro"];
+      : ["Sem orçamento", "Sem resposta", "Concorrência"];
+  const motivosPerdaOpcoes = motivosPerdaBase;
   const etapaGanho = React.useMemo(
     () =>
       etapas.find(
@@ -1132,9 +1312,11 @@ export function VisaoFunil() {
         return { ...atual, tags: tagsAtualizadas };
       });
 
+      registrarAtividade(dealId, "tag_adicionada", { tag: tagResolvida.nome });
+
       return true;
     },
-    [garantirTagDisponivel, workspaceId]
+    [garantirTagDisponivel, workspaceId, registrarAtividade]
   );
 
   const removerTagDoDeal = React.useCallback(
@@ -1187,9 +1369,10 @@ export function VisaoFunil() {
           : atual
       );
 
+      registrarAtividade(dealId, "tag_removida", { tag: nomeTag });
       return true;
     },
-    [encontrarTagDisponivel, workspaceId]
+    [encontrarTagDisponivel, workspaceId, registrarAtividade]
   );
 
   const handleAplicarTag = async (tag: string) => {
@@ -1245,6 +1428,15 @@ export function VisaoFunil() {
         selecionados.includes(deal.id) ? { ...deal, owner } : deal
       )
     );
+    // Log for active deal if selected
+    if (dealAtivo && selecionados.includes(dealAtivo.id)) {
+      registrarAtividade(dealAtivo.id, "owner_alterado", { novo_owner: owner });
+    } else {
+      // Optimistically log for the first one if multiple? Ideally should loop but keep it simple for now to avoid spam
+      selecionados.forEach(id => {
+        registrarAtividade(id, "owner_alterado", { novo_owner: owner });
+      });
+    }
   };
 
   const atualizarDeal = React.useCallback(
@@ -1284,6 +1476,7 @@ export function VisaoFunil() {
       owner: formEditarDeal.owner,
       produto: formEditarDeal.produto,
     });
+    registrarAtividade(dealAtivo.id, "edicao", { campos_alterados: Object.keys(formEditarDeal) });
     setDialogEditarDealAberto(false);
   };
 
@@ -1329,6 +1522,8 @@ export function VisaoFunil() {
       motivoPerda: undefined,
       etapaId: etapaGanho?.id ?? dealAtivo.etapaId,
     });
+    // TODO: updates table status
+    registrarAtividade(dealAtivo.id, "ganho");
     setDialogGanhoAberto(false);
   };
 
@@ -1396,6 +1591,7 @@ export function VisaoFunil() {
       acao: "Nota adicionada",
       detalhes: { mensagem: "Nota interna adicionada." },
     });
+    await registrarAtividade(dealAtivo.id, "nota_adicionada", { resumo: notaAtual.substring(0, 50) });
 
     if (fecharDialogo) {
       setDialogNotaAberto(false);
@@ -1547,6 +1743,7 @@ export function VisaoFunil() {
       acao: "Arquivo enviado",
       detalhes: { mensagem: `Arquivo ${arquivo.name} enviado.` },
     });
+    await registrarAtividade(dealAtivo.id, "arquivo_adicionado", { nome_arquivo: arquivo.name });
     setEnviandoArquivoDeal(false);
     event.target.value = "";
   };
@@ -1652,6 +1849,10 @@ export function VisaoFunil() {
       );
     });
 
+    const nomeEtapaDestino = etapas.find(e => e.id === novaEtapa)?.nome || novaEtapa;
+    const nomeFunilDestino = funisDisponiveis.find(p => p.id === funilDestino)?.nome || funilDestino;
+    await registrarAtividade(dealAtivo.id, "movimentacao", { para_etapa_nome: nomeEtapaDestino, para_funil_nome: nomeFunilDestino });
+
     if (funilDestino !== pipelineAtivoId) {
       setDealAtivo(null);
     }
@@ -1684,6 +1885,9 @@ export function VisaoFunil() {
       setErroDados("Não foi possível atualizar a etapa do contato.");
       return;
     }
+
+    const nomeEtapa = etapas.find(e => e.id === etapaId)?.nome || etapaId;
+    await registrarAtividade(dealId, "movimentacao", { para_etapa_nome: nomeEtapa });
 
     setDeals((atual) => {
       const indice = atual.findIndex((deal) => deal.id === dealId);
@@ -3158,550 +3362,421 @@ export function VisaoFunil() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <Sheet
         open={Boolean(dealAtivo)}
         onOpenChange={(aberto) => {
           if (!aberto) setDealAtivo(null);
         }}
       >
-        <DialogContent className="left-auto right-0 top-0 h-full max-w-[420px] translate-x-0 translate-y-0 rounded-none border-l bg-background p-0 sm:rounded-l-[6px] flex flex-col overflow-hidden">
-          <DialogHeader className="sr-only">
-            <DialogTitle>Detalhes do negócio</DialogTitle>
-            <DialogDescription>
-              Painel com informações detalhadas do negócio selecionado.
-            </DialogDescription>
-          </DialogHeader>
+        <SheetContent className="w-full sm:max-w-[600px] p-0 flex flex-col gap-0 border-l bg-white dark:bg-slate-950 shadow-none">
           {dealAtivo && (
-            <ScrollArea className="flex-1 min-h-0" type="always" scrollHideDelay={0}>
-              <div className="flex min-h-full flex-col">
-                <div className="border-b border-border/60 p-4">
-                  <div className="flex items-center gap-3">
-                    <Avatar className="h-12 w-12">
-                      <AvatarImage
-                        src={
-                          dealAtivo.avatarUrl ?? "/avatars/contato-placeholder.svg"
-                        }
-                        alt={dealAtivo.nome}
-                      />
-                      <AvatarFallback>{iniciaisDeal(dealAtivo.nome)}</AvatarFallback>
-                    </Avatar>
-                    <div>
-                      <p className="text-lg font-semibold">{dealAtivo.nome}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {dealAtivo.telefone
-                          ? formatarTelefone(dealAtivo.telefone)
-                          : "Telefone não informado"}
-                      </p>
-                    </div>
+            <>
+              {/* HEADER: Modern, Clean, High Hierarchy */}
+              <div className="flex-none px-6 py-5 border-b border-border/60 bg-white dark:bg-slate-950 z-10">
+                <SheetHeader className="sr-only">
+                  <SheetTitle>{dealAtivo.nome}</SheetTitle>
+                </SheetHeader>
+                <div className="flex items-start justify-between mb-4">
+                  <div className="space-y-1.5">
+                    <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50 line-clamp-1">
+                      {dealAtivo.nome}
+                    </h2>
+                    {dealAtivo.empresa && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Building2 className="w-3.5 h-3.5" />
+                        <span className="font-medium text-slate-700 dark:text-slate-300">{dealAtivo.empresa}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold mb-0.5">Valor Estimado</p>
+                    <p className="text-2xl font-bold text-slate-900 dark:text-slate-50 tracking-tight">
+                      {podeVerValores
+                        ? formatarMoeda(dealAtivo.valor, dealAtivo.moeda)
+                        : "R$ ---"}
+                    </p>
                   </div>
                 </div>
 
-                <div className="space-y-4 p-4">
-                  <div className="grid gap-2 rounded-[6px] border border-border/60 bg-card/40 p-3 text-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Valor</span>
-                      <span className="font-semibold">
-                        {podeVerValores
-                          ? formatarMoeda(dealAtivo.valor, dealAtivo.moeda)
-                          : "Valor restrito"}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Origem</span>
-                      <span>{dealAtivo.origem}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-muted-foreground">Última atividade</span>
-                      <span>{dealAtivo.ultimaAtividade}</span>
-                    </div>
+                {/* Toolbar: Iconic & Minimal - NO SHADOWS */}
+                <div className="flex items-center gap-2 mt-4">
+                  <div className="flex-1 flex gap-2">
+                    <Link href="/app/inbox" className="h-8">
+                      <Button variant="outline" size="sm" className="h-8 text-xs font-medium border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 shadow-none rounded-[6px]">
+                        <MessageSquare className="w-3.5 h-3.5 mr-1.5 text-blue-600" />
+                        Conversa
+                      </Button>
+                    </Link>
+                    <Button onClick={handleAbrirEditarDeal} variant="outline" size="sm" className="h-8 text-xs font-medium border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 shadow-none rounded-[6px]">
+                      <PencilLine className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                      Editar
+                    </Button>
+                    <Button onClick={() => setDialogMoverDealAberto(true)} variant="outline" size="sm" className="h-8 text-xs font-medium border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900 shadow-none rounded-[6px]">
+                      <ArrowRightLeft className="w-3.5 h-3.5 mr-1.5 text-slate-500" />
+                      Mover
+                    </Button>
                   </div>
 
-                  <div className="space-y-3 rounded-[6px] border border-border/60 bg-card/40 p-3 text-sm">
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button variant="outline" className="w-full" asChild>
-                        <Link href="/app/inbox">Ver conversa</Link>
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full gap-2"
-                        onClick={handleAbrirEditarDeal}
-                      >
-                        <PencilLine className="h-4 w-4" />
-                        Editar negócio
-                      </Button>
-                    </div>
-                    <Separator />
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        className="w-full gap-2 text-emerald-500 hover:text-emerald-500"
-                        onClick={handleAbrirGanho}
-                      >
-                        <Check className="h-4 w-4 text-emerald-500" />
-                        Ganho
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full gap-2 text-destructive hover:text-destructive"
-                        onClick={handleAbrirPerda}
-                      >
-                        <X className="h-4 w-4 text-destructive" />
-                        Perdido
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full gap-2"
-                        onClick={handleAbrirMoverDeal}
-                      >
-                        <ArrowRightLeft className="h-4 w-4" />
-                        Mover
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full gap-2 text-destructive hover:text-destructive"
-                        onClick={() => setDialogExcluirDealAberto(true)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                        Excluir negócio
-                      </Button>
-                    </div>
-                    <Separator />
-                    <div className="grid gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        Atribuir owner
-                      </span>
-                      <Select
-                        value={dealAtivo.owner}
-                        onValueChange={(owner) =>
-                          atualizarDeal(dealAtivo.id, { owner })
-                        }
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Selecione o responsável" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {owners
-                            .filter((owner) => owner !== "todos")
-                            .map((owner) => (
-                              <SelectItem key={owner} value={owner}>
-                                {owner}
-                              </SelectItem>
-                            ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                  <Button onClick={handleExcluirDeal} variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:bg-rose-50 hover:text-rose-600 rounded-[6px] shadow-none">
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
 
-                  <div className="rounded-[6px] border border-border/60 bg-card/40 p-3 text-sm">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="font-medium">Tags do negócio</p>
-                      <Badge variant="secondary">{dealAtivo.tags.length}</Badge>
+              {/* BODY: Content - Native Scroll for reliability */}
+              <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-950 min-h-0">
+                <div className="flex flex-col min-h-full">
+                  <Tabs defaultValue="visao-geral" className="flex-1 flex flex-col">
+                    <div className="px-6 border-b border-border/60 sticky top-0 bg-white/95 dark:bg-slate-950/95 backdrop-blur-sm z-10">
+                      <TabsList className="w-full justify-start h-11 p-0 bg-transparent gap-8 border-none shadow-none text-muted-foreground">
+                        <TabsTrigger value="visao-geral" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
+                          Visão Geral
+                        </TabsTrigger>
+                        <TabsTrigger value="atividades" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
+                          Atividades
+                        </TabsTrigger>
+                        <TabsTrigger value="arquivos" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
+                          Arquivos <span className="ml-1.5 text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-full text-slate-600 dark:text-slate-400">{arquivosDeal.length}</span>
+                        </TabsTrigger>
+                      </TabsList>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {dealAtivo.tags.length === 0 ? (
-                        <p className="text-xs text-muted-foreground">
-                          Nenhuma tag adicionada.
-                        </p>
-                      ) : (
-                        dealAtivo.tags.map((tag) => (
-                          <Badge
-                            key={tag}
-                            className="gap-1 text-white"
-                            style={{
-                              backgroundColor: coresTags[tag] ?? "#94a3b8",
-                            }}
-                          >
-                            {tag}
-                            <button
-                              type="button"
-                              onClick={() => void handleRemoverTagDeal(tag)}
-                              className="rounded-full p-0.5 text-white/80 transition hover:text-white"
-                              aria-label={`Remover tag ${tag}`}
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </Badge>
-                        ))
-                      )}
-                    </div>
-                    {tagsDisponiveisDeal.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-2 rounded-[6px] border border-border/60 bg-muted/30 p-2">
-                        {tagsDisponiveisDeal.map((tag) => (
-                          <button
-                            key={tag.id}
-                            type="button"
-                            onClick={() => void aplicarTagAoDeal(dealAtivo.id, tag.nome)}
-                            className="rounded-[6px] px-2 py-1 text-xs text-white"
-                            style={{ backgroundColor: tag.cor ?? "#94a3b8" }}
-                          >
-                            {tag.nome}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    <div className="mt-3 flex items-center gap-2">
-                      <Input
-                        value={novaTagDeal}
-                        onChange={(event) => setNovaTagDeal(event.target.value)}
-                        placeholder="Adicionar tag"
-                      />
-                      <Button size="sm" onClick={() => void handleAdicionarTagDeal()}>
-                        Adicionar
-                      </Button>
-                    </div>
-                  </div>
 
-                  <Tabs defaultValue="visao-geral">
-                    <TabsList className="grid w-full grid-cols-3">
-                      <TabsTrigger value="visao-geral">Visão geral</TabsTrigger>
-                      <TabsTrigger value="conversas">Conversas</TabsTrigger>
-                      <TabsTrigger value="atividades">Atividades</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="visao-geral" className="pt-4">
-                      <div className="space-y-3 text-sm">
-                        <p className="font-medium">Resumo do negócio</p>
-                        <p className="text-muted-foreground">
-                          {dealAtivo.ultimaMensagem}
-                        </p>
-                        <Separator />
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">Funil</span>
-                            <span>
-                              {funisDisponiveis.find(
-                                (funil) => funil.id === dealAtivo.funilId
-                              )?.nome ?? "Pipeline"}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">Etapa</span>
-                            <span>
-                              {etapas.find((etapa) => etapa.id === dealAtivo.etapaId)?.nome ??
-                                "Não definido"}
-                            </span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-muted-foreground">Owner</span>
-                            <span>{dealAtivo.owner}</span>
-                          </div>
-                          {dealAtivo.status === "perdido" && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-muted-foreground">
-                                Motivo da perda
-                              </span>
-                              <span>
-                                {dealAtivo.motivoPerda ?? "Não informado"}
-                              </span>
-                            </div>
-                          )}
+                    {/* TAB: OVERVIEW */}
+                    <TabsContent value="visao-geral" className="p-6 m-0 space-y-8">
+
+                      {/* Properties Grid: Linear Style */}
+                      <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                            Etapa Atual
+                          </label>
+                          <Select value={dealAtivo.etapaId} onValueChange={() => setDialogMoverDealAberto(true)}>
+                            <SelectTrigger className="h-9 w-full bg-slate-50 dark:bg-slate-900 border-border/60 focus:ring-1 focus:ring-primary/20 shadow-none rounded-[6px]">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent className="shadow-none border-border/60 rounded-[6px]">
+                              {etapas.map((etapa) => (
+                                <SelectItem key={etapa.id} value={etapa.id}>{etapa.nome}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
-                      </div>
-                    </TabsContent>
-                    <TabsContent value="conversas" className="pt-4">
-                      <div className="rounded-[6px] border border-border/60 bg-card/40 p-4 text-sm">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs text-muted-foreground">
-                            Última mensagem registrada
-                          </span>
-                          <Button variant="link" size="sm" asChild>
-                            <Link href="/app/inbox">Ver conversa</Link>
-                          </Button>
-                        </div>
-                        <p className="mt-2 text-muted-foreground">
-                          {dealAtivo.ultimaMensagem}
-                        </p>
-                      </div>
-                    </TabsContent>
-                    <TabsContent value="atividades" className="pt-4">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between rounded-[6px] border border-border/60 bg-card/40 p-3 text-sm">
-                          <span className="text-xs text-muted-foreground">
-                            Atividades do negócio
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setDialogAtividadeAberto(true)}
-                          >
-                            Agendar atividade
-                          </Button>
-                        </div>
-                        {atividadesDeal.length === 0 ? (
-                          <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                            Nenhuma atividade registrada ainda.
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {atividadesDeal.map((atividade, index) => (
-                              <div
-                                key={`${atividade.titulo}-${index}`}
-                                className="rounded-[6px] border border-border/60 bg-background/80 p-3 text-xs"
-                              >
-                                <p className="text-sm font-medium">
-                                  {atividade.titulo}
-                                </p>
-                                <div className="mt-2 flex flex-wrap gap-2 text-muted-foreground">
-                                  {atividade.data && <span>{atividade.data}</span>}
-                                  {atividade.hora && <span>{atividade.hora}</span>}
-                                  {atividade.responsavel && (
-                                    <span>{atividade.responsavel}</span>
-                                  )}
-                                </div>
+
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                            Responsável
+                          </label>
+                          <Select value={dealAtivo.owner} disabled>
+                            <SelectTrigger className="h-9 w-full bg-slate-50 dark:bg-slate-900 border-border/60 focus:ring-1 focus:ring-primary/20 shadow-none rounded-[6px]">
+                              <div className="flex items-center gap-2">
+                                <Avatar className="w-5 h-5 border border-slate-200">
+                                  <AvatarFallback className="text-[9px] bg-slate-100 text-slate-600">{iniciaisDeal(dealAtivo.owner)}</AvatarFallback>
+                                </Avatar>
+                                <span className="text-sm truncate">{dealAtivo.owner}</span>
                               </div>
+                            </SelectTrigger>
+                            <SelectContent className="shadow-none border-border/60 rounded-[6px]">
+                              <SelectItem value={dealAtivo.owner}>{dealAtivo.owner}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+
+                      <Separator className="bg-border/60" />
+
+                      {/* Contact Section: Clean List */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                            Contato Principal
+                          </h3>
+                        </div>
+
+                        <div
+                          onClick={() => {
+                            router.push(`/app/contatos?id=${dealAtivo.id}`);
+                          }}
+                          className="flex items-start gap-4 p-3 border border-border/60 bg-white hover:bg-slate-50/80 dark:bg-slate-900 dark:hover:bg-slate-800/80 transition-colors cursor-pointer group rounded-[6px] shadow-none"
+                        >
+                          <Avatar className="h-10 w-10 border border-slate-100 dark:border-slate-800">
+                            <AvatarImage src={dealAtivo.avatarUrl ?? ""} />
+                            <AvatarFallback className="bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300 font-medium">{iniciaisDeal(dealAtivo.nome)}</AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between">
+                              <p className="font-semibold text-sm text-foreground group-hover:text-blue-600 transition-colors">{dealAtivo.nome}</p>
+                              <Badge variant="secondary" className="text-[10px] h-5 font-normal text-muted-foreground bg-slate-100 dark:bg-slate-800 shadow-none rounded-[6px]">
+                                Principal
+                              </Badge>
+                            </div>
+                            <p className="text-xs text-muted-foreground mb-2 truncate">Responsável pelo negócio</p>
+
+                            <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-400 p-1 px-2 bg-slate-50 dark:bg-slate-800/50 rounded-[6px]">
+                                <Phone className="w-3 h-3" /> {dealAtivo.telefone ? formatarTelefone(dealAtivo.telefone) : '---'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <Separator className="bg-border/60" />
+
+                      {/* Tags: Integrated UI */}
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                          Tags
+                        </h3>
+                        <div className="flex flex-wrap gap-2">
+                          {dealAtivo.tags.map((tag) => (
+                            <Badge key={tag} variant="outline" className="text-white pl-2.5 pr-1.5 py-1 text-xs font-medium border-transparent transition-colors flex items-center gap-1.5 shadow-none rounded-[6px]" style={{
+                              backgroundColor: coresTags[tag] ?? "#94a3b8",
+                              borderColor: (coresTags[tag] ?? "#94a3b8") + '30'
+                            }}>
+                              {tag}
+                              <button onClick={() => void handleRemoverTagDeal(tag)} className="ml-1 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors text-white/80 hover:text-white">
+                                <XCircle className="w-3 h-3" />
+                              </button>
+                            </Badge>
+                          ))}
+
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={novaTagDeal}
+                              onChange={(event) => setNovaTagDeal(event.target.value)}
+                              placeholder="Nova tag"
+                              className="h-7 text-xs w-[120px] rounded-[6px]"
+                            />
+                            <Button onClick={() => void handleAdicionarTagDeal()} variant="outline" size="sm" className="h-7 text-xs border-dashed gap-1.5 px-3 text-muted-foreground hover:text-foreground hover:border-slate-300 shadow-none rounded-[6px]">
+                              <Plus className="w-3.5 h-3.5" /> Adicionar
+                            </Button>
+                          </div>
+                        </div>
+
+                        {tagsDisponiveisDeal.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-2 rounded-[6px] border border-border/60 bg-muted/30 p-2">
+                            {tagsDisponiveisDeal.map((tag) => (
+                              <button
+                                key={tag.id}
+                                type="button"
+                                onClick={() => void aplicarTagAoDeal(dealAtivo.id, tag.nome)}
+                                className="rounded-[6px] px-2 py-1 text-xs text-white"
+                                style={{ backgroundColor: tag.cor ?? "#94a3b8" }}
+                              >
+                                {tag.nome}
+                              </button>
                             ))}
                           </div>
                         )}
-                      </div>
-                    </TabsContent>
-                  </Tabs>
 
-                  <Tabs defaultValue="notas">
-                    <TabsList className="grid w-full grid-cols-3">
-                      <TabsTrigger value="notas">Notas</TabsTrigger>
-                      <TabsTrigger value="arquivos">Arquivos</TabsTrigger>
-                      <TabsTrigger value="auditoria">Auditoria</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="notas" className="pt-4">
+                      </div>
+
+                      <Separator className="bg-border/60" />
+
+                      {/* Notes */}
                       <div className="space-y-3">
-                        <div className="rounded-[6px] border border-border/60 bg-card/40 p-3">
-                          <p className="text-xs text-muted-foreground">
-                            Nova nota
-                          </p>
+                        <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
+                          Resumo / Nota
+                        </h3>
+                        <div className="relative">
                           <Textarea
                             value={notaAtual}
                             onChange={(event) => setNotaAtual(event.target.value)}
-                            placeholder="Escreva uma nota interna sobre este negócio"
-                            className="mt-2 min-h-[96px]"
+                            className="min-h-[120px] text-sm bg-slate-50/50 dark:bg-slate-900 border-border/60 resize-none font-normal focus:bg-white dark:focus:bg-slate-950 transition-colors leading-relaxed p-4 shadow-none rounded-[6px]"
+                            placeholder="Escreva uma nota..."
                           />
-                          <Button
-                            size="sm"
-                            className="mt-3"
-                            onClick={() => handleSalvarNota(false)}
-                            disabled={!notaAtual.trim() || enviandoNota}
-                          >
-                            {enviandoNota ? "Salvando..." : "Adicionar nota"}
-                          </Button>
+                          <div className="absolute bottom-2 right-2">
+                            <Button
+                              size="sm"
+                              onClick={() => handleSalvarNota(true)}
+                              disabled={!notaAtual.trim() || enviandoNota}
+                              className="h-7 text-xs shadow-none border border-transparent rounded-[6px]"
+                            >
+                              {enviandoNota ? "Salvando..." : "Salvar"}
+                            </Button>
+                          </div>
                         </div>
-                        {carregandoDetalhesDeal ? (
-                          <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                            Carregando notas...
-                          </div>
-                        ) : notasDeal.length === 0 ? (
-                          <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                            Nenhuma nota adicionada ainda.
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {notasDeal.map((nota) => (
-                              <div
-                                key={nota.id}
-                                className="rounded-[6px] border border-border/60 bg-background/80 p-3 text-xs text-muted-foreground"
-                              >
-                                <div className="flex items-start justify-between gap-2 text-[10px] text-muted-foreground">
-                                  <div>
-                                    <p>{formatarDataHora(nota.created_at)}</p>
-                                    <p>
-                                      {nota.autor_id === session?.user.id
-                                        ? "Você"
-                                        : "Equipe"}
-                                    </p>
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <Button
-                                      type="button"
-                                      size="icon"
-                                      variant="ghost"
-                                      onClick={() => handleIniciarEdicaoNota(nota)}
-                                      disabled={salvandoNotaEditada}
-                                      aria-label="Editar nota"
-                                    >
-                                      <PencilLine className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      size="icon"
-                                      variant="ghost"
-                                      onClick={() => handleExcluirNota(nota.id)}
-                                      disabled={salvandoNotaEditada}
-                                      aria-label="Excluir nota"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
-                                </div>
-                                {notaEditandoId === nota.id ? (
-                                  <div className="mt-2 space-y-2">
-                                    <Textarea
-                                      value={notaEditandoConteudo}
-                                      onChange={(event) =>
-                                        setNotaEditandoConteudo(event.target.value)
-                                      }
-                                      className="min-h-[96px] text-sm"
-                                    />
-                                    <div className="flex items-center gap-2">
-                                      <Button
-                                        size="sm"
-                                        onClick={handleSalvarNotaEditada}
-                                        disabled={
-                                          !notaEditandoConteudo.trim() ||
-                                          salvandoNotaEditada
-                                        }
-                                      >
-                                        {salvandoNotaEditada ? "Salvando..." : "Salvar"}
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={handleCancelarEdicaoNota}
-                                      >
-                                        Cancelar
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <p className="mt-2 text-sm text-foreground">
-                                    {nota.conteudo}
-                                  </p>
-                                )}
-                              </div>
-                            ))}
+
+                        {/* Note List - Buttons */}
+                        {notasDeal.length > 0 && (
+                          <div className="space-y-2 pt-2">
+                            <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Notas Anteriores</h4>
+                            <div className="flex flex-wrap gap-2">
+                              {notasDeal.map((nota) => (
+                                <Button
+                                  key={nota.id}
+                                  variant="outline"
+                                  onClick={() => setNotaVisualizada(nota)}
+                                  className="h-8 max-w-full justify-start text-xs font-normal shadow-none border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-[6px]"
+                                  title={nota.conteudo}
+                                >
+                                  <MessageSquare className="w-3 h-3 mr-2 text-slate-400 flex-shrink-0" />
+                                  <span className="truncate max-w-[200px]">
+                                    {nota.conteudo.length > 30 ? nota.conteudo.slice(0, 30) + "..." : nota.conteudo}
+                                  </span>
+                                </Button>
+                              ))}
+                            </div>
                           </div>
                         )}
                       </div>
                     </TabsContent>
-                    <TabsContent value="arquivos" className="pt-4">
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between rounded-[6px] border border-border/60 bg-card/40 p-3 text-sm">
-                          <span className="text-xs text-muted-foreground">
-                            Arquivos anexados
-                          </span>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => arquivoDealInputRef.current?.click()}
-                            disabled={enviandoArquivoDeal}
-                          >
-                            {enviandoArquivoDeal ? "Enviando..." : "Adicionar"}
-                          </Button>
-                        </div>
-                        {carregandoDetalhesDeal ? (
-                          <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                            Carregando arquivos...
-                          </div>
-                        ) : arquivosDeal.length === 0 ? (
-                          <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                            Nenhum arquivo enviado ainda.
-                          </div>
-                        ) : (
-                          <div className="space-y-2">
-                            {arquivosDeal.map((arquivo) => (
-                              <div
-                                key={arquivo.id}
-                                className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/80 p-3 text-xs"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <Paperclip className="h-4 w-4 text-muted-foreground" />
-                                  <div>
-                                    <p className="text-sm font-medium">
-                                      {arquivo.file_name}
-                                    </p>
-                                    <p className="text-[10px] text-muted-foreground">
-                                      {formatarBytes(arquivo.tamanho_bytes ?? undefined)} ·{" "}
-                                      {formatarDataHora(arquivo.created_at)}
-                                    </p>
+
+                    {/* TAB: ACTIVITY (Consolidated) */}
+                    <TabsContent value="atividades" className="p-0 m-0">
+                      <ScrollArea className="h-[500px] p-6">
+                        <div className="space-y-8">
+                          {carregandoTimeline ? (
+                            <div className="text-center text-sm text-muted-foreground py-8">
+                              Carregando atividades...
+                            </div>
+                          ) : timelineDeal.length === 0 ? (
+                            <div className="text-center text-sm text-muted-foreground py-8">
+                              Nenhuma atividade registrada ainda.
+                            </div>
+                          ) : (
+                            timelineDeal.map((item, i) => (
+                              <div key={item.id} className="flex gap-4 group">
+                                <div className="flex flex-col items-center relative">
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white z-10 border-2 border-white dark:border-slate-950 shadow-none ${item.tipo_item === 'tarefa' ? 'bg-blue-500' : 'bg-slate-400'}`}>
+                                    <History className="w-3.5 h-3.5" />
                                   </div>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {arquivo.publicUrl && (
-                                    <Button size="sm" variant="link" asChild>
-                                      <a
-                                        href={arquivo.publicUrl}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                      >
-                                        Abrir
-                                      </a>
-                                    </Button>
+                                  {i !== timelineDeal.length - 1 && (
+                                    <div className="absolute top-8 bottom-[-32px] w-[2px] bg-slate-100 dark:bg-slate-800" />
                                   )}
-                                  <Button
-                                    type="button"
-                                    size="icon"
-                                    variant="ghost"
-                                    onClick={() => handleExcluirArquivoDeal(arquivo)}
-                                    disabled={arquivoExcluindoId === arquivo.id}
-                                    aria-label="Excluir arquivo"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                  </Button>
+                                </div>
+                                <div className="flex-1 pb-2">
+                                  <div className="flex items-center gap-2 mb-1.5">
+                                    <span className="text-sm font-semibold capitalize text-slate-900 dark:text-slate-100">{item.titulo}</span>
+                                    <span className="text-xs text-muted-foreground">•</span>
+                                    <span className="text-xs text-muted-foreground">{formatarDataHora(item.data)}</span>
+                                  </div>
+                                  {item.descricao && (
+                                    <div className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                                      {item.descricao}
+                                    </div>
+                                  )}
+                                  <div className="flex items-center gap-1.5 mt-2">
+                                    <Avatar className="w-4 h-4">
+                                      <AvatarFallback className="text-[8px] bg-slate-200">
+                                        {item.autor_id === session?.user.id ? "VC" : "EQ"}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                    <span className="text-xs text-muted-foreground font-medium">
+                                      {item.autor_id === session?.user.id ? "Você" : "Equipe"}
+                                    </span>
+                                  </div>
                                 </div>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </TabsContent>
-                    <TabsContent value="auditoria" className="pt-4">
-                      {carregandoAuditoriaDeal ? (
-                        <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                          Carregando auditoria...
+                            ))
+                          )}
                         </div>
-                      ) : logsAuditoriaDeal.length === 0 ? (
+                      </ScrollArea>
+                    </TabsContent>
+
+                    {/* TAB: FILES */}
+                    <TabsContent value="arquivos" className="p-6 m-0">
+
+                      {carregandoDetalhesDeal ? (
                         <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-center text-xs text-muted-foreground">
-                          Nenhuma alteração registrada para este negócio.
+                          Carregando arquivos...
+                        </div>
+                      ) : arquivosDeal.length === 0 ? (
+                        <div className="border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 p-8 flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer group rounded-[6px] shadow-none" onClick={() => arquivoDealInputRef.current?.click()}>
+                          <div className="w-10 h-10 bg-white dark:bg-slate-800 rounded-full flex items-center justify-center mb-3 text-slate-500 border border-slate-100 dark:border-slate-700 group-hover:scale-110 transition-transform shadow-none">
+                            <Paperclip className="w-5 h-5" />
+                          </div>
+                          <p className="text-sm font-medium text-foreground">Clique para fazer upload</p>
+                          <p className="text-xs text-muted-foreground mt-1">PDF, DOCX, JPG ou PNG (max 10MB)</p>
                         </div>
                       ) : (
                         <div className="space-y-2">
-                          {logsAuditoriaDeal.map((log) => (
+                          <div className="border border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 p-4 flex flex-col items-center justify-center text-center hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors cursor-pointer group rounded-[6px] shadow-none mb-4" onClick={() => arquivoDealInputRef.current?.click()}>
+                            <p className="text-xs font-medium text-foreground flex items-center gap-2"><Plus className="w-3 h-3" /> Adicionar novo arquivo</p>
+                          </div>
+                          {arquivosDeal.map((arquivo) => (
                             <div
-                              key={log.id}
-                              className="rounded-[6px] border border-border/60 bg-background/80 p-3 text-xs"
+                              key={arquivo.id}
+                              className="flex items-center justify-between rounded-[6px] border border-border/60 bg-background/80 p-3 text-xs"
                             >
-                              <div className="flex items-start justify-between gap-3">
+                              <div className="flex items-center gap-2">
+                                <Paperclip className="h-4 w-4 text-muted-foreground" />
                                 <div>
-                                  <p className="text-sm font-medium">{log.acao}</p>
+                                  <p className="text-sm font-medium">
+                                    {arquivo.file_name}
+                                  </p>
                                   <p className="text-[10px] text-muted-foreground">
-                                    {formatarDataHora(log.created_at)} ·{" "}
-                                    {log.autor_id === session?.user.id
-                                      ? "Você"
-                                      : "Equipe"}
+                                    {formatarBytes(arquivo.tamanho_bytes ?? undefined)} ·{" "}
+                                    {formatarDataHora(arquivo.created_at)}
                                   </p>
                                 </div>
                               </div>
-                              {formatarDetalhesAuditoria(log.detalhes) && (
-                                <p className="mt-2 text-xs text-muted-foreground">
-                                  {formatarDetalhesAuditoria(log.detalhes)}
-                                </p>
-                              )}
+                              <div className="flex items-center gap-2">
+                                {arquivo.publicUrl && (
+                                  <Button size="sm" variant="link" asChild>
+                                    <a
+                                      href={arquivo.publicUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      Abrir
+                                    </a>
+                                  </Button>
+                                )}
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  onClick={() => handleExcluirArquivoDeal(arquivo)}
+                                  disabled={arquivoExcluindoId === arquivo.id}
+                                  aria-label="Excluir arquivo"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
                             </div>
                           ))}
                         </div>
                       )}
+                      <input
+                        ref={arquivoDealInputRef}
+                        type="file"
+                        className="hidden"
+                        onChange={handleSelecionarArquivoDeal}
+                      />
                     </TabsContent>
                   </Tabs>
                 </div>
-
-                <input
-                  ref={arquivoDealInputRef}
-                  type="file"
-                  className="hidden"
-                  onChange={handleSelecionarArquivoDeal}
-                />
               </div>
-            </ScrollArea>
+
+              {/* FOOTER: Sticky Decision Bar */}
+              <SheetFooter className="flex-none p-4 border-t border-border bg-white dark:bg-slate-950 w-full sm:justify-between z-20 shadow-none">
+                <div className="flex items-center gap-1.5 text-[10px] sm:text-xs text-muted-foreground">
+                  <History className="w-3.5 h-3.5" />
+                  <span>Criado em {formatarDataHora(dealAtivo.created_at)}</span>
+                </div>
+
+                <div className="flex w-full sm:w-auto gap-3">
+                  <Button onClick={handleAbrirPerda} variant="outline" className="flex-1 sm:flex-none h-10 border-rose-200 text-rose-700 hover:bg-rose-50 hover:text-rose-800 hover:border-rose-300 transition-all shadow-none rounded-[6px]">
+                    <XCircle className="w-4 h-4 mr-2" />
+                    Marcar Perdido
+                  </Button>
+                  <Button onClick={handleAbrirGanho} className="flex-1 sm:flex-none h-10 bg-emerald-600 hover:bg-emerald-700 text-white shadow-none hover:shadow-none transition-all rounded-[6px]">
+                    <CheckCircle2 className="w-4 h-4 mr-2" />
+                    Marcar Ganho
+                  </Button>
+                </div>
+              </SheetFooter>
+            </>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       <Dialog
         open={dialogEditarDealAberto}
         onOpenChange={setDialogEditarDealAberto}
       >
-        <DialogContent>
+        <DialogContent className="shadow-none [&_*]:shadow-none">
           <DialogHeader>
             <DialogTitle>Editar negócio</DialogTitle>
             <DialogDescription>
@@ -3804,17 +3879,26 @@ export function VisaoFunil() {
               <label htmlFor="editar-deal-produto" className="text-sm font-medium">
                 Produto
               </label>
-              <Input
-                id="editar-deal-produto"
+              <Select
                 value={formEditarDeal.produto}
-                onChange={(event) =>
+                onValueChange={(value) =>
                   setFormEditarDeal((atual) => ({
                     ...atual,
-                    produto: event.target.value,
+                    produto: value,
                   }))
                 }
-                placeholder="Produto relacionado"
-              />
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecione um produto" />
+                </SelectTrigger>
+                <SelectContent>
+                  {produtosDisponiveis.map((prod) => (
+                    <SelectItem key={prod.id} value={prod.nome}>
+                      {prod.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
@@ -3855,6 +3939,60 @@ export function VisaoFunil() {
               disabled={!notaAtual.trim() || enviandoNota}
             >
               {enviandoNota ? "Salvando..." : "Salvar nota"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!notaVisualizada} onOpenChange={(open) => !open && setNotaVisualizada(null)}>
+        <DialogContent className="sm:max-w-[500px] border-none shadow-lg rounded-[6px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <MessageSquare className="w-4 h-4 text-blue-600" />
+              Nota de {notaVisualizada?.autor_id === session?.user.id ? 'Você' : 'Equipe'}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Registrada em {notaVisualizada && formatarDataHora(notaVisualizada.created_at)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-[6px] text-sm leading-relaxed whitespace-pre-wrap border border-border/50 text-slate-700 dark:text-slate-300 min-h-[100px]">
+            {notaVisualizada?.conteudo}
+          </div>
+          <DialogFooter className="flex justify-between sm:justify-between w-full">
+            {notaVisualizada?.autor_id === session?.user.id ? (
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (!notaVisualizada || !dealAtivo || !workspaceId) return;
+
+                  // Delete from DB
+                  const { error } = await supabaseClient
+                    .from("contact_notes")
+                    .delete()
+                    .eq("id", notaVisualizada.id)
+                    .eq("workspace_id", workspaceId);
+
+                  if (error) {
+                    console.error("Erro ao excluir nota:", error);
+                    return;
+                  }
+
+                  // Update State
+                  setNotasDeal(atual => atual.filter(n => n.id !== notaVisualizada.id));
+                  setNotaVisualizada(null);
+
+                  // Log Activity
+                  await registrarAtividade(dealAtivo.id, "nota_removida", { resumo: notaVisualizada.conteudo.substring(0, 50) });
+                }}
+                className="shadow-none rounded-[6px] gap-2 px-3"
+                size="sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                Excluir
+              </Button>
+            ) : <div />}
+            <Button variant="outline" onClick={() => setNotaVisualizada(null)} className="shadow-none rounded-[6px]">
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>

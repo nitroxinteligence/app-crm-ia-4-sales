@@ -1,10 +1,7 @@
 import "dotenv/config";
 import crypto from "crypto";
 import express from "express";
-import fs from "fs/promises";
-import path from "path";
 import QRCode from "qrcode";
-import Pusher from "pusher";
 import P from "pino";
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import {
@@ -24,41 +21,54 @@ import {
   makeCacheableSignalKeyStore,
 } from "@whiskeysockets/baileys";
 import { createClient } from "@supabase/supabase-js";
+import { createRetryQueue } from "./retry-queue.js";
+import { createRealtime } from "./realtime.js";
+import { createSessionRepository } from "./session-repository.js";
+import { createSessionRoutes } from "./routes/sessions.js";
+import { bootstrapSessions } from "./session-bootstrap.js";
+import { createMessageRoutes } from "./routes/messages.js";
+import { validateEnv } from "./validate-env.js";
+import {
+  badSessionState,
+  clearRestartState,
+  restartState,
+  sessions,
+} from "./session-state.js";
+import {
+  AGENTS_API_KEY,
+  AGENTS_API_URL,
+  API_KEY,
+  BAILEYS_BAD_SESSION_THRESHOLD,
+  BAILEYS_BAD_SESSION_WINDOW_MS,
+  BAILEYS_CONNECT_TIMEOUT_MS,
+  BAILEYS_DEFAULT_QUERY_TIMEOUT_MS,
+  BAILEYS_KEEP_ALIVE_MS,
+  BAILEYS_RESTART_BACKOFF_MS,
+  BAILEYS_RESTART_MAX_ATTEMPTS,
+  BAILEYS_RESTART_MAX_BACKOFF_MS,
+  BAILEYS_RETRY_QUEUE_COOLDOWN_MS,
+  BAILEYS_RETRY_QUEUE_ENABLED,
+  BAILEYS_RETRY_QUEUE_FLUSH_INTERVAL_MS,
+  BAILEYS_RETRY_QUEUE_MAX,
+  BAILEYS_RETRY_QUEUE_PATH,
+  BAILEYS_RETRY_REQUEST_DELAY_MS,
+  BAILEYS_SYNC_FULL_HISTORY,
+  PORT,
+  PUSHER_APP_ID,
+  PUSHER_CLUSTER,
+  PUSHER_KEY,
+  PUSHER_SECRET,
+  R2_ACCESS_KEY_ID,
+  R2_BUCKET_INBOX_ATTACHMENTS,
+  R2_ENDPOINT,
+  R2_SECRET_ACCESS_KEY,
+  SUPABASE_SERVICE_ROLE_KEY,
+  SUPABASE_URL,
+} from "./config.js";
 
 const logger = P({ level: process.env.LOG_LEVEL ?? "info" });
 
-const PORT = Number(process.env.PORT ?? 3030);
-const API_KEY = process.env.BAILEYS_API_KEY ?? "";
-const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
-const SUPABASE_SERVICE_ROLE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-const AGENTS_API_URL = process.env.AGENTS_API_URL ?? "";
-const AGENTS_API_KEY = process.env.AGENTS_API_KEY ?? "";
-const PUSHER_APP_ID = process.env.PUSHER_APP_ID ?? "";
-const PUSHER_KEY = process.env.PUSHER_KEY ?? "";
-const PUSHER_SECRET = process.env.PUSHER_SECRET ?? "";
-const PUSHER_CLUSTER = process.env.PUSHER_CLUSTER ?? "";
-const R2_ACCOUNT_ID = process.env.R2_ACCOUNT_ID ?? "";
-const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID ?? "";
-const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY ?? "";
-const R2_ENDPOINT =
-  process.env.R2_ENDPOINT ??
-  (R2_ACCOUNT_ID
-    ? `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`
-    : "");
-const R2_BUCKET_INBOX_ATTACHMENTS =
-  process.env.R2_BUCKET_INBOX_ATTACHMENTS ?? "ia-four-sales-crm";
-
-if (!AGENTS_API_URL) {
-  logger.warn("AGENTS_API_URL not configured. Agents notifications are disabled.");
-}
-
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-}
-if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !R2_ENDPOINT) {
-  throw new Error("Missing R2 credentials");
-}
+validateEnv({ logger });
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -83,127 +93,20 @@ const buildR2Key = (prefix, key) => {
 
 const SESSION_TABLE = "whatsapp_baileys_sessions";
 const DAYS_HISTORY = 14;
-const RESTART_BACKOFF_MS = Number(process.env.BAILEYS_RESTART_BACKOFF_MS ?? 1200);
-const RESTART_MAX_BACKOFF_MS = Number(process.env.BAILEYS_RESTART_MAX_BACKOFF_MS ?? 30000);
-const BAILEYS_KEEP_ALIVE_MS = Number(process.env.BAILEYS_KEEP_ALIVE_MS ?? 20000);
-const BAILEYS_CONNECT_TIMEOUT_MS = Number(process.env.BAILEYS_CONNECT_TIMEOUT_MS ?? 60000);
-const BAILEYS_DEFAULT_QUERY_TIMEOUT_MS = Number(
-  process.env.BAILEYS_DEFAULT_QUERY_TIMEOUT_MS ?? 60000
-);
-const BAILEYS_RETRY_REQUEST_DELAY_MS = Number(
-  process.env.BAILEYS_RETRY_REQUEST_DELAY_MS ?? 5000
-);
-const BAILEYS_SYNC_FULL_HISTORY = process.env.BAILEYS_SYNC_FULL_HISTORY === "true";
-const BAILEYS_RESTART_MAX_ATTEMPTS = Number(
-  process.env.BAILEYS_RESTART_MAX_ATTEMPTS ?? 8
-);
-const BAILEYS_BAD_SESSION_THRESHOLD = Number(
-  process.env.BAILEYS_BAD_SESSION_THRESHOLD ?? 3
-);
-const BAILEYS_BAD_SESSION_WINDOW_MS = Number(
-  process.env.BAILEYS_BAD_SESSION_WINDOW_MS ?? 10 * 60 * 1000
-);
-const BAILEYS_RETRY_QUEUE_ENABLED =
-  process.env.BAILEYS_RETRY_QUEUE_ENABLED !== "false";
-const BAILEYS_RETRY_QUEUE_PATH =
-  process.env.BAILEYS_RETRY_QUEUE_PATH ?? "logs/baileys-retry-queue.jsonl";
-const BAILEYS_RETRY_QUEUE_FLUSH_INTERVAL_MS = Number(
-  process.env.BAILEYS_RETRY_QUEUE_FLUSH_INTERVAL_MS ?? 5000
-);
-const BAILEYS_RETRY_QUEUE_MAX = Number(
-  process.env.BAILEYS_RETRY_QUEUE_MAX ?? 5000
-);
-const BAILEYS_RETRY_QUEUE_COOLDOWN_MS = Number(
-  process.env.BAILEYS_RETRY_QUEUE_COOLDOWN_MS ?? 15000
-);
 
-const sessions = new Map();
-const restartState = new Map();
-const badSessionState = new Map();
-const retryQueue = [];
-const retryQueuePath = path.resolve(process.cwd(), BAILEYS_RETRY_QUEUE_PATH);
-let retryQueueFlushRunning = false;
-let retryQueueInterval = null;
-let dbUnavailableUntil = 0;
-let pusherServer = null;
-let pusherWarned = false;
+const sessionRepository = createSessionRepository({
+  supabase,
+  sessionTable: SESSION_TABLE,
+  logger,
+});
 
-const workspaceChannel = (workspaceId) => `private-workspace-${workspaceId}`;
-const conversationChannel = (conversationId) =>
-  `private-conversation-${conversationId}`;
-
-const getPusherServer = () => {
-  if (!PUSHER_APP_ID || !PUSHER_KEY || !PUSHER_SECRET || !PUSHER_CLUSTER) {
-    if (!pusherWarned) {
-      pusherWarned = true;
-      logger.warn("Pusher envs ausentes; realtime do inbox sera desabilitado.");
-    }
-    return null;
-  }
-  if (!pusherServer) {
-    pusherServer = new Pusher({
-      appId: PUSHER_APP_ID,
-      key: PUSHER_KEY,
-      secret: PUSHER_SECRET,
-      cluster: PUSHER_CLUSTER,
-      useTLS: true,
-    });
-  }
-  return pusherServer;
-};
-
-const triggerPusher = async (channel, event, payload) => {
-  const pusher = getPusherServer();
-  if (!pusher) return;
-  try {
-    await pusher.trigger(channel, event, payload);
-  } catch (error) {
-    logger.warn({ err: error, event, channel }, "Falha ao disparar Pusher");
-  }
-};
-
-const emitMessageCreated = async ({ workspaceId, conversationId, message }) => {
-  await triggerPusher(conversationChannel(conversationId), "message:created", {
-    event_id: crypto.randomUUID(),
-    workspace_id: workspaceId,
-    conversation_id: conversationId,
-    message,
-  });
-};
-
-const emitConversationUpdated = async ({
-  workspaceId,
-  conversationId,
-  status,
-  lastMessage,
-  lastAt,
-  tags,
-}) => {
-  await triggerPusher(workspaceChannel(workspaceId), "conversation:updated", {
-    event_id: crypto.randomUUID(),
-    workspace_id: workspaceId,
-    conversation_id: conversationId,
-    ...(status ? { status } : {}),
-    ...(typeof lastMessage === "string" ? { ultima_mensagem: lastMessage } : {}),
-    ...(lastAt ? { ultima_mensagem_em: lastAt } : {}),
-    ...(Array.isArray(tags) ? { tags } : {}),
-  });
-};
-
-const emitAttachmentCreated = async ({
-  workspaceId,
-  conversationId,
-  messageId,
-  attachment,
-}) => {
-  await triggerPusher(conversationChannel(conversationId), "attachment:created", {
-    event_id: crypto.randomUUID(),
-    workspace_id: workspaceId,
-    conversation_id: conversationId,
-    message_id: messageId,
-    attachment,
-  });
-};
+const realtime = createRealtime({
+  logger,
+  appId: PUSHER_APP_ID,
+  key: PUSHER_KEY,
+  secret: PUSHER_SECRET,
+  cluster: PUSHER_CLUSTER,
+});
 
 const resolveErrorMessage = (error) => {
   if (!error) return "";
@@ -263,113 +166,20 @@ const throwIfSupabaseError = (error, label) => {
   }
 };
 
-const markDbUnavailable = () => {
-  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
-  dbUnavailableUntil = Date.now() + BAILEYS_RETRY_QUEUE_COOLDOWN_MS;
-};
-
-const isDbUnavailable = () =>
-  BAILEYS_RETRY_QUEUE_ENABLED && Date.now() < dbUnavailableUntil;
-
-const serializeRetryQueueItem = (item) =>
-  JSON.stringify(item, BufferJSON.replacer);
-
-const parseRetryQueueItem = (line) => JSON.parse(line, BufferJSON.reviver);
-
-const ensureRetryQueueDir = async () => {
-  await fs.mkdir(path.dirname(retryQueuePath), { recursive: true });
-};
-
-const loadRetryQueueFromDisk = async () => {
-  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
-  try {
-    const content = await fs.readFile(retryQueuePath, "utf8");
-    const lines = content.split("\n").filter(Boolean);
-    for (const line of lines) {
-      try {
-        const item = parseRetryQueueItem(line);
-        if (item?.integrationAccountId && item?.message) {
-          retryQueue.push(item);
-        }
-      } catch (error) {
-        logger.warn({ err: error }, "Falha ao ler item da fila");
-      }
-    }
-    if (retryQueue.length) {
-      logger.info(
-        { total: retryQueue.length },
-        "Fila de retry carregada do disco"
-      );
-    }
-  } catch (error) {
-    if (error?.code !== "ENOENT") {
-      logger.warn({ err: error }, "Falha ao carregar fila de retry");
-    }
-  }
-};
-
-const writeRetryQueueToDisk = async () => {
-  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
-  await ensureRetryQueueDir();
-  const content = retryQueue.length
-    ? `${retryQueue.map(serializeRetryQueueItem).join("\n")}\n`
-    : "";
-  await fs.writeFile(retryQueuePath, content, "utf8");
-};
-
-const appendRetryQueueItem = async (item) => {
-  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
-  await ensureRetryQueueDir();
-  await fs.appendFile(
-    retryQueuePath,
-    `${serializeRetryQueueItem(item)}\n`,
-    "utf8"
-  );
-};
-
-const enqueueRetryMessage = async ({ integrationAccountId, message, source }) => {
-  if (!BAILEYS_RETRY_QUEUE_ENABLED) return false;
-  const item = {
-    id: crypto.randomUUID(),
-    integrationAccountId,
-    source,
-    message,
-    queued_at: new Date().toISOString(),
-  };
-  let dropped = false;
-  if (retryQueue.length >= BAILEYS_RETRY_QUEUE_MAX) {
-    retryQueue.shift();
-    dropped = true;
-    logger.warn(
-      { max: BAILEYS_RETRY_QUEUE_MAX },
-      "Fila de retry cheia; descartando mensagem mais antiga"
-    );
-  }
-  retryQueue.push(item);
-  try {
-    if (dropped) {
-      await writeRetryQueueToDisk();
-    } else {
-      await appendRetryQueueItem(item);
-    }
-  } catch (error) {
-    logger.warn({ err: error }, "Falha ao persistir fila de retry");
-  }
-  return true;
-};
-
-const startRetryQueueInterval = () => {
-  if (!BAILEYS_RETRY_QUEUE_ENABLED || retryQueueInterval) return;
-  retryQueueInterval = setInterval(() => {
-    void flushRetryQueue();
-  }, BAILEYS_RETRY_QUEUE_FLUSH_INTERVAL_MS);
-};
-
-const clearRestartState = (integrationAccountId) => {
-  const state = restartState.get(integrationAccountId);
-  if (state?.timer) clearTimeout(state.timer);
-  restartState.delete(integrationAccountId);
-};
+let processMessage;
+const retryQueue = createRetryQueue({
+  enabled: BAILEYS_RETRY_QUEUE_ENABLED,
+  maxSize: BAILEYS_RETRY_QUEUE_MAX,
+  queuePath: BAILEYS_RETRY_QUEUE_PATH,
+  flushIntervalMs: BAILEYS_RETRY_QUEUE_FLUSH_INTERVAL_MS,
+  cooldownMs: BAILEYS_RETRY_QUEUE_COOLDOWN_MS,
+  logger,
+  bufferJSON: BufferJSON,
+  processMessage: (...args) => processMessage(...args),
+  getSession: (integrationAccountId) => sessions.get(integrationAccountId),
+  buildChatMap: (...args) => buildChatMap(...args),
+  isTransientDbError,
+});
 
 const scheduleRestart = ({
   integrationAccountId,
@@ -387,11 +197,11 @@ const scheduleRestart = ({
       "Muitas tentativas de reconexao; aguardando acao manual"
     );
     clearRestartState(integrationAccountId);
-    void updateSessionRow(integrationAccountId, {
+    void sessionRepository.updateSessionRow(integrationAccountId, {
       status: "desconectado",
       last_qr: null,
     });
-    void updateIntegrationAccount(integrationAccountId, {
+    void sessionRepository.updateIntegrationAccount(integrationAccountId, {
       status: "desconectado",
       sync_last_error: errorLabel || "Baileys: excesso de tentativas",
     });
@@ -400,7 +210,10 @@ const scheduleRestart = ({
   const delay =
     typeof delayOverrideMs === "number"
       ? delayOverrideMs
-      : Math.min(RESTART_BACKOFF_MS * 2 ** (attempts - 1), RESTART_MAX_BACKOFF_MS);
+      : Math.min(
+          BAILEYS_RESTART_BACKOFF_MS * 2 ** (attempts - 1),
+          BAILEYS_RESTART_MAX_BACKOFF_MS
+        );
   const timer = setTimeout(async () => {
     clearRestartState(integrationAccountId);
     if (sessions.has(integrationAccountId)) return;
@@ -655,7 +468,7 @@ const syncSelfProfile = async ({ session, name, avatarUrl }) => {
     session.selfAvatarUrl = avatarUrl;
   }
   if (Object.keys(payload).length > 0) {
-    await updateIntegrationAccount(session.integrationAccountId, payload);
+    await sessionRepository.updateIntegrationAccount(session.integrationAccountId, payload);
   }
 };
 
@@ -873,80 +686,6 @@ const serializeAuth = (state) =>
 
 const deserializeAuth = (state) =>
   JSON.parse(JSON.stringify(state), BufferJSON.reviver);
-
-const ensureSessionRow = async (integrationAccountId, workspaceId) => {
-  await supabase
-    .from(SESSION_TABLE)
-    .upsert(
-      {
-        integration_account_id: integrationAccountId,
-        workspace_id: workspaceId,
-        status: "conectando",
-        last_seen_at: new Date().toISOString(),
-      },
-      { onConflict: "integration_account_id" }
-    );
-};
-
-const updateSessionRow = async (integrationAccountId, payload) => {
-  await supabase
-    .from(SESSION_TABLE)
-    .update({ ...payload, last_seen_at: new Date().toISOString() })
-    .eq("integration_account_id", integrationAccountId);
-};
-
-const updateIntegrationAccount = async (integrationAccountId, payload) => {
-  await supabase.from("integration_accounts").update(payload).eq(
-    "id",
-    integrationAccountId
-  );
-};
-
-const updateSyncStatus = async (integrationAccountId, payload) => {
-  if (!payload || typeof payload !== "object") return;
-  const {
-    sync_total_chats,
-    sync_done_chats,
-    ...basePayload
-  } = payload;
-
-  if (Object.keys(basePayload).length > 0) {
-    const { error } = await supabase
-      .from("integration_accounts")
-      .update(basePayload)
-      .eq("id", integrationAccountId);
-    if (error) {
-      logger.warn({ err: error }, "Failed to update sync status");
-    }
-  }
-
-  const hasChatPayload =
-    sync_total_chats !== undefined || sync_done_chats !== undefined;
-  if (hasChatPayload) {
-    const { error } = await supabase
-      .from("integration_accounts")
-      .update({
-        ...(sync_total_chats !== undefined ? { sync_total_chats } : {}),
-        ...(sync_done_chats !== undefined ? { sync_done_chats } : {}),
-      })
-      .eq("id", integrationAccountId);
-    if (error) {
-      logger.warn({ err: error }, "Failed to update sync chat counters");
-    }
-  }
-};
-
-const fetchIntegrationAccount = async (integrationAccountId) => {
-  const { data } = await supabase
-    .from("integration_accounts")
-    .select(
-      "id, integration_id, provider, integrations!inner(workspace_id)"
-    )
-    .eq("id", integrationAccountId)
-    .eq("provider", "whatsapp_baileys")
-    .maybeSingle();
-  return data ?? null;
-};
 
 const uploadAttachment = async ({
   buffer,
@@ -2026,7 +1765,7 @@ const shouldSyncMessage = (message) => {
   return getTimestampMs(message) >= cutoff;
 };
 
-const processMessage = async ({
+processMessage = async ({
   message,
   session,
   chatMap,
@@ -2040,8 +1779,8 @@ const processMessage = async ({
   const normalizedJid = jidNormalizedUser(remoteJid) || remoteJid;
   if (isJidStatusBroadcast(normalizedJid)) return;
 
-  if (queueOnDbFail && isDbUnavailable()) {
-    await enqueueRetryMessage({
+  if (queueOnDbFail && retryQueue.isDbUnavailable()) {
+    await retryQueue.enqueue({
       integrationAccountId: session.integrationAccountId,
       message,
       source,
@@ -2196,7 +1935,7 @@ const processMessage = async ({
     }
 
     if (shouldEmitRealtime && messageId && messageResult?.isNew) {
-      void emitMessageCreated({
+      void realtime.emitMessageCreated({
         workspaceId: session.workspaceId,
         conversationId,
         message: {
@@ -2217,7 +1956,7 @@ const processMessage = async ({
           quoted_conteudo: quoted?.texto ?? null,
         },
       });
-      void emitConversationUpdated({
+      void realtime.emitConversationUpdated({
         workspaceId: session.workspaceId,
         conversationId,
         status: "aberta",
@@ -2281,7 +2020,7 @@ const processMessage = async ({
     });
 
     if (shouldEmitRealtime && attachmentId) {
-      void emitAttachmentCreated({
+      void realtime.emitAttachmentCreated({
         workspaceId: session.workspaceId,
         conversationId,
         messageId,
@@ -2295,8 +2034,8 @@ const processMessage = async ({
     }
   } catch (error) {
     if (queueOnDbFail && isTransientDbError(error)) {
-      markDbUnavailable();
-      await enqueueRetryMessage({
+      retryQueue.markDbUnavailable();
+      await retryQueue.enqueue({
         integrationAccountId: session.integrationAccountId,
         message,
         source,
@@ -2305,52 +2044,6 @@ const processMessage = async ({
       return;
     }
     throw error;
-  }
-};
-
-const flushRetryQueue = async () => {
-  if (!BAILEYS_RETRY_QUEUE_ENABLED) return;
-  if (retryQueueFlushRunning) return;
-  if (!retryQueue.length) return;
-  retryQueueFlushRunning = true;
-  let processed = 0;
-  try {
-    while (retryQueue.length) {
-      const item = retryQueue[0];
-      const session = sessions.get(item.integrationAccountId);
-      if (!session || session.blocked || session.status === "desconectado") {
-        break;
-      }
-      try {
-        await processMessage({
-          message: item.message,
-          session,
-          chatMap: session.chatMap ?? buildChatMap(),
-          source: item.source ?? "realtime",
-          queueOnDbFail: false,
-        });
-        retryQueue.shift();
-        processed += 1;
-      } catch (error) {
-        if (isTransientDbError(error)) {
-          markDbUnavailable();
-          break;
-        }
-        retryQueue.shift();
-        processed += 1;
-        logger.error(
-          { err: error, integrationAccountId: item.integrationAccountId },
-          "Falha ao reprocessar mensagem da fila"
-        );
-      }
-    }
-    if (processed > 0) {
-      await writeRetryQueueToDisk();
-    }
-  } catch (error) {
-    logger.warn({ err: error }, "Falha ao processar fila de retry");
-  } finally {
-    retryQueueFlushRunning = false;
   }
 };
 
@@ -2378,7 +2071,7 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
     sessions.delete(integrationAccountId);
   }
 
-  await ensureSessionRow(integrationAccountId, workspaceId);
+  await sessionRepository.ensureSessionRow(integrationAccountId, workspaceId);
 
   const { data: sessionRow } = await supabase
     .from(SESSION_TABLE)
@@ -2498,11 +2191,11 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
       const qrDataUrl = await QRCode.toDataURL(qr);
       session.qr = qrDataUrl;
       session.status = "conectando";
-      await updateSessionRow(integrationAccountId, {
+      await sessionRepository.updateSessionRow(integrationAccountId, {
         status: "conectando",
         last_qr: qrDataUrl,
       });
-      await updateIntegrationAccount(integrationAccountId, {
+      await sessionRepository.updateIntegrationAccount(integrationAccountId, {
         status: "conectando",
       });
     }
@@ -2530,13 +2223,13 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
       if (avatarUrl) {
         session.selfAvatarUrl = avatarUrl;
       }
-      await updateSessionRow(integrationAccountId, {
+      await sessionRepository.updateSessionRow(integrationAccountId, {
         status: "conectado",
         last_qr: null,
         numero,
         nome: session.nome,
       });
-      await updateIntegrationAccount(integrationAccountId, {
+      await sessionRepository.updateIntegrationAccount(integrationAccountId, {
         status: "conectado",
         connected_at: new Date().toISOString(),
         numero,
@@ -2586,8 +2279,8 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
           });
         }, 9000);
       }
-      if (retryQueue.length) {
-        void flushRetryQueue();
+      if (retryQueue.hasPending()) {
+        void retryQueue.flush();
       }
     }
 
@@ -2617,12 +2310,12 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
         sessions.delete(integrationAccountId);
         clearRestartState(integrationAccountId);
         clearBadSession(integrationAccountId);
-        await updateSessionRow(integrationAccountId, {
+        await sessionRepository.updateSessionRow(integrationAccountId, {
           status: "desconectado",
           last_qr: null,
           auth_state: null,
         });
-        await updateIntegrationAccount(integrationAccountId, {
+        await sessionRepository.updateIntegrationAccount(integrationAccountId, {
           status: "desconectado",
           sync_last_error: errorLabel,
         });
@@ -2634,12 +2327,12 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
         session.qr = null;
         sessions.delete(integrationAccountId);
         clearRestartState(integrationAccountId);
-        await updateSessionRow(integrationAccountId, {
+        await sessionRepository.updateSessionRow(integrationAccountId, {
           status: "desconectado",
           last_qr: null,
           auth_state: null,
         });
-        await updateIntegrationAccount(integrationAccountId, {
+        await sessionRepository.updateIntegrationAccount(integrationAccountId, {
           status: "desconectado",
           sync_last_error: `${errorLabel} - reautenticacao necessaria`,
         });
@@ -2651,11 +2344,11 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
       const reconnectWorkspaceId = session.workspaceId;
       sessions.delete(integrationAccountId);
 
-      await updateSessionRow(integrationAccountId, {
+      await sessionRepository.updateSessionRow(integrationAccountId, {
         status: "conectando",
         last_qr: null,
       });
-      await updateIntegrationAccount(integrationAccountId, {
+      await sessionRepository.updateIntegrationAccount(integrationAccountId, {
         status: "conectando",
         sync_last_error: errorLabel,
       });
@@ -2703,7 +2396,7 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
       .sort((a, b) => getTimestampMs(a) - getTimestampMs(b));
     const total = validMessages.length;
     const totalChats = chatIds.size;
-    await updateSyncStatus(integrationAccountId, {
+    await sessionRepository.updateSyncStatus(integrationAccountId, {
       sync_status: "running",
       sync_total: total,
       sync_done: 0,
@@ -2729,7 +2422,7 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
       } finally {
         processed += 1;
         if (chatChanged || processed % 50 === 0 || processed === total) {
-          await updateSyncStatus(integrationAccountId, {
+          await sessionRepository.updateSyncStatus(integrationAccountId, {
             sync_done: processed,
             sync_done_chats: seenChats.size,
           });
@@ -2737,7 +2430,7 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
       }
     }
 
-    await updateSyncStatus(integrationAccountId, {
+    await sessionRepository.updateSyncStatus(integrationAccountId, {
       sync_status: "done",
       sync_finished_at: new Date().toISOString(),
       sync_done_chats: totalChats,
@@ -2825,399 +2518,28 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
 const app = express();
 app.use(express.json({ limit: "6mb" }));
 app.use(requireApiKey);
-
-const bootstrapSessions = async () => {
-  const { data } = await supabase
-    .from("integration_accounts")
-    .select("id, status, sync_last_error, integrations!inner(workspace_id)")
-    .eq("provider", "whatsapp_baileys")
-    .in("status", ["conectado", "conectando", "desconectado"]);
-
-  const accounts = (data ?? []).filter(
-    (account) => account.sync_last_error !== "manual_disconnect"
-  );
-  for (const account of accounts) {
-    const workspaceId = Array.isArray(account.integrations)
-      ? account.integrations[0]?.workspace_id
-      : account.integrations?.workspace_id;
-    if (!workspaceId) continue;
-    try {
-      await createSession({
-        integrationAccountId: account.id,
-        workspaceId,
-        forceNew: false,
-      });
-    } catch (error) {
-      logger.warn({ err: error }, "Failed to bootstrap session");
-    }
-  }
-};
-
-app.post("/sessions", async (req, res) => {
-  const { integrationAccountId, workspaceId, forceNew } = req.body || {};
-  if (!integrationAccountId || !workspaceId) {
-    return res.status(400).send("Missing integrationAccountId or workspaceId");
-  }
-
-  const account = await fetchIntegrationAccount(integrationAccountId);
-  if (!account) {
-    return res.status(404).send("Integration account not found");
-  }
-
-  try {
-    const session = await createSession({
-      integrationAccountId,
-      workspaceId,
-      forceNew: Boolean(forceNew),
-    });
-
-    return res.json({
-      integrationAccountId,
-      status: session.status,
-      qrcode: session.qr,
-      numero: session.numero,
-      nome: session.nome,
-    });
-  } catch (error) {
-    logger.error({ err: error }, "Failed to create session");
-    return res.status(500).send("Failed to create session");
-  }
-});
-
-app.get("/sessions/:id", async (req, res) => {
-  const { id } = req.params;
-  if (!id) return res.status(400).send("Missing session id");
-
-  const session = sessions.get(id);
-  if (!session) {
-    const { data } = await supabase
-      .from(SESSION_TABLE)
-      .select("status, last_qr, numero, nome")
-      .eq("integration_account_id", id)
-      .maybeSingle();
-
-    if (!data) {
-      return res.status(404).send("Session not found");
-    }
-
-    return res.json({
-      status: data.status,
-      qrcode: data.last_qr,
-      numero: data.numero,
-      nome: data.nome,
-      connected: data.status === "conectado",
-    });
-  }
-
-  return res.json({
-    status: session.status,
-    qrcode: session.qr,
-    numero: session.numero,
-    nome: session.nome,
-    connected: session.status === "conectado",
-  });
-});
-
-app.post("/sessions/:id/disconnect", async (req, res) => {
-  const { id } = req.params;
-  if (!id) return res.status(400).send("Missing session id");
-
-  const session = sessions.get(id);
-  if (session?.sock) {
-    session.blocked = true;
-    try {
-      await session.sock.logout();
-    } catch (error) {
-      logger.warn({ err: error }, "Failed to logout session");
-    }
-    sessions.delete(id);
-  }
-
-  await updateSessionRow(id, { status: "desconectado" });
-  await updateIntegrationAccount(id, { status: "desconectado" });
-
-  return res.json({ success: true });
-});
-
-app.post("/sessions/:id/backfill-avatars", async (req, res) => {
-  const { id } = req.params;
-  if (!id) return res.status(400).send("Missing session id");
-
-  let session = sessions.get(id);
-  if (!session) {
-    const account = await fetchIntegrationAccount(id);
-    if (!account) {
-      return res.status(404).send("Session not found");
-    }
-    const workspaceId = Array.isArray(account.integrations)
-      ? account.integrations[0]?.workspace_id
-      : account.integrations?.workspace_id;
-    if (!workspaceId) {
-      return res.status(400).send("Missing workspace id");
-    }
-    try {
-      session = await createSession({
-        integrationAccountId: id,
-        workspaceId,
-        forceNew: false,
-      });
-    } catch (error) {
-      logger.warn({ err: error }, "Failed to load session for backfill");
-      return res.status(500).send("Failed to load session");
-    }
-  }
-
-  if (!session || session.status !== "conectado") {
-    return res.status(409).json({
-      ok: false,
-      reason: "Session not connected",
-      status: session?.status ?? "desconectado",
-    });
-  }
-
-  const leadLimit =
-    Number.isFinite(Number(req.body?.leadLimit)) &&
-    Number(req.body?.leadLimit) > 0
-      ? Number(req.body.leadLimit)
-      : undefined;
-  const messageLimit =
-    Number.isFinite(Number(req.body?.messageLimit)) &&
-    Number(req.body?.messageLimit) > 0
-      ? Number(req.body.messageLimit)
-      : undefined;
-
-  const result = await backfillAvatars({
-    session,
-    integrationAccountId: id,
-    ...(leadLimit ? { leadLimit } : {}),
-    ...(messageLimit ? { messageLimit } : {}),
-    forceRun: req.body?.force === true,
-  });
-
-  if (!result.ok) {
-    return res.status(409).json(result);
-  }
-
-  return res.json(result);
-});
-
-app.get("/sessions/:id/profile-picture", async (req, res) => {
-  const { id } = req.params;
-  const jidRaw = typeof req.query?.jid === "string" ? req.query.jid : "";
-  const phoneRaw = typeof req.query?.phone === "string" ? req.query.phone : "";
-  const groupRaw = typeof req.query?.groupJid === "string" ? req.query.groupJid : "";
-  if (!id || !jidRaw) {
-    return res.status(400).send("Missing session id or jid");
-  }
-
-  const session = sessions.get(id);
-  if (!session || session.status !== "conectado") {
-    return res.status(409).send("Session not connected");
-  }
-
-  const resolvedPhone =
-    phoneRaw ||
-    (groupRaw
-      ? await getParticipantPhoneFromGroup({
-          session,
-          groupJid: groupRaw,
-          participantJid: jidRaw,
-        })
-      : null);
-
-  const candidates = await resolveProfileCandidates({
-    remoteJid: jidRaw,
-    session,
-    phone: resolvedPhone || null,
-  });
-  if (!candidates.length) {
-    return res.json({
-      candidates: [],
-      resolved: null,
-      attempts: [],
-      resolvedPhone: resolvedPhone ?? null,
-    });
-  }
-
-  const attempts = [];
-  let resolved = null;
-  for (const candidate of candidates) {
-    try {
-      await requestPrivacyToken({ session, jid: candidate });
-      const imageUrl = await session.sock.profilePictureUrl(
-        candidate,
-        "image",
-        6000
-      );
-      attempts.push({
-        candidate,
-        type: "image",
-        url: imageUrl ?? null,
-      });
-      if (imageUrl) {
-        resolved = imageUrl;
-        break;
-      }
-    } catch (error) {
-      attempts.push({
-        candidate,
-        type: "image",
-        url: null,
-        error: error?.message ?? "error",
-      });
-    }
-
-    try {
-      await requestPrivacyToken({ session, jid: candidate });
-      const previewUrl = await session.sock.profilePictureUrl(
-        candidate,
-        "preview",
-        6000
-      );
-      attempts.push({
-        candidate,
-        type: "preview",
-        url: previewUrl ?? null,
-      });
-      if (previewUrl) {
-        resolved = previewUrl;
-        break;
-      }
-    } catch (error) {
-      attempts.push({
-        candidate,
-        type: "preview",
-        url: null,
-        error: error?.message ?? "error",
-      });
-    }
-  }
-
-  return res.json({ candidates, resolved, attempts, resolvedPhone: resolvedPhone ?? null });
-});
-
-app.get("/sessions/:id/group-participants", async (req, res) => {
-  const { id } = req.params;
-  const groupJid = typeof req.query?.jid === "string" ? req.query.jid : "";
-  if (!id || !groupJid) {
-    return res.status(400).send("Missing session id or group jid");
-  }
-
-  const session = sessions.get(id);
-  if (!session || session.status !== "conectado") {
-    return res.status(409).send("Session not connected");
-  }
-
-  const metadata = await ensureGroupMetadata({ session, groupJid, force: true });
-  if (!metadata) {
-    return res.status(404).json({
-      error: "Group metadata not found",
-      details: session.lastGroupMetaError ?? null,
-    });
-  }
-
-  const participants = (metadata.participants ?? []).map((participant) => ({
-    id: participant.id,
-    lid: participant.lid ?? null,
-    phoneNumber: participant.phoneNumber ?? null,
-    admin: participant.admin ?? null,
-  }));
-
-  return res.json({
-    id: metadata.id,
-    subject: metadata.subject,
-    addressingMode: metadata.addressingMode ?? null,
-    participants,
-  });
-});
-
-app.get("/sessions/:id/groups", async (req, res) => {
-  const { id } = req.params;
-  if (!id) return res.status(400).send("Missing session id");
-
-  const session = sessions.get(id);
-  if (!session || session.status !== "conectado") {
-    return res.status(409).send("Session not connected");
-  }
-
-  try {
-    const groups = await session.sock.groupFetchAllParticipating();
-    const list = Object.values(groups ?? {}).map((group) => ({
-      id: group.id,
-      subject: group.subject,
-      addressingMode: group.addressingMode ?? null,
-      size: group.size ?? null,
-    }));
-    return res.json({ total: list.length, groups: list });
-  } catch (error) {
-    return res.status(500).json({ error: error?.message ?? "error" });
-  }
-});
-
-app.post("/messages/send", async (req, res) => {
-  const { integrationAccountId, to, type, text, mediaUrl, mimeType, fileName } =
-    req.body || {};
-
-  if (!integrationAccountId || !to || !type) {
-    return res.status(400).send("Missing send parameters");
-  }
-
-  const session = sessions.get(integrationAccountId);
-  if (!session || session.status !== "conectado") {
-    return res.status(409).send("Session not connected");
-  }
-
-  const jid = normalizeJid(to);
-
-  try {
-    let response = null;
-
-    if (type === "text") {
-      response = await session.sock.sendMessage(jid, {
-        text: text || "",
-      });
-    } else {
-      if (!mediaUrl) {
-        return res.status(400).send("Missing mediaUrl");
-      }
-      const rawMimeType = typeof mimeType === "string" ? mimeType : "";
-      const baseMimeType = rawMimeType.split(";")[0]?.trim() || "";
-
-      if (type === "image") {
-        response = await session.sock.sendMessage(jid, {
-          image: { url: mediaUrl },
-          caption: text || undefined,
-          mimetype: baseMimeType || undefined,
-        });
-      } else if (type === "audio") {
-        const isVoiceNote =
-          typeof fileName === "string" &&
-          fileName.startsWith("audio-") &&
-          baseMimeType === "audio/ogg";
-        response = await session.sock.sendMessage(jid, {
-          audio: { url: mediaUrl },
-          mimetype:
-            baseMimeType === "audio/ogg"
-              ? "audio/ogg; codecs=opus"
-              : rawMimeType || undefined,
-          ptt: isVoiceNote,
-        });
-      } else {
-        response = await session.sock.sendMessage(jid, {
-          document: { url: mediaUrl },
-          fileName: fileName || "arquivo",
-          mimetype: baseMimeType || undefined,
-          caption: text || undefined,
-        });
-      }
-    }
-
-    return res.json({ messageId: response?.key?.id ?? null });
-  } catch (error) {
-    logger.error({ err: error }, "Failed to send message");
-    return res.status(500).send("Failed to send message");
-  }
-});
+app.use(
+  "/sessions",
+  createSessionRoutes({
+    sessions,
+    createSession,
+    sessionRepository,
+    logger,
+    backfillAvatars,
+    getParticipantPhoneFromGroup,
+    resolveProfileCandidates,
+    requestPrivacyToken,
+    ensureGroupMetadata,
+  })
+);
+app.use(
+  "/messages",
+  createMessageRoutes({
+    sessions,
+    normalizeJid,
+    logger,
+  })
+);
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
@@ -3225,10 +2547,11 @@ app.get("/health", (_req, res) => {
 
 app.listen(PORT, () => {
   logger.info(`Baileys service running on :${PORT}`);
-  loadRetryQueueFromDisk()
+  retryQueue
+    .loadFromDisk()
     .then(() => {
-      startRetryQueueInterval();
-      return bootstrapSessions();
+      retryQueue.start();
+      return bootstrapSessions({ supabase, createSession, logger });
     })
     .catch((error) => {
       logger.warn({ err: error }, "Failed to bootstrap sessions");

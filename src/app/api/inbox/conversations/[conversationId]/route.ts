@@ -1,16 +1,30 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import { emitConversationUpdated } from "@/lib/pusher/events";
+import {
+  badRequest,
+  notFound,
+  serverError,
+  unauthorized,
+  unprocessableEntity,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
-type UpdatePayload = {
-  status?: "aberta" | "pendente" | "resolvida" | "spam";
-  ownerId?: string | null;
-};
+const payloadSchema = z
+  .object({
+    status: z.enum(["aberta", "pendente", "resolvida", "spam"]).optional(),
+    ownerId: z.string().trim().min(1).nullable().optional(),
+  })
+  .refine((data) => data.status || data.ownerId !== undefined, {
+    message: "Invalid payload",
+  });
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -26,12 +40,12 @@ export async function PATCH(
   context: { params: Promise<{ conversationId: string }> }
 ) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars.", { status: 500 });
+    return serverError("Missing Supabase env vars.");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header.", { status: 401 });
+    return unauthorized("Missing auth header.");
   }
 
   const {
@@ -39,7 +53,7 @@ export async function PATCH(
     error: userError,
   } = await userClient.auth.getUser();
   if (userError || !user) {
-    return new Response("Invalid auth.", { status: 401 });
+    return unauthorized("Invalid auth.");
   }
 
   const { data: membership } = await userClient
@@ -49,21 +63,19 @@ export async function PATCH(
     .maybeSingle();
 
   if (!membership?.workspace_id) {
-    return new Response("Workspace not found.", { status: 400 });
+    return badRequest("Workspace not found.");
   }
 
-  const body = (await request.json()) as UpdatePayload;
+  const parsed = await parseJsonBody(request, payloadSchema);
+  if (!parsed.ok) {
+    return badRequest("Invalid payload.");
+  }
   const updates: Record<string, unknown> = {};
-
-  if (body?.status) {
-    updates.status = body.status;
+  if (parsed.data.status) {
+    updates.status = parsed.data.status;
   }
-  if ("ownerId" in body) {
-    updates.owner_id = body.ownerId ?? null;
-  }
-
-  if (!Object.keys(updates).length) {
-    return new Response("Invalid payload.", { status: 400 });
+  if (parsed.data.ownerId !== undefined) {
+    updates.owner_id = parsed.data.ownerId ?? null;
   }
 
   const { conversationId } = await context.params;
@@ -75,18 +87,18 @@ export async function PATCH(
     .maybeSingle();
 
   if (!conversation) {
-    return new Response("Conversation not found.", { status: 404 });
+    return notFound("Conversation not found.");
   }
 
-  if (body?.ownerId) {
+  if (parsed.data.ownerId) {
     const { data: ownerMembership } = await userClient
       .from("workspace_members")
       .select("id")
       .eq("workspace_id", membership.workspace_id)
-      .eq("user_id", body.ownerId)
+      .eq("user_id", parsed.data.ownerId)
       .maybeSingle();
     if (!ownerMembership) {
-      return new Response("Responsavel invalido.", { status: 422 });
+      return unprocessableEntity("Responsavel invalido.");
     }
   }
 
@@ -99,11 +111,11 @@ export async function PATCH(
     .maybeSingle();
 
   if (updateError) {
-    return new Response(updateError.message, { status: 500 });
+    return serverError(updateError.message);
   }
 
-  if ("ownerId" in body) {
-    const ownerId = body.ownerId ?? null;
+  if (parsed.data.ownerId !== undefined) {
+    const ownerId = parsed.data.ownerId ?? null;
     if (conversation.lead_id) {
       await userClient
         .from("leads")

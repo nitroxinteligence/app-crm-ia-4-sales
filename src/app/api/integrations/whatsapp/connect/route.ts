@@ -1,13 +1,32 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
+import {
+  badRequest,
+  forbidden,
+  serverError,
+  unauthorized,
+  unprocessableEntity,
+} from "@/lib/api/responses";
+import { parseJsonBody } from "@/lib/api/validation";
+import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-const appId = process.env.WHATSAPP_APP_ID ?? "";
-const appSecret = process.env.WHATSAPP_APP_SECRET ?? "";
-const graphVersion = process.env.WHATSAPP_GRAPH_VERSION ?? "v20.0";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
+const appId = getEnv("WHATSAPP_APP_ID");
+const appSecret = getEnv("WHATSAPP_APP_SECRET");
+const graphVersion = getEnv("WHATSAPP_GRAPH_VERSION", "v20.0");
+
+const payloadSchema = z.object({
+  workspaceId: z.string().trim().min(1),
+  code: z.string().trim().min(1).optional(),
+  redirectUri: z.string().trim().min(1).optional(),
+  accessToken: z.string().trim().min(1).optional(),
+  phoneNumberId: z.string().trim().min(1).optional(),
+  wabaId: z.string().trim().min(1).optional(),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -190,29 +209,30 @@ async function subscribeWaba(accessToken: string, wabaId: string) {
 export async function POST(request: Request) {
   try {
     if (!supabaseUrl || !supabaseAnonKey) {
-      return new Response("Missing Supabase env vars", { status: 500 });
+      return serverError("Missing Supabase env vars");
     }
 
     if (!appId || !appSecret) {
-      return new Response("Missing WhatsApp app env vars", { status: 500 });
+      return serverError("Missing WhatsApp app env vars");
     }
 
     const userClient = getUserClient(request);
     if (!userClient) {
-      return new Response("Missing auth header", { status: 401 });
+      return unauthorized("Missing auth header");
     }
 
-    const body = await request.json();
-    const workspaceId = body.workspaceId as string | undefined;
-    const code = body.code as string | undefined;
-    const redirectUri = body.redirectUri as string | undefined;
-    const accessTokenFromClient = body.accessToken as string | undefined;
-    const phoneNumberIdFromClient = body.phoneNumberId as string | undefined;
-    const wabaIdFromClient = body.wabaId as string | undefined;
-
-    if (!workspaceId) {
-      return new Response("Missing workspaceId", { status: 400 });
+    const parsed = await parseJsonBody(request, payloadSchema);
+    if (!parsed.ok) {
+      return badRequest("Missing workspaceId");
     }
+    const {
+      workspaceId,
+      code,
+      redirectUri,
+      accessToken: accessTokenFromClient,
+      phoneNumberId: phoneNumberIdFromClient,
+      wabaId: wabaIdFromClient,
+    } = parsed.data;
 
     const { data: membership } = await userClient
       .from("workspace_members")
@@ -221,7 +241,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (!membership) {
-      return new Response("Forbidden", { status: 403 });
+      return forbidden("Forbidden");
     }
 
     let tokenResponse: TokenResponse | null = null;
@@ -233,7 +253,7 @@ export async function POST(request: Request) {
     }
 
     if (!accessToken) {
-      return new Response("Missing access token", { status: 400 });
+      return badRequest("Missing access token");
     }
 
     let resolved: {
@@ -254,9 +274,8 @@ export async function POST(request: Request) {
       } catch (error) {
         const message = error instanceof Error ? error.message : "";
         if (message.includes("Missing Permission")) {
-          return new Response(
-            "Missing Permission: conceda business_management e whatsapp_business_management ou informe o Phone Number ID manualmente.",
-            { status: 403 }
+          return forbidden(
+            "Missing Permission: conceda business_management e whatsapp_business_management ou informe o Phone Number ID manualmente."
           );
         }
         throw error;
@@ -269,7 +288,7 @@ export async function POST(request: Request) {
     const displayPhoneNumber = resolved.displayPhoneNumber ?? null;
 
     if (!phoneNumberId) {
-      return new Response("Missing phone_number_id", { status: 422 });
+      return unprocessableEntity("Missing phone_number_id");
     }
 
     if (wabaId) {
@@ -296,9 +315,8 @@ export async function POST(request: Request) {
       .single();
 
     if (integrationError || !integration) {
-      return new Response(
-        integrationError?.message ?? "Failed to save integration",
-        { status: 500 }
+      return serverError(
+        integrationError?.message ?? "Failed to save integration"
       );
     }
 
@@ -335,7 +353,7 @@ export async function POST(request: Request) {
           .single();
 
     if (accountResult.error) {
-      return new Response(accountResult.error.message, { status: 500 });
+      return serverError(accountResult.error.message);
     }
 
     const accountId = existingAccount?.id ?? accountResult.data?.id ?? null;
@@ -361,7 +379,7 @@ export async function POST(request: Request) {
       : await supabaseServer.from("integration_tokens").insert(tokenPayload);
 
     if (tokenResult.error) {
-      return new Response(tokenResult.error.message, { status: 500 });
+      return serverError(tokenResult.error.message);
     }
 
     const { data: authData } = await userClient.auth.getUser();
@@ -398,6 +416,6 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
     console.error("WhatsApp connect failed:", message);
-    return new Response(message, { status: 500 });
+    return serverError(message);
   }
 }

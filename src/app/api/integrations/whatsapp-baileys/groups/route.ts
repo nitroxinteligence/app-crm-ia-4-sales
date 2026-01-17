@@ -1,16 +1,32 @@
+import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import {
+  badGateway,
+  badRequest,
+  forbidden,
+  notFound,
+  serverError,
+  serviceUnavailable,
+  unauthorized,
+} from "@/lib/api/responses";
+import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+const supabaseUrl = getEnv("NEXT_PUBLIC_SUPABASE_URL");
+const supabaseAnonKey = getEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY");
 
-const agentsBaseUrl = process.env.AGENTS_API_URL ?? "";
-const agentsApiKey = process.env.AGENTS_API_KEY;
+const agentsBaseUrl = getEnv("AGENTS_API_URL");
+const agentsApiKey = getEnv("AGENTS_API_KEY") || undefined;
 
 const PROVIDER_BAILEYS = "whatsapp_baileys";
+
+const querySchema = z.object({
+  workspaceId: z.string().trim().min(1),
+  integrationAccountId: z.string().trim().min(1),
+});
 
 function getUserClient(request: Request) {
   const authHeader = request.headers.get("Authorization");
@@ -23,24 +39,26 @@ function getUserClient(request: Request) {
 
 export async function GET(request: Request) {
   if (!supabaseUrl || !supabaseAnonKey) {
-    return new Response("Missing Supabase env vars", { status: 500 });
+    return serverError("Missing Supabase env vars");
   }
   if (!agentsBaseUrl) {
-    return new Response("Missing AGENTS_API_URL", { status: 500 });
+    return serverError("Missing AGENTS_API_URL");
   }
 
   const userClient = getUserClient(request);
   if (!userClient) {
-    return new Response("Missing auth header", { status: 401 });
+    return unauthorized("Missing auth header");
   }
 
   const { searchParams } = new URL(request.url);
-  const workspaceId = searchParams.get("workspaceId");
-  const integrationAccountId = searchParams.get("integrationAccountId");
-  if (!workspaceId) return new Response("Missing workspaceId", { status: 400 });
-  if (!integrationAccountId) {
-    return new Response("Missing integrationAccountId", { status: 400 });
+  const parsed = querySchema.safeParse({
+    workspaceId: searchParams.get("workspaceId") ?? "",
+    integrationAccountId: searchParams.get("integrationAccountId") ?? "",
+  });
+  if (!parsed.success) {
+    return badRequest("Missing workspaceId or integrationAccountId");
   }
+  const { workspaceId, integrationAccountId } = parsed.data;
 
   const { data: membership } = await userClient
     .from("workspace_members")
@@ -49,7 +67,7 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (!membership) {
-    return new Response("Forbidden", { status: 403 });
+    return forbidden("Forbidden");
   }
 
   const { data: account } = await supabaseServer
@@ -60,7 +78,7 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (!account?.integration_id) {
-    return new Response("Integration account not found", { status: 404 });
+    return notFound("Integration account not found");
   }
 
   const { data: integration } = await supabaseServer
@@ -70,7 +88,7 @@ export async function GET(request: Request) {
     .maybeSingle();
 
   if (!integration?.workspace_id || integration.workspace_id !== workspaceId) {
-    return new Response("Integration account not found", { status: 404 });
+    return notFound("Integration account not found");
   }
 
   const headers: Record<string, string> = {
@@ -87,13 +105,13 @@ export async function GET(request: Request) {
       { headers }
     );
   } catch {
-    return new Response("Agents service unreachable", { status: 503 });
+    return serviceUnavailable("Agents service unreachable");
   }
 
   if (!response.ok) {
     const detail = await response.text().catch(() => "");
     const message = detail ? `Agents error: ${detail}` : "Agents error";
-    return new Response(message, { status: 502 });
+    return badGateway(message);
   }
 
   const data = await response.json();
