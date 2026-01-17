@@ -37,7 +37,7 @@ import {
   Plus,
 } from "lucide-react";
 import data from "@emoji-mart/data";
-import type { ConversaInbox, MensagemInbox } from "@/lib/types";
+import type { ConversaInbox, MensagemInbox, StatusConversa } from "@/lib/types";
 import { supabaseClient } from "@/lib/supabase/client";
 import { getR2SignedUrl } from "@/lib/r2/browser";
 import { Badge } from "@/components/ui/badge";

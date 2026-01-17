@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { useAutenticacao } from "@/lib/contexto-autenticacao";
+import { useAutenticacao, ProvedorAutenticacao } from "@/lib/contexto-autenticacao";
 import { GatePlanoTrial } from "@/components/estrutura/gate-plano-trial";
 import { VisaoCobrancaConfiguracoes } from "@/components/configuracoes/visao-cobranca";
 
-function PlanosPage() {
+function ConteudoPlanosPage() {
   const router = useRouter();
   const { workspace, session } = useAutenticacao();
   const [carregando, setCarregando] = React.useState(true);
@@ -40,6 +40,14 @@ function PlanosPage() {
         <VisaoCobrancaConfiguracoes modo="selecao" layout="pagina" />
       </div>
     </main>
+  );
+}
+
+function PlanosPage() {
+  return (
+    <ProvedorAutenticacao>
+      <ConteudoPlanosPage />
+    </ProvedorAutenticacao>
   );
 }
 

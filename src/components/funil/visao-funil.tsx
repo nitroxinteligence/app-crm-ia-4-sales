@@ -212,7 +212,7 @@ type ArquivoContato = {
   mime_type?: string | null;
   tamanho_bytes?: number | null;
   created_at: string;
-  publicUrl?: string;
+  publicUrl?: string | null;
 };
 
 type LogAuditoriaContato = {
@@ -312,7 +312,7 @@ export function VisaoFunil() {
     id: string;
     conteudo: string;
     created_at: string;
-    autor_id: string;
+    autor_id?: string | null;
   } | null>(null);
 
   // Timeline Types & State
@@ -3753,7 +3753,7 @@ export function VisaoFunil() {
               <SheetFooter className="flex-none p-4 border-t border-border bg-white dark:bg-slate-950 w-full sm:justify-between z-20 shadow-none">
                 <div className="flex items-center gap-1.5 text-[10px] sm:text-xs text-muted-foreground">
                   <History className="w-3.5 h-3.5" />
-                  <span>Criado em {formatarDataHora(dealAtivo.created_at)}</span>
+                  <span>Criado em {formatarDataHora(dealAtivo.criadoEm)}</span>
                 </div>
 
                 <div className="flex w-full sm:w-auto gap-3">

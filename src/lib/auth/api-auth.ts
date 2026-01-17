@@ -26,8 +26,7 @@ export async function validateApiKey(apiKey: string): Promise<string | null> {
         .from("api_keys")
         .update({ last_used_at: new Date().toISOString() })
         .eq("id", data.id)
-        .then(() => { })
-        .catch(() => { });
+        .then(() => { }, () => { });
 
     return data.workspace_id;
 }

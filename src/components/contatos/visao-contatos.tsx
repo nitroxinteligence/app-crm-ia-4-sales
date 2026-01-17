@@ -105,7 +105,7 @@ type ArquivoContato = {
   id: string;
   file_name: string;
   storage_path: string;
-  publicUrl?: string;
+  publicUrl?: string | null;
   mime_type?: string | null;
   tamanho_bytes?: number | null;
   created_at: string;

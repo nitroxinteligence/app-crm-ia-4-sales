@@ -197,6 +197,10 @@ export function VisaoInbox() {
     | "nunca-respondidos"
     | "tag"
     | "canal"
+    | "em-aberto"
+    | "finalizadas"
+    | "spam"
+    | "nao-iniciados"
   >("tudo");
   const [filtroAtribuicao, setFiltroAtribuicao] = React.useState<
     "todos" | "nao-atribuido" | "atribuido"
@@ -1069,7 +1073,12 @@ export function VisaoInbox() {
 
   const handleAtualizarTagsLocal = React.useCallback(
     (conversationId: string, tags: string[]) => {
-      handleTagsUpdated({ conversation_id: conversationId, tags });
+      handleTagsUpdated({
+        conversation_id: conversationId,
+        tags,
+        event_id: "local",
+        workspace_id: workspaceId ?? "",
+      });
     },
     [handleTagsUpdated]
   );

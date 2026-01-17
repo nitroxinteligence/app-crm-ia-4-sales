@@ -30,7 +30,7 @@ function getUserClient(request: Request) {
 }
 
 type MembershipResult =
-  | { membership: { workspace_id: string; role: string }; user: { id: string }; userClient: ReturnType<typeof getUserClient> }
+  | { membership: { workspace_id: string; role: string }; user: { id: string }; userClient: NonNullable<ReturnType<typeof getUserClient>> }
   | { error: { status: 400 | 401 | 500; message: string } };
 
 async function getMembership(request: Request): Promise<MembershipResult> {

@@ -30,7 +30,7 @@ function getUserClient(request: Request) {
 }
 
 type MembershipResult =
-  | { user: { id: string }; membership: { workspace_id: string; role: string }; userClient: ReturnType<typeof getUserClient> }
+  | { user: { id: string }; membership: { workspace_id: string; role: string }; userClient: NonNullable<ReturnType<typeof getUserClient>> }
   | { error: { status: 400 | 401 | 500; message: string } };
 
 async function getMembership(request: Request): Promise<MembershipResult> {
@@ -107,7 +107,7 @@ export async function GET(request: Request) {
       nome: perfil?.nome ?? "Usuário",
       email: perfil?.email ?? "",
       avatarUrl: perfil?.avatar_url ?? null,
-      role: membro.role as Role,
+      role: membro.role,
       criadoEm: membro.created_at,
       atual: membro.user_id === user.id,
     };

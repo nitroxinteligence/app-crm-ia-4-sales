@@ -106,7 +106,7 @@ export async function GET(request: Request) {
     from: fromParam,
     to: toParam,
   } = parsed.data;
-  const workspaceResolved = await resolveWorkspaceId(userClient, workspaceId);
+  const workspaceResolved = await resolveWorkspaceId(userClient, workspaceId ?? null);
 
   if (!workspaceResolved) {
     return forbidden("Forbidden.");
@@ -281,8 +281,8 @@ export async function GET(request: Request) {
     statusPorCanal.set(
       canalId,
       atual +
-        (row.mensagens_recebidas ?? 0) +
-        (row.mensagens_enviadas ?? 0)
+      (row.mensagens_recebidas ?? 0) +
+      (row.mensagens_enviadas ?? 0)
     );
   }
 

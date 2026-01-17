@@ -29,7 +29,7 @@ function getUserClient(request: Request) {
 }
 
 type UserResult =
-  | { user: { id: string }; userClient: ReturnType<typeof getUserClient> }
+  | { user: { id: string }; userClient: NonNullable<ReturnType<typeof getUserClient>> }
   | { error: { status: 401 | 500; message: string } };
 
 async function getUser(request: Request): Promise<UserResult> {

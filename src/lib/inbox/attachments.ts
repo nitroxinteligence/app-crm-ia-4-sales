@@ -7,7 +7,7 @@ export type AttachmentMeta = {
   mimeType: string
 }
 
-const normalizeMimeType = (mimeType: string) =>
+export const normalizeMimeType = (mimeType: string) =>
   mimeType.split(";")[0]?.trim() || mimeType
 
 export const mapFileToAttachment = (file: File): AttachmentMeta | null => {
@@ -22,7 +22,7 @@ export const mapFileToAttachment = (file: File): AttachmentMeta | null => {
     mimeType === "application/csv" ||
     mimeType === "application/vnd.ms-excel" ||
     mimeType ===
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
   ) {
     return { file, tipo: "pdf", whatsappType: "document", mimeType }
   }

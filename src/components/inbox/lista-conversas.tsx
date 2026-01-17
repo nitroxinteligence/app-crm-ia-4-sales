@@ -117,7 +117,11 @@ export function ListaConversas({
   | "sem-tags"
   | "nunca-respondidos"
   | "tag"
-  | "canal";
+  | "canal"
+  | "em-aberto"
+  | "finalizadas"
+  | "spam"
+  | "nao-iniciados";
   aoAlterarFiltroBasico: (
     valor:
       | "tudo"
@@ -131,6 +135,10 @@ export function ListaConversas({
       | "nunca-respondidos"
       | "tag"
       | "canal"
+      | "em-aberto"
+      | "finalizadas"
+      | "spam"
+      | "nao-iniciados"
   ) => void;
   filtroAtribuicao: "todos" | "nao-atribuido" | "atribuido";
   aoAlterarFiltroAtribuicao: (valor: "todos" | "nao-atribuido" | "atribuido") => void;

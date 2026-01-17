@@ -67,10 +67,11 @@ export async function POST(request: Request) {
   const allowedWorkspaceChannel = workspaceChannel(membership.workspace_id);
   if (channelName === allowedWorkspaceChannel) {
     const pusher = getPusherServer();
+    // Support both old and new Pusher SDK API
     const auth =
       "authorizeChannel" in pusher
-        ? pusher.authorizeChannel(channelName, socketId)
-        : pusher.authenticate(socketId, channelName);
+        ? (pusher as { authorizeChannel: (channel: string, socketId: string) => object }).authorizeChannel(channelName, socketId)
+        : (pusher as { authenticate: (socketId: string, channel: string) => object }).authenticate(socketId, channelName);
     return Response.json(auth);
   }
 
@@ -91,9 +92,10 @@ export async function POST(request: Request) {
   }
 
   const pusher = getPusherServer();
+  // Support both old and new Pusher SDK API
   const auth =
     "authorizeChannel" in pusher
-      ? pusher.authorizeChannel(channelName, socketId)
-      : pusher.authenticate(socketId, channelName);
+      ? (pusher as { authorizeChannel: (channel: string, socketId: string) => object }).authorizeChannel(channelName, socketId)
+      : (pusher as { authenticate: (socketId: string, channel: string) => object }).authenticate(socketId, channelName);
   return Response.json(auth);
 }

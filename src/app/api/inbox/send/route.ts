@@ -22,6 +22,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import {
   type AttachmentMeta,
   mapFileToAttachment,
+  normalizeMimeType,
   sanitizarNomeArquivo,
 } from "@/lib/inbox/attachments";
 import type { Database } from "@/lib/inbox/database";
@@ -182,13 +183,13 @@ export async function POST(request: Request) {
 
   let integrationAccount:
     | {
-        id: string;
-        provider: string | null;
-        status: string | null;
-        phone_number_id: string | null;
-        identificador: string | null;
-        instance_id: string | null;
-      }
+      id: string;
+      provider: string | null;
+      status: string | null;
+      phone_number_id: string | null;
+      identificador: string | null;
+      instance_id: string | null;
+    }
     | null = null;
 
   if (conversation.canal === "whatsapp") {
@@ -272,11 +273,11 @@ export async function POST(request: Request) {
     conversation.canal === "whatsapp" && provider === "whatsapp_baileys"
       ? integrationAccount?.id
         ? {
-            apiUrl: baileysApiUrl,
-            apiKey: baileysApiKey || undefined,
-            integrationAccountId: integrationAccount.id,
-            to: destinatario,
-          }
+          apiUrl: baileysApiUrl,
+          apiKey: baileysApiKey || undefined,
+          integrationAccountId: integrationAccount.id,
+          to: destinatario,
+        }
         : null
       : null;
 
@@ -339,9 +340,8 @@ export async function POST(request: Request) {
     const legendaTexto = index === 0 ? message.trim() : "";
     const hasLegenda = Boolean(legendaTexto);
     const conteudoParaSalvar = hasLegenda ? legendaTexto : nomeArquivo;
-    const storagePath = `${membership.workspace_id}/${conversation.id}/${
-      crypto.randomUUID()
-    }-${nomeArquivo}`;
+    const storagePath = `${membership.workspace_id}/${conversation.id}/${crypto.randomUUID()
+      }-${nomeArquivo}`;
     const baseMimeType = normalizeMimeType(attachment.mimeType);
     const baileysMimeType =
       attachment.tipo === "audio"
@@ -416,10 +416,10 @@ export async function POST(request: Request) {
           hasLegenda && attachment.whatsappType === "audio"
             ? "document"
             : attachment.whatsappType === "image"
-            ? "image"
-            : attachment.whatsappType === "document"
-              ? "document"
-              : "audio";
+              ? "image"
+              : attachment.whatsappType === "document"
+                ? "document"
+                : "audio";
 
         providerMessageId = await sendViaBaileys(baileysConfig, {
           type: tipoBaileys,

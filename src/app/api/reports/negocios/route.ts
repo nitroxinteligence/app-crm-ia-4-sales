@@ -117,7 +117,7 @@ export async function GET(request: Request) {
     to: toParam,
   } = parsed.data;
 
-  const workspaceResolved = await resolveWorkspaceId(userClient, workspaceId);
+  const workspaceResolved = await resolveWorkspaceId(userClient, workspaceId ?? null);
   if (!workspaceResolved) {
     return forbidden("Forbidden.");
   }
@@ -356,9 +356,9 @@ export async function GET(request: Request) {
 
   const stageResult = stageIds.length
     ? await userClient
-        .from("pipeline_stages")
-        .select("id, nome")
-        .in("id", stageIds)
+      .from("pipeline_stages")
+      .select("id, nome")
+      .in("id", stageIds)
     : { data: [], error: null };
 
   if (stageResult.error) {

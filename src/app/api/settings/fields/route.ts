@@ -29,7 +29,7 @@ function getUserClient(request: Request) {
 }
 
 type MembershipResult =
-  | { membership: { workspace_id: string }; userClient: ReturnType<typeof getUserClient> }
+  | { membership: { workspace_id: string }; userClient: NonNullable<ReturnType<typeof getUserClient>> }
   | { error: { status: 400 | 401 | 500; message: string } };
 
 async function getMembership(request: Request): Promise<MembershipResult> {
@@ -121,6 +121,7 @@ export async function POST(request: Request) {
 
   const entidade = parsed.data.entity ?? "lead";
   const tabela = getTabela(entidade);
+  const { nome, tipo } = parsed.data;
   const obrigatorio = parsed.data.obrigatorio ?? false;
   const opcoes = parsed.data.opcoes ?? null;
 

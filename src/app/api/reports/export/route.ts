@@ -92,7 +92,7 @@ export async function GET(request: Request) {
   }
   const { workspaceId, from, to, tipo, canal } = parsed.data;
 
-  const workspaceResolved = await resolveWorkspaceId(userClient, workspaceId);
+  const workspaceResolved = await resolveWorkspaceId(userClient, workspaceId ?? null);
   if (!workspaceResolved) {
     return forbidden("Forbidden.");
   }
