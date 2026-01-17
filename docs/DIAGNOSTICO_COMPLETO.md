@@ -358,3 +358,4 @@ A pasta `src` contém a maior parte da lógica de negócio e apresenta problemas
 - [x] Validar envs no startup do Agents em `apps/agents/app/main.py`.
 - [x] Atualizar relatório de dependências com `npm outdated` (rodada atual).
 - [x] Corrigir log do Cloudflare Workers e ajustar handler `/api/deals/[dealId]`.
+- [x] Atualizar log do Cloudflare Workers com erro de env Supabase (novo build).
