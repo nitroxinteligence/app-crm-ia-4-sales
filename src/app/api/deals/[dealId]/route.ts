@@ -41,9 +41,10 @@ function getUserClient(request: NextRequest) {
 // GET /api/deals/[dealId] - Obter deal específico
 export async function GET(
     request: NextRequest,
-    { params }: { params: { dealId: string } }
+    { params }: { params: Promise<{ dealId: string }> }
 ) {
-    const parsedParams = paramsSchema.safeParse({ dealId: params.dealId });
+    const { dealId } = await params;
+    const parsedParams = paramsSchema.safeParse({ dealId });
     if (!parsedParams.success) {
         return badRequest("Invalid deal id.");
     }
@@ -97,9 +98,10 @@ export async function GET(
 // PATCH /api/deals/[dealId] - Atualizar deal
 export async function PATCH(
     request: NextRequest,
-    { params }: { params: { dealId: string } }
+    { params }: { params: Promise<{ dealId: string }> }
 ) {
-    const parsedParams = paramsSchema.safeParse({ dealId: params.dealId });
+    const { dealId } = await params;
+    const parsedParams = paramsSchema.safeParse({ dealId });
     if (!parsedParams.success) {
         return badRequest("Invalid deal id.");
     }
@@ -171,9 +173,10 @@ export async function PATCH(
 // DELETE /api/deals/[dealId] - Deletar deal
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: { dealId: string } }
+    { params }: { params: Promise<{ dealId: string }> }
 ) {
-    const parsedParams = paramsSchema.safeParse({ dealId: params.dealId });
+    const { dealId } = await params;
+    const parsedParams = paramsSchema.safeParse({ dealId });
     if (!parsedParams.success) {
         return badRequest("Invalid deal id.");
     }
