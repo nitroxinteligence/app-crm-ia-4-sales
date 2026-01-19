@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "VP CRM",
-  description: "CRM omnichannel com agentes de IA da Vertical Partners.",
+  title: "IA Four Sales | CRM com I.A Integrada",
+  description: "CRM omnichannel com agentes de IA integrados.",
 };
 
 export default function RootLayout({
