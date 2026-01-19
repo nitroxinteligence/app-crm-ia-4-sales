@@ -108,6 +108,14 @@ const realtime = createRealtime({
   cluster: PUSHER_CLUSTER,
 });
 
+const isPusherEnabled = Boolean(
+  PUSHER_APP_ID && PUSHER_KEY && PUSHER_SECRET && PUSHER_CLUSTER
+);
+logger.info(
+  { pusherEnabled: isPusherEnabled },
+  "Baileys realtime configuration"
+);
+
 const resolveErrorMessage = (error) => {
   if (!error) return "";
   if (typeof error === "string") return error;
@@ -794,7 +802,7 @@ const upsertConversation = async ({
       throw new Error("Failed to update conversation");
     }
 
-    return data.id;
+    return { id: data.id, isNew: false };
   }
 
   const { data: inserted, error } = await supabase
@@ -808,7 +816,7 @@ const upsertConversation = async ({
     throw new Error("Failed to insert conversation");
   }
 
-  return inserted.id;
+  return { id: inserted.id, isNew: true };
 };
 
 const upsertMessage = async ({
@@ -1778,6 +1786,7 @@ processMessage = async ({
   if (session?.blocked || session?.status === "desconectado") return;
   const normalizedJid = jidNormalizedUser(remoteJid) || remoteJid;
   if (isJidStatusBroadcast(normalizedJid)) return;
+  const processingStartedAt = Date.now();
 
   if (queueOnDbFail && retryQueue.isDbUnavailable()) {
     await retryQueue.enqueue({
@@ -1820,13 +1829,15 @@ processMessage = async ({
       avatarUrl,
     });
 
-    const conversationId = await upsertConversation({
+    const conversationResult = await upsertConversation({
       workspaceId: session.workspaceId,
       leadId,
       integrationAccountId: session.integrationAccountId,
       lastMessage: normalizedText,
       lastAt: createdAt,
     });
+    const conversationId = conversationResult.id;
+    const isNewConversation = conversationResult.isNew;
 
     const author = message.key.fromMe ? "equipe" : "contato";
     let senderId = null;
@@ -1912,10 +1923,32 @@ processMessage = async ({
     const messageId = messageResult?.id ?? null;
 
     const createdAtMs = Date.parse(createdAt);
-    const shouldEmitRealtime =
-      source === "realtime" ||
-      (Number.isFinite(createdAtMs) &&
-        Date.now() - createdAtMs < 2 * 60 * 1000);
+    const nowMs = Date.now();
+    const isRecent =
+      Number.isFinite(createdAtMs) &&
+      nowMs - createdAtMs < 2 * 60 * 1000;
+    const shouldEmitRealtime = source === "realtime" || isRecent;
+    const shouldEmitConversationUpdate =
+      shouldEmitRealtime || (source === "history" && isNewConversation);
+    const processingMs = nowMs - processingStartedAt;
+    const messageLagMs = Number.isFinite(createdAtMs)
+      ? nowMs - createdAtMs
+      : null;
+    if (
+      (shouldEmitRealtime || shouldEmitConversationUpdate) &&
+      processingMs > 1000
+    ) {
+      logger.warn(
+        {
+          processingMs,
+          messageLagMs,
+          source,
+          conversationId,
+          messageExternalId: message.key.id || null,
+        },
+        "Message processing latency"
+      );
+    }
     const shouldNotifyAgents =
       author === "contato" &&
       (source === "realtime" ||
@@ -1956,6 +1989,16 @@ processMessage = async ({
           quoted_conteudo: quoted?.texto ?? null,
         },
       });
+      if (shouldEmitConversationUpdate) {
+        void realtime.emitConversationUpdated({
+          workspaceId: session.workspaceId,
+          conversationId,
+          status: "aberta",
+          lastMessage: normalizedText,
+          lastAt: createdAt,
+        });
+      }
+    } else if (shouldEmitConversationUpdate) {
       void realtime.emitConversationUpdated({
         workspaceId: session.workspaceId,
         conversationId,
@@ -2542,7 +2585,13 @@ app.use(
 );
 
 app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  const pusherEnabled = Boolean(
+    PUSHER_APP_ID && PUSHER_KEY && PUSHER_SECRET && PUSHER_CLUSTER
+  );
+  res.json({
+    ok: true,
+    pusher: { enabled: pusherEnabled },
+  });
 });
 
 app.listen(PORT, () => {

@@ -217,6 +217,41 @@ export function VisaoInbox() {
   const [colapsadaContato, setColapsadaContato] = React.useState(true);
   const refreshTimerRef = React.useRef<number | null>(null);
   const pusherRef = React.useRef<Pusher | null>(null);
+  const pusherEventCacheRef = React.useRef<{
+    set: Set<string>;
+    order: string[];
+  }>({ set: new Set(), order: [] });
+
+  const shouldProcessEvent = React.useCallback((eventId?: string | null) => {
+    if (!eventId) return true;
+    const cache = pusherEventCacheRef.current;
+    if (cache.set.has(eventId)) return false;
+    cache.set.add(eventId);
+    cache.order.push(eventId);
+    if (cache.order.length > 200) {
+      const old = cache.order.shift();
+      if (old) {
+        cache.set.delete(old);
+      }
+    }
+    return true;
+  }, []);
+
+  const logRealtimeLatency = React.useCallback(
+    (eventId: string | undefined, emittedAt?: string) => {
+      if (!emittedAt) return;
+      const emittedMs = Date.parse(emittedAt);
+      if (!Number.isFinite(emittedMs)) return;
+      const latencyMs = Date.now() - emittedMs;
+      if (latencyMs > 1000) {
+        console.warn("Pusher latency high", {
+          eventId,
+          latencyMs,
+        });
+      }
+    },
+    []
+  );
 
 
 
@@ -857,7 +892,7 @@ export function VisaoInbox() {
       refreshTimerRef.current = null;
       // Não usar substituir: true para evitar reset da lista durante sincronização
       carregarConversas({ silencioso: true, pagina: 0 });
-    }, 3000);
+    }, 0);
   }, [carregarConversas]);
 
   React.useEffect(() => {
@@ -900,6 +935,8 @@ export function VisaoInbox() {
   const handleMessageCreated = React.useCallback(
     (payload: PusherMessagePayload) => {
       if (!payload?.conversation_id || !payload.message?.id) return;
+      if (!shouldProcessEvent(payload.event_id)) return;
+      logRealtimeLatency(payload.event_id, payload.emitted_at);
 
       atualizarConversa(
         payload.conversation_id,
@@ -917,6 +954,8 @@ export function VisaoInbox() {
             horario: formatarHorario(createdAt),
             dataHora: createdAt ?? undefined,
             interno: payload.message.interno ?? false,
+            clientMessageId: payload.message.client_message_id ?? undefined,
+            envioStatus: "sent",
             anexos: [] as MensagemInbox["anexos"],
             senderId: payload.message.sender_id ?? undefined,
             senderNome: payload.message.sender_nome ?? undefined,
@@ -965,7 +1004,7 @@ export function VisaoInbox() {
         true
       );
     },
-    [atualizarConversa]
+    [atualizarConversa, logRealtimeLatency, shouldProcessEvent]
   );
 
   const handleAttachmentCreated = React.useCallback(
@@ -973,6 +1012,8 @@ export function VisaoInbox() {
       if (!payload?.conversation_id || !payload.message_id || !payload.attachment?.id) {
         return;
       }
+      if (!shouldProcessEvent(payload.event_id)) return;
+      logRealtimeLatency(payload.event_id, payload.emitted_at);
 
       setConversas((atual) => {
         const index = atual.findIndex((conversa) => conversa.id === payload.conversation_id);
@@ -1015,12 +1056,14 @@ export function VisaoInbox() {
         return lista;
       });
     },
-    [agendarRefresh]
+    [agendarRefresh, logRealtimeLatency, shouldProcessEvent]
   );
 
   const handleConversationUpdated = React.useCallback(
     (payload: PusherConversationUpdatedPayload) => {
       if (!payload?.conversation_id) return;
+      if (!shouldProcessEvent(payload.event_id)) return;
+      logRealtimeLatency(payload.event_id, payload.emitted_at);
       const moverParaTopo = Boolean(payload.ultima_mensagem_em);
 
       atualizarConversa(
@@ -1052,12 +1095,14 @@ export function VisaoInbox() {
         moverParaTopo
       );
     },
-    [atualizarConversa]
+    [atualizarConversa, logRealtimeLatency, shouldProcessEvent]
   );
 
   const handleTagsUpdated = React.useCallback(
     (payload: PusherTagsUpdatedPayload) => {
       if (!payload?.conversation_id) return;
+      if (!shouldProcessEvent(payload.event_id)) return;
+      logRealtimeLatency(payload.event_id, payload.emitted_at);
       atualizarConversa(
         payload.conversation_id,
         (conversa) => ({
@@ -1068,7 +1113,7 @@ export function VisaoInbox() {
         false
       );
     },
-    [atualizarConversa]
+    [atualizarConversa, logRealtimeLatency, shouldProcessEvent]
   );
 
   const handleAtualizarTagsLocal = React.useCallback(

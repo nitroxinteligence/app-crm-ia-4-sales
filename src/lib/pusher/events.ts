@@ -20,6 +20,7 @@ const triggerSafe = async (channel: string, event: string, payload: unknown) => 
 export const emitMessageCreated = async (payload: Omit<PusherMessagePayload, "event_id">) => {
   const fullPayload: PusherMessagePayload = {
     event_id: randomUUID(),
+    emitted_at: new Date().toISOString(),
     ...payload,
   };
 
@@ -35,6 +36,7 @@ export const emitAttachmentCreated = async (
 ) => {
   const fullPayload: PusherAttachmentPayload = {
     event_id: randomUUID(),
+    emitted_at: new Date().toISOString(),
     ...payload,
   };
 
@@ -50,6 +52,7 @@ export const emitConversationUpdated = async (
 ) => {
   const fullPayload: PusherConversationUpdatedPayload = {
     event_id: randomUUID(),
+    emitted_at: new Date().toISOString(),
     ...payload,
   };
 
@@ -63,6 +66,7 @@ export const emitConversationUpdated = async (
 export const emitTagsUpdated = async (payload: Omit<PusherTagsUpdatedPayload, "event_id">) => {
   const fullPayload: PusherTagsUpdatedPayload = {
     event_id: randomUUID(),
+    emitted_at: new Date().toISOString(),
     ...payload,
   };
 

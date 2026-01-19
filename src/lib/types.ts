@@ -108,7 +108,9 @@ export type MensagemInbox = {
   tipo: TipoMensagem;
   horario: string;
   dataHora?: string;
+  clientMessageId?: string;
   interno?: boolean;
+  envioStatus?: "sending" | "sent" | "failed";
   senderId?: string;
   senderNome?: string;
   senderAvatarUrl?: string;

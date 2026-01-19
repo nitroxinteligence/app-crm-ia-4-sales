@@ -2,6 +2,7 @@ import type { AutorMensagem, StatusConversa, TipoMensagem } from "@/lib/types";
 
 export type PusherMessagePayload = {
   event_id: string;
+  emitted_at?: string;
   workspace_id: string;
   conversation_id: string;
   message: {
@@ -11,6 +12,7 @@ export type PusherMessagePayload = {
     conteudo: string | null;
     created_at: string;
     interno?: boolean | null;
+    client_message_id?: string | null;
     sender_id?: string | null;
     sender_nome?: string | null;
     sender_avatar_url?: string | null;
@@ -25,6 +27,7 @@ export type PusherMessagePayload = {
 
 export type PusherAttachmentPayload = {
   event_id: string;
+  emitted_at?: string;
   workspace_id: string;
   conversation_id: string;
   message_id: string;
@@ -38,6 +41,7 @@ export type PusherAttachmentPayload = {
 
 export type PusherConversationUpdatedPayload = {
   event_id: string;
+  emitted_at?: string;
   workspace_id: string;
   conversation_id: string;
   status?: StatusConversa;
@@ -49,6 +53,7 @@ export type PusherConversationUpdatedPayload = {
 
 export type PusherTagsUpdatedPayload = {
   event_id: string;
+  emitted_at?: string;
   workspace_id: string;
   conversation_id: string;
   tags: string[];

@@ -50,6 +50,7 @@ export const createRealtime = ({
   const emitMessageCreated = async ({ workspaceId, conversationId, message }) => {
     await triggerPusher(conversationChannel(conversationId), "message:created", {
       event_id: crypto.randomUUID(),
+      emitted_at: new Date().toISOString(),
       workspace_id: workspaceId,
       conversation_id: conversationId,
       message,
@@ -66,6 +67,7 @@ export const createRealtime = ({
   }) => {
     await triggerPusher(workspaceChannel(workspaceId), "conversation:updated", {
       event_id: crypto.randomUUID(),
+      emitted_at: new Date().toISOString(),
       workspace_id: workspaceId,
       conversation_id: conversationId,
       ...(status ? { status } : {}),
@@ -85,6 +87,7 @@ export const createRealtime = ({
   }) => {
     await triggerPusher(conversationChannel(conversationId), "attachment:created", {
       event_id: crypto.randomUUID(),
+      emitted_at: new Date().toISOString(),
       workspace_id: workspaceId,
       conversation_id: conversationId,
       message_id: messageId,

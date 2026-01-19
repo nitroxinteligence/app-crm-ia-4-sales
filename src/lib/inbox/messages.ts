@@ -31,6 +31,7 @@ export const salvarMensagem = async (
     providerMessageId?: string | null
     sendStatus?: string | null
     sendError?: string | null
+    clientMessageId?: string | null
   }
 ) => {
   const baseInsert: Database["public"]["Tables"]["messages"]["Insert"] = {
@@ -82,6 +83,7 @@ export const salvarMensagem = async (
         conteudo: payload.conteudo,
         created_at: dataCriacao,
         interno: false,
+        client_message_id: payload.clientMessageId ?? null,
       },
     })
 
@@ -147,6 +149,7 @@ export const salvarMensagem = async (
       conteudo: payload.conteudo,
       created_at: dataCriacao,
       interno: false,
+      client_message_id: payload.clientMessageId ?? null,
     },
   })
 

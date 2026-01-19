@@ -51,11 +51,13 @@ const baileysApiKey = getEnv("BAILEYS_API_KEY");
 const jsonPayloadSchema = z.object({
   conversationId: z.string().trim().min(1),
   message: z.string().trim().min(1),
+  clientMessageId: z.string().trim().min(1).optional(),
 });
 
 const multipartPayloadSchema = z.object({
   conversationId: z.string().trim().min(1),
   message: z.string().trim().optional().default(""),
+  clientMessageId: z.string().trim().min(1).optional(),
 });
 
 function getUserClient(request: Request) {
@@ -90,6 +92,7 @@ export async function POST(request: Request) {
   const isMultipart = contentType.includes("multipart/form-data");
   let conversationId = "";
   let message = "";
+  let clientMessageId: string | null = null;
   let attachments: AttachmentMeta[] = [];
 
   if (isMultipart) {
@@ -100,12 +103,17 @@ export async function POST(request: Request) {
       conversationId:
         typeof conversationValue === "string" ? conversationValue : "",
       message: typeof messageValue === "string" ? messageValue : "",
+      clientMessageId:
+        typeof formData.get("clientMessageId") === "string"
+          ? (formData.get("clientMessageId") as string)
+          : undefined,
     });
     if (!parsed.success) {
       return badRequest("Payload invalido.");
     }
     conversationId = parsed.data.conversationId;
     message = parsed.data.message;
+    clientMessageId = parsed.data.clientMessageId ?? null;
     const files = formData
       .getAll("files")
       .filter((item): item is File => item instanceof File && item.size > 0);
@@ -124,6 +132,7 @@ export async function POST(request: Request) {
     }
     conversationId = parsed.data.conversationId;
     message = parsed.data.message;
+    clientMessageId = parsed.data.clientMessageId ?? null;
   }
 
   if (!conversationId || (!message && attachments.length === 0)) {
@@ -303,6 +312,7 @@ export async function POST(request: Request) {
         providerMessageId: null,
         sendStatus: "sending",
         sendError: null,
+        clientMessageId,
       }
     );
 
@@ -360,6 +370,7 @@ export async function POST(request: Request) {
         providerMessageId: null,
         sendStatus: "sending",
         sendError: null,
+        clientMessageId: clientMessageId ? `${clientMessageId}:${index}` : null,
       }
     );
 
