@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Pencil, Plus, Trash2 } from "lucide-react";
 import { supabaseClient } from "@/lib/supabase/client";
 import { useAutenticacao } from "@/lib/contexto-autenticacao";
 import { texto } from "@/lib/idioma";
@@ -27,6 +27,30 @@ type TagItem = {
 
 const corPadrao = "#94a3b8";
 
+// Curated color palette matching the app's visual style
+const paletaCores = [
+  // Reds
+  "#ef4444", "#dc2626", "#f87171",
+  // Oranges
+  "#f97316", "#ea580c", "#fb923c",
+  // Ambers/Yellows
+  "#eab308", "#f59e0b", "#fbbf24",
+  // Greens
+  "#22c55e", "#16a34a", "#4ade80",
+  // Teals
+  "#14b8a6", "#0d9488", "#2dd4bf",
+  // Blues
+  "#3b82f6", "#2563eb", "#60a5fa",
+  // Indigos
+  "#6366f1", "#4f46e5", "#818cf8",
+  // Purples
+  "#a855f7", "#9333ea", "#c084fc",
+  // Pinks
+  "#ec4899", "#db2777", "#f472b6",
+  // Grays
+  "#64748b", "#475569", "#94a3b8",
+];
+
 export function VisaoTagsConfiguracoes() {
   const { workspace, idioma } = useAutenticacao();
   const [tags, setTags] = React.useState<TagItem[]>([]);
@@ -41,6 +65,7 @@ export function VisaoTagsConfiguracoes() {
   const [tagExcluir, setTagExcluir] = React.useState<TagItem | null>(null);
   const [formNome, setFormNome] = React.useState("");
   const [formCor, setFormCor] = React.useState(corPadrao);
+  const [paletaExpandida, setPaletaExpandida] = React.useState(false);
 
   const t = React.useCallback(
     (pt: string, en: string) => texto(idioma, pt, en),
@@ -112,12 +137,12 @@ export function VisaoTagsConfiguracoes() {
 
     const response = tagEditando
       ? await supabaseClient
-          .from("tags")
-          .update(payload)
-          .eq("id", tagEditando.id)
+        .from("tags")
+        .update(payload)
+        .eq("id", tagEditando.id)
       : await supabaseClient
-          .from("tags")
-          .insert({ ...payload, workspace_id: workspace.id });
+        .from("tags")
+        .insert({ ...payload, workspace_id: workspace.id });
 
     if (response.error) {
       setErro(t("Falha ao salvar tag.", "Failed to save tag."));
@@ -278,23 +303,61 @@ export function VisaoTagsConfiguracoes() {
                 placeholder={t("Ex: Lead quente", "e.g. Hot lead")}
               />
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                {t("Cor", "Color")}
-              </label>
-              <div className="flex items-center gap-3">
-                <Input
-                  type="color"
-                  value={formCor}
-                  onChange={(event) => setFormCor(event.target.value)}
-                  className="h-9 w-14 p-1"
+            <div className="space-y-3">
+              {/* Accordion Header */}
+              <button
+                type="button"
+                onClick={() => setPaletaExpandida(!paletaExpandida)}
+                className="w-full flex items-center justify-between p-3 rounded-[6px] border border-border/60 bg-muted/20 hover:bg-muted/40 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-8 h-8 rounded-[6px] border border-border/60 flex-shrink-0"
+                    style={{ backgroundColor: formCor }}
+                  />
+                  <div className="text-left">
+                    <p className="text-sm font-medium">{t("Cores", "Colors")}</p>
+                    <p className="text-xs text-muted-foreground font-mono">{formCor}</p>
+                  </div>
+                </div>
+                <ChevronDown
+                  className={`w-4 h-4 text-muted-foreground transition-transform ${paletaExpandida ? "rotate-180" : ""
+                    }`}
                 />
-                <Input
-                  value={formCor}
-                  onChange={(event) => setFormCor(event.target.value)}
-                  placeholder="#94a3b8"
-                />
-              </div>
+              </button>
+
+              {/* Expandable Palette */}
+              {paletaExpandida && (
+                <div className="space-y-3 pt-1">
+                  {/* Color Palette Grid */}
+                  <div className="grid grid-cols-10 gap-1.5">
+                    {paletaCores.map((cor) => (
+                      <button
+                        key={cor}
+                        type="button"
+                        onClick={() => setFormCor(cor)}
+                        className={`w-7 h-7 rounded-[6px] border-2 transition-all hover:scale-110 ${formCor.toLowerCase() === cor.toLowerCase()
+                            ? "border-slate-900 dark:border-white ring-2 ring-offset-1 ring-slate-400"
+                            : "border-transparent hover:border-slate-300"
+                          }`}
+                        style={{ backgroundColor: cor }}
+                        title={cor}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Hex Input */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-muted-foreground">{t("Hex:", "Hex:")}</span>
+                    <Input
+                      value={formCor}
+                      onChange={(event) => setFormCor(event.target.value)}
+                      placeholder="#94a3b8"
+                      className="font-mono text-sm flex-1"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>

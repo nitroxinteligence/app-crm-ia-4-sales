@@ -69,7 +69,10 @@ export default function CadastroPage() {
         {/* Left Side - Visual & Branding */}
         <div className="relative hidden lg:flex h-full flex-col bg-sidebar-primary p-12 text-sidebar-primary-foreground dark:border-r">
           <div className="absolute inset-0 bg-gradient-to-br from-sidebar-primary/20 via-sidebar-primary/10 to-transparent" />
-          <div className="absolute inset-0 bg-[url('/bg-pattern.svg')] opacity-10 mix-blend-overlay" />
+          <div
+            className="absolute inset-0 opacity-10 mix-blend-overlay"
+            style={{ backgroundImage: "url(/pattern-bg.svg)" }}
+          />
 
           <div className="relative z-20 flex items-center text-lg font-bold tracking-tight">
             <div className="mr-2 h-8 w-8 rounded-lg bg-sidebar-primary-foreground text-sidebar-primary flex items-center justify-center">

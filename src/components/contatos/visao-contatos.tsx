@@ -11,12 +11,17 @@ import {
   MessageSquare,
   Paperclip,
   PencilLine,
+  Plus,
   Search,
   SlidersHorizontal,
   Trash2,
   Upload,
   UserPlus,
   X,
+  XCircle,
+  ArrowRightLeft,
+  Building2,
+  User,
 } from "lucide-react";
 import type { CanalId, ContatoCRM, StatusContato } from "@/lib/types";
 import { mascararEmail, mascararTelefone } from "@/lib/mascaramento";
@@ -31,6 +36,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Dialog,
   DialogContent,
@@ -398,6 +409,11 @@ export function VisaoContatos() {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const arquivoInputRef = React.useRef<HTMLInputElement | null>(null);
 
+  // State for Tags in contact detail view
+  const [novaTagContato, setNovaTagContato] = React.useState("");
+  // State for viewing note details modal
+  const [notaVisualizada, setNotaVisualizada] = React.useState<NotaContato | null>(null);
+
 
 
   const labelOwner = React.useCallback(
@@ -487,6 +503,7 @@ export function VisaoContatos() {
         "id, nome, telefone, email, empresa, status, owner_id, avatar_url, pipeline_id, pipeline_stage_id, created_at, updated_at, contact_tags (tag_id, tags (id, nome, cor))"
       )
       .eq("workspace_id", workspaceId)
+      .eq("tipo", "contato")
       .order("updated_at", { ascending: false });
 
     if (error || !data) {
@@ -1194,6 +1211,89 @@ export function VisaoContatos() {
     );
   };
 
+  // Handler to add a tag to the active contact in detail view
+  const handleAdicionarTagContato = async (tagNome?: string) => {
+    const nomeTag = (tagNome ?? novaTagContato).trim();
+    if (!nomeTag || !contatoAtivo || !workspaceId || !session?.user.id) return;
+
+    // Check if tag already exists on this contact
+    const jaExiste = contatoAtivo.tags.some(
+      (t) => normalizarTexto(t) === normalizarTexto(nomeTag)
+    );
+    if (jaExiste) {
+      setNovaTagContato("");
+      return;
+    }
+
+    // Resolve or create the tag
+    const tagResolvida = await resolverTagExistente(nomeTag);
+    if (!tagResolvida) {
+      setNovaTagContato("");
+      return;
+    }
+
+    // Insert into contact_tags
+    const { error } = await supabaseClient.from("contact_tags").upsert(
+      {
+        workspace_id: workspaceId,
+        contact_id: contatoAtivo.id,
+        tag_id: tagResolvida.id,
+      },
+      { onConflict: "contact_id,tag_id" }
+    );
+
+    if (!error) {
+      // Update local state
+      setContatoAtivo((atual) =>
+        atual ? { ...atual, tags: [...atual.tags, tagResolvida.nome] } : null
+      );
+      setContatos((atual) =>
+        atual.map((c) =>
+          c.id === contatoAtivo.id ? { ...c, tags: [...c.tags, tagResolvida.nome] } : c
+        )
+      );
+      await registrarAuditoria({
+        contatoId: contatoAtivo.id,
+        acao: "tag_adicionada",
+        detalhes: { tag: tagResolvida.nome },
+      });
+    }
+    setNovaTagContato("");
+  };
+
+  // Handler to remove a tag from the active contact in detail view
+  const handleRemoverTagContato = async (tagNome: string) => {
+    if (!contatoAtivo || !workspaceId) return;
+
+    // Find tag ID from tagsExistentes
+    const tagInfo = tagsExistentes.find(
+      (t) => normalizarTexto(t.nome) === normalizarTexto(tagNome)
+    );
+    if (!tagInfo) return;
+
+    const { error } = await supabaseClient
+      .from("contact_tags")
+      .delete()
+      .eq("contact_id", contatoAtivo.id)
+      .eq("tag_id", tagInfo.id);
+
+    if (!error) {
+      setContatoAtivo((atual) =>
+        atual ? { ...atual, tags: atual.tags.filter((t) => t !== tagNome) } : null
+      );
+      setContatos((atual) =>
+        atual.map((c) =>
+          c.id === contatoAtivo.id ? { ...c, tags: c.tags.filter((t) => t !== tagNome) } : c
+        )
+      );
+      await registrarAuditoria({
+        contatoId: contatoAtivo.id,
+        acao: "tag_removida",
+        detalhes: { tag: tagNome },
+      });
+    }
+  };
+
   const handleSelecionarArquivoCsv = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
@@ -1361,10 +1461,13 @@ export function VisaoContatos() {
     )
       return;
 
+    // Pipeline/Stage is now optional
+    /*
     if (!novoContato.pipelineId || !novoContato.stageId) {
       setErroDados("Selecione a pipeline e o estágio.");
       return;
     }
+    */
 
     setCarregando(true);
     setErroDados(null);
@@ -1376,6 +1479,22 @@ export function VisaoContatos() {
 
     const telefoneNormalizado = apenasNumeros(novoContato.telefone);
 
+    // Lookup avatar from leads by phone number
+    let avatarUrl: string | null = null;
+    if (telefoneNormalizado) {
+      const { data: leadData } = await supabaseClient
+        .from("leads")
+        .select("avatar_url")
+        .eq("workspace_id", workspaceId)
+        .or(`telefone.ilike.%${telefoneNormalizado}%,whatsapp_wa_id.ilike.%${telefoneNormalizado}%`)
+        .not("avatar_url", "is", null)
+        .limit(1)
+        .maybeSingle();
+      if (leadData?.avatar_url) {
+        avatarUrl = leadData.avatar_url;
+      }
+    }
+
     const { data: contatoCriado, error: contatoErro } = await supabaseClient
       .from("contacts")
       .insert({
@@ -1386,8 +1505,15 @@ export function VisaoContatos() {
         status: "novo",
         owner_id: ownerId,
         empresa: nomeEmpresa || null,
-        pipeline_id: novoContato.pipelineId,
-        pipeline_stage_id: novoContato.stageId,
+        pipeline_id:
+          novoContato.pipelineId && novoContato.pipelineId !== "sem_pipeline"
+            ? novoContato.pipelineId
+            : null,
+        pipeline_stage_id:
+          novoContato.stageId && novoContato.pipelineId !== "sem_pipeline"
+            ? novoContato.stageId
+            : null,
+        avatar_url: avatarUrl,
       })
       .select("id")
       .single();
@@ -2638,14 +2764,15 @@ export function VisaoContatos() {
         open={dialogNovoContatoAberto}
         onOpenChange={setDialogNovoContatoAberto}
       >
-        <DialogContent className="rounded-[6px] shadow-none">
-          <DialogHeader>
+        <DialogContent className="max-h-[90vh] flex flex-col p-0 gap-0 w-full max-w-md rounded-[6px] shadow-none bg-white dark:bg-slate-950">
+          <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
             <DialogTitle>Novo contato</DialogTitle>
             <DialogDescription>
               Adicione um contato manualmente ao CRM.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3">
+
+          <div className="flex-1 overflow-y-auto px-6 py-4 grid gap-4">
             <div className="grid gap-2">
               <label htmlFor="contato-nome" className="text-sm font-medium">
                 Nome completo
@@ -2715,7 +2842,7 @@ export function VisaoContatos() {
               />
             </div>
             <div className="grid gap-2">
-              <label className="text-sm font-medium">Pipeline</label>
+              <label className="text-sm font-medium">Pipeline (Opcional)</label>
               <Select
                 value={novoContato.pipelineId}
                 onValueChange={handleSelecionarPipeline}
@@ -2725,6 +2852,9 @@ export function VisaoContatos() {
                   <SelectValue placeholder="Selecione a pipeline" />
                 </SelectTrigger>
                 <SelectContent className="rounded-[6px] shadow-none">
+                  <SelectItem value="sem_pipeline" className="text-muted-foreground font-medium">
+                    Sem pipeline
+                  </SelectItem>
                   {pipelines.map((pipeline) => (
                     <SelectItem
                       key={pipeline.id}
@@ -2736,14 +2866,6 @@ export function VisaoContatos() {
                   ))}
                 </SelectContent>
               </Select>
-              {!carregandoPipelines && pipelines.length === 0 && (
-                <span className="text-xs text-muted-foreground">
-                  Nenhuma pipeline encontrada para este workspace.
-                </span>
-              )}
-              {erroPipelines && (
-                <span className="text-xs text-destructive">{erroPipelines}</span>
-              )}
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">Estágio</label>
@@ -2796,51 +2918,72 @@ export function VisaoContatos() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="grid gap-2">
-              <label htmlFor="contato-tags" className="text-sm font-medium">
-                Tags
-              </label>
-              {tagsSelecionadas.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {tagsSelecionadas.map((tag) => (
-                    <Badge
-                      key={tag.nome}
-                      className="flex items-center gap-1 rounded-[6px] text-xs text-white"
-                      style={{ backgroundColor: tag.cor }}
+
+            <div className="space-y-3">
+              <label className="text-sm font-medium">Tags</label>
+              <div className="flex flex-wrap gap-2">
+                {tagsSelecionadas.map((tag) => (
+                  <Badge
+                    key={tag.nome}
+                    variant="outline"
+                    className="text-white pl-2.5 pr-1.5 py-1 text-xs font-medium border-transparent transition-colors flex items-center gap-1.5 shadow-none rounded-[6px]"
+                    style={{
+                      backgroundColor: tag.cor ?? "#94a3b8",
+                      borderColor: (tag.cor ?? "#94a3b8") + "30",
+                    }}
+                  >
+                    {tag.nome}
+                    <button
+                      type="button"
+                      onClick={() => removerTagSelecionada(tag.nome)}
+                      className="ml-1 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors text-white/80 hover:text-white"
                     >
-                      {tag.nome}
-                      <button
-                        type="button"
-                        onClick={() => removerTagSelecionada(tag.nome)}
-                        className="ml-1 rounded-[6px] p-0.5 text-white/80 hover:text-white"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  ))}
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Nova tag"
+                    className="h-7 text-xs w-[120px] rounded-[6px] shadow-none"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        if (tagInput.trim()) {
+                          void adicionarTagSelecionada(tagInput);
+                          setTagInput("");
+                        }
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-dashed gap-1.5 px-3 text-muted-foreground hover:text-foreground hover:border-slate-300 shadow-none rounded-[6px]"
+                    onClick={() => {
+                      if (tagInput.trim()) {
+                        void adicionarTagSelecionada(tagInput);
+                        setTagInput("");
+                      }
+                    }}
+                  >
+                    + Adicionar
+                  </Button>
                 </div>
-              )}
-              <Input
-                id="contato-tags"
-                value={tagInput}
-                onChange={(event) => setTagInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void adicionarTagSelecionada(tagInput);
-                  }
-                }}
-                placeholder="Digite uma tag e pressione Enter"
-                className="rounded-[6px] shadow-none"
-              />
+              </div>
+
               {tagsDisponiveisCriacao.length > 0 && (
-                <div className="flex flex-wrap gap-2 rounded-[6px] border border-border/60 bg-muted/30 p-2">
+                <div className="mt-2 flex flex-wrap gap-2 rounded-[6px] border border-border/60 bg-muted/30 p-2">
                   {tagsDisponiveisCriacao.map((tag) => (
                     <button
                       key={tag.id}
                       type="button"
                       onClick={() => void adicionarTagSelecionada(tag.nome)}
-                      className="rounded-[6px] px-2 py-1 text-xs text-white"
+                      className="rounded-[6px] px-2 py-1 text-xs text-white transition-opacity hover:opacity-90"
                       style={{ backgroundColor: tag.cor ?? "#94a3b8" }}
                     >
                       {tag.nome}
@@ -2850,7 +2993,8 @@ export function VisaoContatos() {
               )}
             </div>
           </div>
-          <DialogFooter>
+
+          <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
             <Button
               variant="ghost"
               className="rounded-[6px] shadow-none"
@@ -2868,7 +3012,7 @@ export function VisaoContatos() {
         </DialogContent>
       </Dialog>
 
-      <Dialog
+      <Sheet
         open={Boolean(contatoAtivo)}
         onOpenChange={(aberto) => {
           if (!aberto) {
@@ -2877,17 +3021,14 @@ export function VisaoContatos() {
           }
         }}
       >
-        <DialogContent className="left-auto right-0 top-0 h-full max-w-[500px] translate-x-0 translate-y-0 rounded-none border-l bg-white dark:bg-slate-950 p-0 shadow-none flex flex-col overflow-hidden">
-          <DialogHeader className="sr-only">
-            <DialogTitle>Detalhes do contato</DialogTitle>
-            <DialogDescription>
-              Painel com informações detalhadas do contato selecionado.
-            </DialogDescription>
-          </DialogHeader>
+        <SheetContent className="w-full sm:max-w-[600px] p-0 flex flex-col gap-0 border-l bg-white dark:bg-slate-950 shadow-none">
           {contatoAtivo && (
             <>
               {/* HEADER: Modern, Clean, High Hierarchy */}
               <div className="flex-none px-6 py-5 border-b border-border/60 bg-white dark:bg-slate-950 z-10">
+                <SheetHeader className="sr-only">
+                  <SheetTitle>Detalhes do contato</SheetTitle>
+                </SheetHeader>
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-4">
                     <div className="relative">
@@ -2923,9 +3064,16 @@ export function VisaoContatos() {
                       <h2 className="text-xl font-bold tracking-tight text-slate-900 dark:text-slate-50 line-clamp-1">
                         {contatoAtivo.nome}
                       </h2>
-                      <p className="text-sm text-muted-foreground">
-                        {exibirTelefone(contatoAtivo.telefone)}
-                      </p>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        {contatoAtivo.empresa ? (
+                          <>
+                            <Building2 className="w-3.5 h-3.5" />
+                            <span className="font-medium text-slate-700 dark:text-slate-300">{contatoAtivo.empresa}</span>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground">{exibirTelefone(contatoAtivo.telefone)}</span>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="text-right">
@@ -2968,28 +3116,24 @@ export function VisaoContatos() {
               <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-950 min-h-0">
                 <div className="flex flex-col min-h-full">
                   <Tabs defaultValue="visao-geral" className="flex-1 flex flex-col">
-                    {/* Tab Navigation: Underline Style */}
                     <div className="px-6 border-b border-border/60 sticky top-0 bg-white/95 dark:bg-slate-950/95 backdrop-blur-sm z-10">
-                      <TabsList className="w-full justify-start h-11 p-0 bg-transparent gap-6 border-none shadow-none text-muted-foreground">
+                      <TabsList className="w-full justify-start h-11 p-0 bg-transparent gap-8 border-none shadow-none text-muted-foreground">
                         <TabsTrigger value="visao-geral" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
                           Visão Geral
                         </TabsTrigger>
-                        <TabsTrigger value="notas" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
-                          Notas
+                        <TabsTrigger value="atividades" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
+                          Atividades
                         </TabsTrigger>
                         <TabsTrigger value="arquivos" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
                           Arquivos <span className="ml-1.5 text-[10px] bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded-full text-slate-600 dark:text-slate-400">{arquivosContato.length}</span>
-                        </TabsTrigger>
-                        <TabsTrigger value="auditoria" className="rounded-none border-none px-0 h-11 data-[state=active]:text-primary data-[state=active]:shadow-none font-medium text-sm text-muted-foreground hover:text-foreground transition-colors shadow-none bg-transparent">
-                          Histórico
                         </TabsTrigger>
                       </TabsList>
                     </div>
 
                     {/* TAB: OVERVIEW */}
-                    <TabsContent value="visao-geral" className="p-6 m-0 space-y-6">
+                    <TabsContent value="visao-geral" className="p-6 m-0 space-y-8">
                       {/* Properties Grid */}
-                      <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                      <div className="grid grid-cols-2 gap-x-8 gap-y-6">
                         <div className="space-y-1.5">
                           <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
                             Email
@@ -3008,15 +3152,7 @@ export function VisaoContatos() {
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                            Empresa
-                          </label>
-                          <p className="text-sm text-foreground">
-                            {contatoAtivo.empresa || "—"}
-                          </p>
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                            Owner
+                            Responsável
                           </label>
                           <Select
                             value={contatoAtivo.ownerId ?? OWNER_SEM}
@@ -3036,32 +3172,13 @@ export function VisaoContatos() {
                             </SelectContent>
                           </Select>
                         </div>
-                      </div>
-
-                      <Separator className="bg-border/60" />
-
-                      {/* Pipeline Info */}
-                      <div className="space-y-3">
-                        <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                          Pipeline
-                        </h3>
-                        <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                          <div className="space-y-1.5">
-                            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                              Funil
-                            </label>
-                            <p className="text-sm text-foreground">
-                              {pipelineContato?.pipeline?.nome ?? "Não definido"}
-                            </p>
-                          </div>
-                          <div className="space-y-1.5">
-                            <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                              Etapa
-                            </label>
-                            <p className="text-sm text-foreground">
-                              {pipelineContato?.etapa?.nome ?? "Não definido"}
-                            </p>
-                          </div>
+                        <div className="space-y-1.5">
+                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Funil / Etapa
+                          </label>
+                          <p className="text-sm text-foreground">
+                            {pipelineContato?.pipeline?.nome ?? "—"} / {pipelineContato?.etapa?.nome ?? "—"}
+                          </p>
                         </div>
                       </div>
 
@@ -3076,57 +3193,88 @@ export function VisaoContatos() {
                           {contatoAtivo.tags.map((tag) => (
                             <Badge
                               key={tag}
-                              className="text-white text-xs px-2.5 py-1 rounded-[6px] shadow-none"
-                              style={{ backgroundColor: corDaTag(tag) }}
+                              variant="outline"
+                              className="text-white pl-2.5 pr-1.5 py-1 text-xs font-medium border-transparent transition-colors flex items-center gap-1.5 shadow-none rounded-[6px]"
+                              style={{
+                                backgroundColor: corDaTag(tag),
+                                borderColor: (corDaTag(tag)) + "30",
+                              }}
                             >
                               {tag}
+                              <button
+                                onClick={() => void handleRemoverTagContato(tag)}
+                                className="ml-1 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors text-white/80 hover:text-white"
+                              >
+                                <XCircle className="w-3 h-3" />
+                              </button>
                             </Badge>
                           ))}
-                          {contatoAtivo.tags.length === 0 && (
-                            <p className="text-xs text-muted-foreground">Nenhuma tag atribuída</p>
-                          )}
+
+                          <div className="flex items-center gap-2">
+                            <Input
+                              value={novaTagContato}
+                              onChange={(event) => setNovaTagContato(event.target.value)}
+                              placeholder="Nova tag"
+                              className="h-7 text-xs w-[120px] rounded-[6px] shadow-none"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  void handleAdicionarTagContato();
+                                }
+                              }}
+                            />
+                            <Button
+                              onClick={() => void handleAdicionarTagContato()}
+                              variant="outline"
+                              size="sm"
+                              className="h-7 text-xs border-dashed gap-1.5 px-3 text-muted-foreground hover:text-foreground hover:border-slate-300 shadow-none rounded-[6px]"
+                            >
+                              <Plus className="w-3.5 h-3.5" /> Adicionar
+                            </Button>
+                          </div>
                         </div>
+
+                        {/* Available Tags from Database */}
+                        {tagsExistentes.filter(
+                          (t) => !contatoAtivo.tags.some(
+                            (existente) => normalizarTexto(existente) === normalizarTexto(t.nome)
+                          )
+                        ).length > 0 && (
+                            <div className="mt-2 flex flex-wrap gap-2 rounded-[6px] border border-border/60 bg-muted/30 p-2">
+                              {tagsExistentes
+                                .filter(
+                                  (t) => !contatoAtivo.tags.some(
+                                    (existente) => normalizarTexto(existente) === normalizarTexto(t.nome)
+                                  )
+                                )
+                                .map((tag) => (
+                                  <button
+                                    key={tag.id}
+                                    type="button"
+                                    onClick={() => void handleAdicionarTagContato(tag.nome)}
+                                    className="rounded-[6px] px-2 py-1 text-xs text-white transition-opacity hover:opacity-90"
+                                    style={{ backgroundColor: tag.cor ?? "#94a3b8" }}
+                                  >
+                                    {tag.nome}
+                                  </button>
+                                ))}
+                            </div>
+                          )}
                       </div>
 
                       <Separator className="bg-border/60" />
 
-                      {/* Conversation Info */}
+                      {/* Notes Section (Moved from specialized Tab) */}
                       <div className="space-y-3">
                         <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                          Última Conversa
-                        </h3>
-                        {carregandoDetalhes ? (
-                          <div className="text-sm text-muted-foreground">Carregando...</div>
-                        ) : conversaContato ? (
-                          <div className="flex items-start gap-4 p-3 border border-border/60 bg-white hover:bg-slate-50/80 dark:bg-slate-900 dark:hover:bg-slate-800/80 transition-colors cursor-pointer rounded-[6px] shadow-none">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-xs text-muted-foreground capitalize">{conversaContato.canal}</span>
-                                <span className="text-xs text-muted-foreground">{formatarDataHora(conversaContato.ultima_mensagem_em)}</span>
-                              </div>
-                              <p className="text-sm text-foreground line-clamp-2">
-                                {conversaContato.ultima_mensagem ?? "Sem mensagem registrada."}
-                              </p>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="text-xs text-muted-foreground">Nenhuma conversa vinculada</p>
-                        )}
-                      </div>
-                    </TabsContent>
-
-                    {/* TAB: NOTES */}
-                    <TabsContent value="notas" className="p-6 m-0 space-y-6">
-                      <div className="space-y-3">
-                        <h3 className="text-sm font-semibold flex items-center gap-2 text-foreground">
-                          Nova Nota
+                          Resumo / Nota
                         </h3>
                         <div className="relative">
                           <Textarea
                             value={notaAtual}
                             onChange={(event) => setNotaAtual(event.target.value)}
                             className="min-h-[120px] text-sm bg-slate-50/50 dark:bg-slate-900 border-border/60 resize-none font-normal focus:bg-white dark:focus:bg-slate-950 transition-colors leading-relaxed p-4 shadow-none rounded-[6px]"
-                            placeholder="Escreva uma nota interna sobre este contato..."
+                            placeholder="Escreva uma nota..."
                           />
                           <div className="absolute bottom-2 right-2">
                             <Button
@@ -3135,94 +3283,82 @@ export function VisaoContatos() {
                               disabled={!notaAtual.trim() || enviandoNota}
                               className="h-7 text-xs shadow-none border border-transparent rounded-[6px]"
                             >
-                              {enviandoNota ? "Salvando..." : "Adicionar"}
+                              {enviandoNota ? "Salvando..." : "Salvar"}
                             </Button>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Note List */}
-                      {carregandoDetalhes ? (
+                        {/* Note List - Compact Chip Buttons */}
+                        {notasContato.length > 0 && (
+                          <div className="space-y-2 pt-2">
+                            <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Notas Anteriores</h4>
+                            <div className="flex flex-wrap gap-2">
+                              {notasContato.map((nota) => (
+                                <Button
+                                  key={nota.id}
+                                  variant="outline"
+                                  onClick={() => setNotaVisualizada(nota)}
+                                  className="h-8 max-w-full justify-start text-xs font-normal shadow-none border-dashed border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-[6px]"
+                                  title={nota.conteudo}
+                                >
+                                  <MessageSquare className="w-3 h-3 mr-2 text-slate-400 flex-shrink-0" />
+                                  <span className="truncate max-w-[200px]">
+                                    {nota.conteudo.length > 30 ? nota.conteudo.slice(0, 30) + "..." : nota.conteudo}
+                                  </span>
+                                </Button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </TabsContent>
+
+                    {/* TAB: ATIVIDADES (Timeline) */}
+                    <TabsContent value="atividades" className="p-6 m-0">
+                      {carregandoAuditoria ? (
                         <div className="text-center text-sm text-muted-foreground py-8">
-                          Carregando notas...
+                          Carregando atividades...
                         </div>
-                      ) : notasContato.length === 0 ? (
+                      ) : logsAuditoria.length === 0 ? (
                         <div className="text-center text-sm text-muted-foreground py-8">
-                          Nenhuma nota adicionada ainda.
+                          Nenhuma atividade registrada ainda.
                         </div>
                       ) : (
-                        <div className="space-y-3">
-                          <h4 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                            Notas Anteriores
-                          </h4>
-                          <div className="space-y-2">
-                            {notasContato.map((nota) => (
-                              <div
-                                key={nota.id}
-                                className="rounded-[6px] border border-border/60 bg-background/80 p-3 text-sm"
-                              >
-                                <div className="flex items-start justify-between gap-2 text-[10px] text-muted-foreground mb-2">
-                                  <div>
-                                    <p>{formatarDataHora(nota.created_at)}</p>
-                                    <p>{nota.autor_id === session?.user.id ? "Você" : "Equipe"}</p>
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <Button
-                                      type="button"
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-6 w-6 rounded-[6px] shadow-none"
-                                      onClick={() => handleIniciarEdicaoNota(nota)}
-                                      disabled={salvandoNotaEditada}
-                                      aria-label="Editar nota"
-                                    >
-                                      <PencilLine className="h-3 w-3" />
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-6 w-6 rounded-[6px] shadow-none hover:text-destructive"
-                                      onClick={() => handleExcluirNota(nota.id)}
-                                      disabled={salvandoNotaEditada}
-                                      aria-label="Excluir nota"
-                                    >
-                                      <Trash2 className="h-3 w-3" />
-                                    </Button>
-                                  </div>
+                        <div className="space-y-8">
+                          {logsAuditoria.map((log, i) => (
+                            <div key={log.id} className="flex gap-4 group">
+                              <div className="flex flex-col items-center relative">
+                                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white z-10 border-2 border-white dark:border-slate-950 shadow-none bg-slate-400">
+                                  <History className="w-3.5 h-3.5" />
                                 </div>
-                                {notaEditandoId === nota.id ? (
-                                  <div className="space-y-2">
-                                    <Textarea
-                                      value={notaEditandoConteudo}
-                                      onChange={(event) => setNotaEditandoConteudo(event.target.value)}
-                                      className="min-h-[80px] rounded-[6px] shadow-none text-sm"
-                                    />
-                                    <div className="flex items-center gap-2">
-                                      <Button
-                                        size="sm"
-                                        className="rounded-[6px] shadow-none"
-                                        onClick={handleSalvarNotaEditada}
-                                        disabled={!notaEditandoConteudo.trim() || salvandoNotaEditada}
-                                      >
-                                        {salvandoNotaEditada ? "Salvando..." : "Salvar"}
-                                      </Button>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="rounded-[6px] shadow-none"
-                                        onClick={handleCancelarEdicaoNota}
-                                      >
-                                        Cancelar
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <p className="text-foreground">{nota.conteudo}</p>
+                                {i !== logsAuditoria.length - 1 && (
+                                  <div className="absolute top-8 bottom-[-32px] w-[2px] bg-slate-100 dark:bg-slate-800" />
                                 )}
                               </div>
-                            ))}
-                          </div>
+                              <div className="flex-1 pb-2">
+                                <div className="flex items-center gap-2 mb-1.5">
+                                  <span className="text-sm font-semibold capitalize text-slate-900 dark:text-slate-100">{log.acao.replace('_', ' ')}</span>
+                                  <span className="text-xs text-muted-foreground">•</span>
+                                  <span className="text-xs text-muted-foreground">{formatarDataHora(log.created_at)}</span>
+                                </div>
+                                {formatarDetalhesAuditoria(log.detalhes) && (
+                                  <div className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+                                    {formatarDetalhesAuditoria(log.detalhes)}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-1.5 mt-2">
+                                  <Avatar className="w-4 h-4">
+                                    <AvatarFallback className="text-[8px] bg-slate-200">
+                                      {log.autor_id === session?.user.id ? "VC" : "EQ"}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <span className="text-xs text-muted-foreground font-medium">
+                                    {log.autor_id === session?.user.id ? "Você" : "Equipe"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </TabsContent>
@@ -3297,56 +3433,6 @@ export function VisaoContatos() {
                         onChange={handleSelecionarArquivo}
                       />
                     </TabsContent>
-
-                    {/* TAB: AUDIT/HISTORY */}
-                    <TabsContent value="auditoria" className="p-6 m-0 space-y-4">
-                      {carregandoAuditoria ? (
-                        <div className="text-center text-sm text-muted-foreground py-8">
-                          Carregando histórico...
-                        </div>
-                      ) : logsAuditoria.length === 0 ? (
-                        <div className="text-center text-sm text-muted-foreground py-8">
-                          Nenhuma alteração registrada.
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          {logsAuditoria.map((log, i) => (
-                            <div key={log.id} className="flex gap-4 group">
-                              <div className="flex flex-col items-center relative">
-                                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white z-10 border-2 border-white dark:border-slate-950 shadow-none bg-slate-400">
-                                  <History className="w-3.5 h-3.5" />
-                                </div>
-                                {i !== logsAuditoria.length - 1 && (
-                                  <div className="absolute top-8 bottom-[-16px] w-[2px] bg-slate-100 dark:bg-slate-800" />
-                                )}
-                              </div>
-                              <div className="flex-1 pb-2">
-                                <div className="flex items-center gap-2 mb-1.5">
-                                  <span className="text-sm font-semibold capitalize text-slate-900 dark:text-slate-100">{log.acao}</span>
-                                  <span className="text-xs text-muted-foreground">•</span>
-                                  <span className="text-xs text-muted-foreground">{formatarDataHora(log.created_at)}</span>
-                                </div>
-                                {formatarDetalhesAuditoria(log.detalhes) && (
-                                  <div className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-                                    {formatarDetalhesAuditoria(log.detalhes)}
-                                  </div>
-                                )}
-                                <div className="flex items-center gap-1.5 mt-2">
-                                  <Avatar className="w-4 h-4">
-                                    <AvatarFallback className="text-[8px] bg-slate-200">
-                                      {log.autor_id === session?.user.id ? "VC" : "EQ"}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span className="text-xs text-muted-foreground font-medium">
-                                    {log.autor_id === session?.user.id ? "Você" : "Equipe"}
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </TabsContent>
                   </Tabs>
                 </div>
               </div>
@@ -3363,21 +3449,21 @@ export function VisaoContatos() {
               </div>
             </>
           )}
-        </DialogContent>
-      </Dialog>
+        </SheetContent>
+      </Sheet>
 
       <Dialog
         open={dialogEditarContatoAberto}
         onOpenChange={setDialogEditarContatoAberto}
       >
-        <DialogContent className="rounded-[6px] shadow-none">
-          <DialogHeader>
+        <DialogContent className="max-h-[90vh] flex flex-col p-0 gap-0 w-full max-w-md rounded-[6px] shadow-none bg-white dark:bg-slate-950">
+          <DialogHeader className="px-6 py-4 border-b flex-shrink-0">
             <DialogTitle>Editar contato</DialogTitle>
             <DialogDescription>
               Atualize as informações principais do contato selecionado.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3">
+          <div className="flex-1 overflow-y-auto px-6 py-4 grid gap-4">
             <div className="grid gap-2">
               <label htmlFor="editar-contato-nome" className="text-sm font-medium">
                 Nome completo
@@ -3580,7 +3666,7 @@ export function VisaoContatos() {
               )}
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="px-6 py-4 border-t flex-shrink-0">
             <Button
               variant="ghost"
               className="rounded-[6px] shadow-none"
@@ -3593,6 +3679,62 @@ export function VisaoContatos() {
               onClick={handleSalvarContatoEditado}
             >
               Salvar alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Note View Dialog */}
+      <Dialog open={!!notaVisualizada} onOpenChange={(open) => !open && setNotaVisualizada(null)}>
+        <DialogContent className="sm:max-w-[500px] border-none shadow-lg rounded-[6px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <MessageSquare className="w-4 h-4 text-blue-600" />
+              Nota de {notaVisualizada?.autor_id === session?.user.id ? 'Você' : 'Equipe'}
+            </DialogTitle>
+            <DialogDescription className="text-xs">
+              Registrada em {notaVisualizada && formatarDataHora(notaVisualizada.created_at)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-[6px] text-sm leading-relaxed whitespace-pre-wrap border border-border/50 text-slate-700 dark:text-slate-300 min-h-[100px]">
+            {notaVisualizada?.conteudo}
+          </div>
+          <DialogFooter className="flex justify-between sm:justify-between w-full">
+            {notaVisualizada?.autor_id === session?.user.id ? (
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (!notaVisualizada || !contatoAtivo || !workspaceId) return;
+
+                  const { error } = await supabaseClient
+                    .from("contact_notes")
+                    .delete()
+                    .eq("id", notaVisualizada.id)
+                    .eq("workspace_id", workspaceId);
+
+                  if (error) {
+                    console.error("Erro ao excluir nota:", error);
+                    return;
+                  }
+
+                  setNotasContato(atual => atual.filter(n => n.id !== notaVisualizada.id));
+                  setNotaVisualizada(null);
+
+                  await registrarAuditoria({
+                    contatoId: contatoAtivo.id,
+                    acao: "nota_removida",
+                    detalhes: { resumo: notaVisualizada.conteudo.substring(0, 50) },
+                  });
+                }}
+                className="shadow-none rounded-[6px] gap-2 px-3"
+                size="sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                Excluir
+              </Button>
+            ) : <div />}
+            <Button variant="outline" onClick={() => setNotaVisualizada(null)} className="shadow-none rounded-[6px]">
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>

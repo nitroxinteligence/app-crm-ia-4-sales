@@ -12,6 +12,7 @@ import {
   ArrowRightLeft,
   CalendarDays,
   Check,
+  ChevronsUpDown,
   CheckCircle2,
   Phone,
   Mail,
@@ -72,6 +73,19 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -223,6 +237,13 @@ type LogAuditoriaContato = {
   autor_id?: string | null;
 };
 
+type ContatoSimplificado = {
+  id: string;
+  nome: string;
+  email?: string | null;
+  telefone?: string | null;
+};
+
 export function VisaoFunil() {
   const { usuario, session } = useAutenticacao();
   const router = useRouter();
@@ -274,14 +295,36 @@ export function VisaoFunil() {
   const [dialogNotaAberto, setDialogNotaAberto] = React.useState(false);
   const [dialogAtividadeAberto, setDialogAtividadeAberto] =
     React.useState(false);
-  const [dialogMoverDealAberto, setDialogMoverDealAberto] =
-    React.useState(false);
+  const [dialogMoverDealAberto, setDialogMoverDealAberto] = React.useState(false);
+  const [dialogExcluirArquivoAberto, setDialogExcluirArquivoAberto] = React.useState(false);
+  const [arquivoExcluindo, setArquivoExcluindo] = React.useState<ArquivoContato | null>(null);
+
+  const [dialogCriarNegocioAberto, setDialogCriarNegocioAberto] = React.useState(false);
+  const [contatosDisponiveis, setContatosDisponiveis] = React.useState<ContatoSimplificado[]>([]);
+  const [comboboxContatoAberto, setComboboxContatoAberto] = React.useState(false);
+  const [buscaContato, setBuscaContato] = React.useState("");
+  const [enviandoNovoNegocio, setEnviandoNovoNegocio] = React.useState(false);
+  const [novoNegocio, setNovoNegocio] = React.useState({
+    nome: "",
+    valor: "",
+    email: "",
+    telefone: "",
+    funilId: "",
+    etapaId: "",
+    ownerId: "",
+    tags: [] as string[],
+    nota: "",
+    arquivos: [] as File[],
+    contatoId: "",
+  });
+  const arquivoNovoNegocioInputRef = React.useRef<HTMLInputElement>(null);
   const [dialogExcluirDealAberto, setDialogExcluirDealAberto] =
     React.useState(false);
   const [dialogPerdaAberto, setDialogPerdaAberto] = React.useState(false);
   const [dialogGanhoAberto, setDialogGanhoAberto] = React.useState(false);
   const [dialogNovoFunilAberto, setDialogNovoFunilAberto] =
     React.useState(false);
+  const [dialogMoverSelecionadosAberto, setDialogMoverSelecionadosAberto] = React.useState(false);
   const [novaEtapa, setNovaEtapa] = React.useState("");
   const [arrastandoId, setArrastandoId] = React.useState<string | null>(null);
   const [colunaEmHover, setColunaEmHover] = React.useState<string | null>(null);
@@ -582,6 +625,25 @@ export function VisaoFunil() {
     }
 
     setWorkspaceId(data.workspace_id);
+    carregarMembros(data.workspace_id);
+  }, []);
+
+  const [membros, setMembros] = React.useState<{ id: string; nome: string }[]>([]);
+
+  const carregarMembros = React.useCallback(async (wsId: string) => {
+    const { data, error } = await supabaseClient
+      .from("workspace_members")
+      .select("user_id, profiles:user_id (id, nome, full_name)")
+      .eq("workspace_id", wsId);
+
+    if (error || !data) return;
+
+    const lista = data.map((item: any) => ({
+      id: item.user_id,
+      nome: item.profiles?.nome || item.profiles?.full_name || "Membro",
+    }));
+
+    setMembros(lista);
   }, []);
 
   const carregarTagsDisponiveis = React.useCallback(async (wsId: string) => {
@@ -615,7 +677,7 @@ export function VisaoFunil() {
       const { data, error } = await supabaseClient
         .from("contacts")
         .select(
-          "id, nome, telefone, empresa, owner_id, avatar_url, pipeline_id, pipeline_stage_id, created_at, updated_at, contact_tags (tag_id, tags (id, nome, cor))"
+          "id, nome, telefone, empresa, owner_id, value, avatar_url, pipeline_id, pipeline_stage_id, created_at, updated_at, contact_tags (tag_id, tags (id, nome, cor))"
         )
         .eq("workspace_id", wsId)
         .eq("pipeline_id", pipelineId)
@@ -697,7 +759,7 @@ export function VisaoFunil() {
             empresa: item.empresa ?? undefined,
             telefone: item.telefone ?? "",
             avatarUrl: item.avatar_url ?? undefined,
-            valor: 0,
+            valor: item.value ?? 0,
             moeda: "BRL",
             owner: labelOwner(item.owner_id),
             produto: "Contato",
@@ -1187,6 +1249,30 @@ export function VisaoFunil() {
     []
   );
 
+  React.useEffect(() => {
+    if (dialogCriarNegocioAberto && workspaceId) {
+      const fetchContatos = async () => {
+        const { data } = await supabaseClient
+          .from("contacts")
+          .select("id, nome, email, telefone")
+          .eq("workspace_id", workspaceId)
+          .limit(100);
+
+        if (data) {
+          setContatosDisponiveis(
+            data.map((c) => ({
+              id: c.id,
+              nome: c.nome,
+              email: c.email,
+              telefone: c.telefone,
+            }))
+          );
+        }
+      };
+      fetchContatos();
+    }
+  }, [dialogCriarNegocioAberto, workspaceId]);
+
   const handleScrollColuna = (etapaId: string) => (
     event: React.UIEvent<HTMLDivElement>
   ) => {
@@ -1554,10 +1640,27 @@ export function VisaoFunil() {
     setDialogPerdaAberto(false);
   };
 
-  const handleExcluirDeal = () => {
-    if (!dealAtivo) return;
+  const handleExcluirDeal = async () => {
+    if (!dealAtivo || !workspaceId) return;
+
     setDeals((atual) => atual.filter((deal) => deal.id !== dealAtivo.id));
     setDialogExcluirDealAberto(false);
+
+    // Remove from pipeline by clearing pipeline fields in contact
+    const { error } = await supabaseClient
+      .from("contacts")
+      .update({ pipeline_id: null, pipeline_stage_id: null })
+      .eq("id", dealAtivo.id)
+      .eq("workspace_id", workspaceId);
+
+    if (error) {
+      console.error("Erro ao excluir negócio:", error);
+      setErroDados("Não foi possível excluir o negócio. Atualize a página e tente novamente.");
+      // Rollback optimistic update implementation would be complex here, 
+      // but reloading deals is a safe fallback if it fails.
+      await carregarDeals(workspaceId, pipelineAtivoId);
+    }
+
     setDealAtivo(null);
   };
 
@@ -1749,15 +1852,21 @@ export function VisaoFunil() {
     event.target.value = "";
   };
 
-  const handleExcluirArquivoDeal = async (arquivo: ArquivoContato) => {
-    if (!dealAtivo || !workspaceId) return;
+  const handleExcluirArquivoDeal = (arquivo: ArquivoContato) => {
+    setArquivoExcluindo(arquivo);
+    setDialogExcluirArquivoAberto(true);
+  };
 
-    setArquivoExcluindoId(arquivo.id);
+  const handleConfirmarExclusaoArquivo = async () => {
+    if (!dealAtivo || !workspaceId || !arquivoExcluindo) return;
+
+    setArquivoExcluindoId(arquivoExcluindo.id);
 
     const token = await obterToken();
     if (!token) {
       setErroDados("Sessão expirada.");
       setArquivoExcluindoId(null);
+      setDialogExcluirArquivoAberto(false);
       return;
     }
 
@@ -1765,37 +1874,319 @@ export function VisaoFunil() {
       await deleteR2Object({
         token,
         bucket: "contact-files",
-        key: arquivo.storage_path,
+        key: arquivoExcluindo.storage_path,
       });
     } catch (error) {
       setErroDados("Não foi possível excluir o arquivo.");
       setArquivoExcluindoId(null);
+      setDialogExcluirArquivoAberto(false);
       return;
     }
 
     const { error: bancoErro } = await supabaseClient
       .from("contact_files")
       .delete()
-      .eq("id", arquivo.id)
+      .eq("id", arquivoExcluindo.id)
       .eq("workspace_id", workspaceId);
 
     if (bancoErro) {
       setErroDados("Não foi possível excluir o arquivo.");
       setArquivoExcluindoId(null);
+      setDialogExcluirArquivoAberto(false);
       return;
     }
 
-    setArquivosDeal((atual) => atual.filter((item) => item.id !== arquivo.id));
+    setArquivosDeal((atual) => atual.filter((item) => item.id !== arquivoExcluindo.id));
 
     await registrarAuditoria({
       contatoId: dealAtivo.id,
       acao: "Arquivo removido",
-      detalhes: { mensagem: `Arquivo ${arquivo.file_name} removido.` },
+      detalhes: { mensagem: `Arquivo ${arquivoExcluindo.file_name} removido.` },
     });
 
     setArquivoExcluindoId(null);
+    setDialogExcluirArquivoAberto(false);
+    setArquivoExcluindo(null);
   };
 
+
+  const handleCriarNegocio = async () => {
+    if (!novoNegocio.nome.trim()) {
+      setErroDados("O nome do negócio é obrigatório.");
+      return;
+    }
+    if (!novoNegocio.funilId) {
+      setErroDados("Selecione um funil.");
+      return;
+    }
+    if (!novoNegocio.etapaId) {
+      setErroDados("Selecione uma etapa.");
+      return;
+    }
+    if (!workspaceId || !session) return;
+
+    setEnviandoNovoNegocio(true);
+    setErroDados(null);
+
+    const valorNumerico = novoNegocio.valor
+      ? Number.parseFloat(
+        novoNegocio.valor
+          .replace("R$", "")
+          .replace(/\./g, "")
+          .replace(",", ".")
+          .trim()
+      )
+      : 0;
+
+    // 1. Lookup avatar from lead by phone number or from linked contact
+    let avatarUrl: string | null = null;
+
+    // First, try to get avatar from linked contact
+    if (novoNegocio.contatoId) {
+      const { data: contactData } = await supabaseClient
+        .from("contacts")
+        .select("avatar_url")
+        .eq("id", novoNegocio.contatoId)
+        .maybeSingle();
+      if (contactData?.avatar_url) {
+        avatarUrl = contactData.avatar_url;
+      }
+    }
+
+    // If no avatar from contact, try to lookup from leads by phone
+    if (!avatarUrl && novoNegocio.telefone) {
+      const telefoneNormalizado = novoNegocio.telefone.replace(/\D/g, "");
+      const { data: leadData } = await supabaseClient
+        .from("leads")
+        .select("avatar_url")
+        .eq("workspace_id", workspaceId)
+        .or(`telefone.ilike.%${telefoneNormalizado}%,whatsapp_wa_id.ilike.%${telefoneNormalizado}%`)
+        .not("avatar_url", "is", null)
+        .limit(1)
+        .maybeSingle();
+      if (leadData?.avatar_url) {
+        avatarUrl = leadData.avatar_url;
+      }
+    }
+
+    // 2. Insert Deal into deals table
+    const { data: novoDeal, error: erroDeal } = await supabaseClient
+      .from("deals")
+      .insert({
+        workspace_id: workspaceId,
+        titulo: novoNegocio.nome,
+        valor: valorNumerico,
+        moeda: "BRL",
+        contact_id: novoNegocio.contatoId || null,
+        pipeline_id: novoNegocio.funilId,
+        stage_id: novoNegocio.etapaId,
+        owner_id: (novoNegocio.ownerId && novoNegocio.ownerId !== "todos") ? novoNegocio.ownerId : session.user.id,
+        status: "aberto",
+        origem: "CRM",
+        avatar_url: avatarUrl,
+      })
+      .select("id, titulo, valor, moeda, created_at, status, pipeline_id, stage_id, owner_id, contact_id, avatar_url")
+      .single();
+
+    if (erroDeal || !novoDeal) {
+      console.error("Erro ao criar negócio:", JSON.stringify(erroDeal, null, 2));
+      setErroDados("Erro ao criar negócio. Tente novamente.");
+      setEnviandoNovoNegocio(false);
+      return;
+    }
+
+    // 1.6 Update linked contact's pipeline/stage and sync tags if a contact was selected
+    if (novoNegocio.contatoId) {
+      // Update pipeline and stage
+      await supabaseClient
+        .from("contacts")
+        .update({
+          pipeline_id: novoNegocio.funilId,
+          pipeline_stage_id: novoNegocio.etapaId,
+        })
+        .eq("id", novoNegocio.contatoId);
+
+      // Sync tags to the linked contact (if tags were assigned to the deal)
+      if (novoNegocio.tags && novoNegocio.tags.length > 0) {
+        const tagIdsParaContato: string[] = [];
+
+        for (const tagNome of novoNegocio.tags) {
+          const tagExistente = tagsDisponiveis.find(
+            (t) => t.nome.toLowerCase() === tagNome.toLowerCase()
+          );
+          if (tagExistente) {
+            tagIdsParaContato.push(tagExistente.id);
+          } else {
+            // Create new tag if it doesn't exist
+            const { data: novaTag } = await supabaseClient
+              .from("tags")
+              .insert({
+                workspace_id: workspaceId,
+                nome: tagNome,
+                cor: gerarCorTag(),
+              })
+              .select("id")
+              .single();
+            if (novaTag) tagIdsParaContato.push(novaTag.id);
+          }
+        }
+
+        if (tagIdsParaContato.length > 0) {
+          const tagsPayloadContato = tagIdsParaContato.map(tagId => ({
+            workspace_id: workspaceId,
+            contact_id: novoNegocio.contatoId,
+            tag_id: tagId
+          }));
+          await supabaseClient.from("contact_tags").upsert(tagsPayloadContato, { onConflict: 'contact_id,tag_id' });
+        }
+      }
+    }
+
+    // 1.5 Handle Tags
+    if (novoNegocio.tags && novoNegocio.tags.length > 0) {
+      const tagIds: string[] = [];
+
+      for (const tagNome of novoNegocio.tags) {
+        // Check if tag exists (case insensitive)
+        const tagExistente = tagsDisponiveis.find(
+          (t) => t.nome.toLowerCase() === tagNome.toLowerCase()
+        );
+
+        if (tagExistente) {
+          tagIds.push(tagExistente.id);
+        } else {
+          // Create new tag
+          const { data: novaTag } = await supabaseClient
+            .from("tags")
+            .insert({
+              workspace_id: workspaceId,
+              nome: tagNome,
+              cor: gerarCorTag(), // Helper checking if imported, otherwise standard
+            })
+            .select("id")
+            .single();
+
+          if (novaTag) tagIds.push(novaTag.id);
+        }
+      }
+
+      if (tagIds.length > 0) {
+        const tagsPayload = tagIds.map(tagId => ({
+          workspace_id: workspaceId,
+          contact_id: novoDeal.id,
+          tag_id: tagId
+        }));
+        await supabaseClient.from("contact_tags").upsert(tagsPayload, { onConflict: 'contact_id,tag_id' });
+      }
+    }
+
+    // 2. Insert Note (if any)
+    if (novoNegocio.nota.trim()) {
+      await supabaseClient.from("contact_notes").insert({
+        workspace_id: workspaceId,
+        contact_id: novoDeal.id,
+        autor_id: session.user.id,
+        conteudo: novoNegocio.nota.trim(),
+      });
+
+      await registrarAtividade(novoDeal.id, "nota_adicionada", {
+        resumo: novoNegocio.nota.substring(0, 50),
+      });
+    }
+
+    // 3. Upload Files (if any)
+    if (novoNegocio.arquivos.length > 0) {
+      const token = await obterToken();
+      if (token) {
+        for (const arquivo of novoNegocio.arquivos) {
+          try {
+            const nomeSeguro = arquivo.name.replace(/[^\w.-]/g, "_");
+            const caminho = `${workspaceId}/${novoDeal.id}/${Date.now()}-${nomeSeguro}`;
+
+            await uploadFileToR2({
+              token,
+              bucket: "contact-files",
+              key: caminho,
+              file: arquivo,
+            });
+
+            await supabaseClient.from("contact_files").insert({
+              workspace_id: workspaceId,
+              contact_id: novoDeal.id,
+              autor_id: session.user.id,
+              storage_path: caminho,
+              file_name: arquivo.name,
+              mime_type: arquivo.type || null,
+              tamanho_bytes: arquivo.size,
+            });
+          } catch (error) {
+            console.error(`Erro ao enviar arquivo ${arquivo.name}:`, error);
+            // Continue uploading other files even if one fails
+          }
+        }
+        await registrarAtividade(novoDeal.id, "arquivo_adicionado", {
+          quantidade: novoNegocio.arquivos.length,
+        });
+      }
+    }
+
+    // 4. Finalize
+    await registrarAuditoria({
+      contatoId: novoDeal.id,
+      acao: "Negócio criado manualmente",
+      detalhes: { nome: novoNegocio.nome, valor: valorNumerico },
+    });
+
+    // Refresh deals list logic is complex (optimistic vs refetch). 
+    // Here we'll just push to state if it matches current filter, easier to Refetch or just append if simple.
+    // Given the complexity of filters, easiest is to append if it matches the current pipeline.
+
+    // Convert DB type to UI type 'DealFunil' roughly
+    const novoDealFormatado: DealFunil = {
+      id: novoDeal.id,
+      nome: novoDeal.titulo,
+      valor: novoDeal.valor || 0,
+      criadoEm: novoDeal.created_at,
+      status: novoDeal.status,
+      funilId: novoDeal.pipeline_id,
+      etapaId: novoDeal.stage_id,
+      owner: owners.find(o => o === novoNegocio.ownerId) || "Você",
+      tags: novoNegocio.tags || [], // Use local tags since we just inserted them
+      avatarUrl: novoDeal.avatar_url ?? undefined,
+      moeda: novoDeal.moeda || "BRL",
+      empresa: undefined,
+      telefone: "",
+      produto: "Negócio",
+      ultimaAtividade: formatarDataCurta(novoDeal.created_at),
+      ultimaMensagem: "Novo negócio criado",
+      canal: "whatsapp",
+      origem: "CRM",
+      ultimaMudancaEtapa: novoDeal.created_at,
+    };
+
+    // Only add to state if it belongs to current pipeline view
+    // We need to fetch the funnel info properly or just reload page/data. 
+    // For now, let's append to 'deals' state list.
+    setDeals(atual => [novoDealFormatado, ...atual]);
+
+    setEnviandoNovoNegocio(false);
+    setDialogCriarNegocioAberto(false);
+
+    // Reset form
+    setNovoNegocio({
+      nome: "",
+      valor: "",
+      email: "",
+      telefone: "",
+      funilId: "",
+      etapaId: "",
+      ownerId: "",
+      tags: [],
+      nota: "",
+      arquivos: [],
+      contatoId: "",
+    });
+  };
   const handleSalvarAtividade = () => {
     if (!dealAtivo || !atividadeAtual.titulo.trim()) return;
     setAtividadesPorDeal((atual) => ({
@@ -1858,6 +2249,56 @@ export function VisaoFunil() {
       setDealAtivo(null);
     }
     setDialogMoverDealAberto(false);
+  };
+
+  const handleSalvarMoverSelecionados = async () => {
+    if (selecionados.length === 0 || !workspaceId) return;
+    const novaEtapa = etapaDestino; // Default to target stage
+    if (!novaEtapa || !funilDestino) return;
+
+    setCarregando(true); // Reuse main loading or create specific
+
+    const { error } = await supabaseClient
+      .from("contacts")
+      .update({
+        pipeline_id: funilDestino,
+        pipeline_stage_id: novaEtapa,
+      })
+      .in("id", selecionados)
+      .eq("workspace_id", workspaceId);
+
+    if (error) {
+      setErroDados("Não foi possível mover os contatos selecionados.");
+      setCarregando(false);
+      return;
+    }
+
+    const nomeEtapaDestino = etapas.find(e => e.id === novaEtapa)?.nome || novaEtapa;
+    const nomeFunilDestino = funisDisponiveis.find(p => p.id === funilDestino)?.nome || funilDestino;
+
+    // Register activity for each deal
+    // We do this in background to not block UI too much, or await if critical
+    selecionados.forEach(async (id) => {
+      await registrarAtividade(id, "movimentacao", { para_etapa_nome: nomeEtapaDestino, para_funil_nome: nomeFunilDestino });
+    });
+
+    setDeals((atual) => {
+      // Remove if moved to another pipeline
+      if (funilDestino !== pipelineAtivoId) {
+        return atual.filter((deal) => !selecionados.includes(deal.id));
+      }
+      // Update stage if same pipeline
+      return atual.map((deal) =>
+        selecionados.includes(deal.id)
+          ? { ...deal, funilId: funilDestino, etapaId: novaEtapa }
+          : deal
+      );
+    });
+
+    setSelecionados([]);
+    setModoSelecao(false);
+    setDialogMoverSelecionadosAberto(false);
+    setCarregando(false);
   };
 
   const handleExcluirSelecionados = () => {
@@ -2314,6 +2755,7 @@ export function VisaoFunil() {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-72">
+            {/* ... existing menu content ... */}
             <DropdownMenuLabel>Filtros do funil</DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
@@ -2720,6 +3162,11 @@ export function VisaoFunil() {
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        <Button onClick={() => setDialogCriarNegocioAberto(true)} className="gap-2">
+          <Plus className="h-4 w-4" />
+          Criar negócio
+        </Button>
         <Button variant="outline" onClick={handleAbrirNovoFunil} className="gap-2">
           <Plus className="h-4 w-4" />
           Nova pipeline
@@ -2746,21 +3193,23 @@ export function VisaoFunil() {
               {selecionados.length} selecionados
             </Badge>
             <Select onValueChange={handleAplicarTag}>
-              <SelectTrigger className="w-[170px]">
+              <SelectTrigger className="w-[170px] shadow-none">
                 <SelectValue placeholder="Aplicar tag" />
               </SelectTrigger>
               <SelectContent>
-                {tags
-                  .filter((tag) => tag !== "todas")
+                {tagsDisponiveis
                   .map((tag) => (
-                    <SelectItem key={tag} value={tag}>
-                      {tag}
+                    <SelectItem key={tag.id} value={tag.nome}>
+                      <div className="flex items-center gap-2">
+                        <div className="h-3 w-3 rounded-full" style={{ backgroundColor: tag.cor ?? "#94a3b8" }} />
+                        {tag.nome}
+                      </div>
                     </SelectItem>
                   ))}
               </SelectContent>
             </Select>
             <Select onValueChange={handleAplicarOwner}>
-              <SelectTrigger className="w-[170px]">
+              <SelectTrigger className="w-[170px] shadow-none">
                 <SelectValue placeholder="Alterar owner" />
               </SelectTrigger>
               <SelectContent>
@@ -2773,6 +3222,13 @@ export function VisaoFunil() {
                   ))}
               </SelectContent>
             </Select>
+            <Button variant="secondary" onClick={() => {
+              setFunilDestino(pipelineAtivoId);
+              setEtapaDestino(etapas[0]?.id || "");
+              setDialogMoverSelecionadosAberto(true);
+            }}>
+              Mover
+            </Button>
             <Button variant="destructive" onClick={() => setDialogExcluirAberto(true)}>
               Excluir
             </Button>
@@ -3363,6 +3819,71 @@ export function VisaoFunil() {
         </DialogContent>
       </Dialog>
 
+      <Dialog
+        open={dialogMoverSelecionadosAberto}
+        onOpenChange={setDialogMoverSelecionadosAberto}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Mover {selecionados.length} negócios selecionados</DialogTitle>
+            <DialogDescription>
+              Escolha o funil e a etapa de destino.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Funil de destino</label>
+              <Select
+                value={funilDestino}
+                onValueChange={(valor) => {
+                  setFunilDestino(valor);
+                  const funil = funisDisponiveis.find((f) => f.id === valor);
+                  const targetStages = funil?.etapas || [];
+                  setEtapaDestino(targetStages[0]?.id || "");
+                }}
+              >
+                <SelectTrigger className="shadow-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {funisDisponiveis.map((funil) => (
+                    <SelectItem key={funil.id} value={funil.id}>
+                      {funil.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <label className="text-sm font-medium">Etapa de destino</label>
+              <Select value={etapaDestino} onValueChange={setEtapaDestino}>
+                <SelectTrigger className="shadow-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(funisDisponiveis.find(f => f.id === funilDestino)?.etapas || []).map((etapa) => (
+                    <SelectItem key={etapa.id} value={etapa.id}>
+                      {etapa.nome}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => setDialogMoverSelecionadosAberto(false)}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleSalvarMoverSelecionados}>
+              Confirmar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Sheet
         open={Boolean(dealAtivo)}
         onOpenChange={(aberto) => {
@@ -3418,7 +3939,7 @@ export function VisaoFunil() {
                     </Button>
                   </div>
 
-                  <Button onClick={handleExcluirDeal} variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:bg-rose-50 hover:text-rose-600 rounded-[6px] shadow-none">
+                  <Button onClick={() => setDialogExcluirDealAberto(true)} variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:bg-rose-50 hover:text-rose-600 rounded-[6px] shadow-none">
                     <Trash2 className="w-4 h-4" />
                   </Button>
                 </div>
@@ -3703,8 +4224,30 @@ export function VisaoFunil() {
                               <div className="flex items-center gap-2">
                                 <Paperclip className="h-4 w-4 text-muted-foreground" />
                                 <div>
-                                  <p className="text-sm font-medium">
-                                    {arquivo.file_name}
+                                  <p className="text-sm font-medium" title={arquivo.file_name}>
+                                    {(() => {
+                                      // 1. Remove UUID prefix (typical pattern: 8-4-4-4-12 chars + dash)
+                                      // Regex looks for UUID at start of string followed by a dash
+                                      const cleanName = arquivo.file_name.replace(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}-/, "");
+
+                                      // 2. Truncate logic
+                                      // If name is short enough, return as is
+                                      if (cleanName.length < 30) return cleanName;
+
+                                      // Split by common separators to find "words"
+                                      const parts = cleanName.split(/[\s-_.]+/);
+                                      const extension = cleanName.split('.').pop();
+
+                                      // If we have at least 3 parts, try to combine first 3
+                                      if (parts.length >= 3) {
+                                        // Take first 3 'words'
+                                        const prefix = parts.slice(0, 3).join(" ");
+                                        return `${prefix}...${extension ? `.${extension}` : ""}`;
+                                      }
+
+                                      // Fallback for long strings without separators: take first 20 chars
+                                      return `${cleanName.substring(0, 20)}...${extension ? `.${extension}` : ""}`;
+                                    })()}
                                   </p>
                                   <p className="text-[10px] text-muted-foreground">
                                     {formatarBytes(arquivo.tamanho_bytes ?? undefined)} ·{" "}
@@ -4120,7 +4663,7 @@ export function VisaoFunil() {
                   }
                 }}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full shadow-none">
                   <SelectValue placeholder="Selecione o funil" />
                 </SelectTrigger>
                 <SelectContent>
@@ -4138,7 +4681,7 @@ export function VisaoFunil() {
                 value={etapaDestino || etapas[0]?.id}
                 onValueChange={setEtapaDestino}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger className="w-full shadow-none">
                   <SelectValue placeholder="Selecione a etapa" />
                 </SelectTrigger>
                 <SelectContent>
@@ -4159,6 +4702,359 @@ export function VisaoFunil() {
               Cancelar
             </Button>
             <Button onClick={handleSalvarMoverDeal}>Confirmar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={dialogExcluirArquivoAberto}
+        onOpenChange={setDialogExcluirArquivoAberto}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Confirmar exclusão de arquivo</DialogTitle>
+            <DialogDescription>
+              Tem certeza que deseja excluir o arquivo "{arquivoExcluindo?.file_name}"? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-3 sm:justify-end">
+            <Button
+              variant="ghost"
+              onClick={() => setDialogExcluirArquivoAberto(false)}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleConfirmarExclusaoArquivo}
+            >
+              {arquivoExcluindoId === arquivoExcluindo?.id ? "Excluindo..." : "Excluir"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={dialogCriarNegocioAberto} onOpenChange={setDialogCriarNegocioAberto}>
+        <DialogContent className="sm:max-w-[700px] p-0 gap-0 overflow-hidden">
+          <DialogHeader className="p-6 border-b">
+            <DialogTitle>Novo Negócio</DialogTitle>
+            <DialogDescription>Preencha os dados abaixo para criar um novo negócio.</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-y-auto max-h-[70vh] p-6 space-y-6">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Vincular contato (Opcional)</label>
+              <Popover open={comboboxContatoAberto} onOpenChange={setComboboxContatoAberto}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={comboboxContatoAberto}
+                    className="w-full justify-between shadow-none"
+                  >
+                    {novoNegocio.contatoId
+                      ? contatosDisponiveis.find((c) => c.id === novoNegocio.contatoId)?.nome
+                      : "Buscar contato..."}
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[400px] p-0 z-[9999]" align="start">
+                  <Command shouldFilter={false}>
+                    <CommandInput placeholder="Buscar contato..." value={buscaContato} onValueChange={setBuscaContato} />
+                    <CommandList>
+                      <CommandEmpty>Nenhum contato encontrado.</CommandEmpty>
+                      <CommandGroup>
+                        {contatosDisponiveis.filter(c => c.nome.toLowerCase().includes(buscaContato.toLowerCase())).map((contato) => (
+                          <CommandItem
+                            key={contato.id}
+                            value={contato.nome} // Use name for value to help cmdk matching logic if needed
+                            className="!pointer-events-auto !opacity-100 cursor-pointer" // Force interactive
+                            onSelect={() => {
+                              setNovoNegocio({
+                                ...novoNegocio,
+                                contatoId: contato.id === novoNegocio.contatoId ? "" : contato.id,
+                                nome: contato.nome,
+                                email: contato.email || "",
+                                telefone: contato.telefone || "",
+                              });
+                              setComboboxContatoAberto(false);
+                            }}
+                          >
+                            <Check
+                              className={cn(
+                                "mr-2 h-4 w-4",
+                                novoNegocio.contatoId === contato.id ? "opacity-100" : "opacity-0"
+                              )}
+                            />
+                            <div className="flex flex-col">
+                              <span>{contato.nome}</span>
+                              <span className="text-xs text-muted-foreground">{contato.email}</span>
+                            </div>
+                          </CommandItem>
+                        ))}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2 col-span-2 sm:col-span-1">
+                <label className="text-sm font-medium">Nome do negócio <span className="text-red-500">*</span></label>
+                <Input
+                  className="shadow-none"
+                  placeholder="Ex: Contrato Empresa X"
+                  value={novoNegocio.nome}
+                  onChange={(e) => setNovoNegocio({ ...novoNegocio, nome: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2 col-span-2 sm:col-span-1">
+                <label className="text-sm font-medium">Valor Estimado</label>
+                <Input
+                  className="shadow-none"
+                  placeholder="R$ 0,00"
+                  value={novoNegocio.valor}
+                  onChange={(e) => {
+                    const valor = e.target.value.replace(/\D/g, "");
+                    const valorFormatado = (Number(valor) / 100).toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
+                    });
+                    setNovoNegocio({ ...novoNegocio, valor: valorFormatado });
+                  }}
+                />
+              </div>
+              <div className="space-y-2 col-span-2 sm:col-span-1">
+                <label className="text-sm font-medium">Email</label>
+                <Input
+                  className="shadow-none"
+                  placeholder="contato@empresa.com"
+                  value={novoNegocio.email}
+                  onChange={(e) => setNovoNegocio({ ...novoNegocio, email: e.target.value })}
+                />
+              </div>
+              <div className="space-y-2 col-span-2 sm:col-span-1">
+                <label className="text-sm font-medium">Telefone</label>
+                <Input
+                  className="shadow-none"
+                  placeholder="(00) 00000-0000"
+                  value={novoNegocio.telefone}
+                  onChange={(e) => {
+                    const formatted = formatarTelefone(e.target.value);
+                    setNovoNegocio({ ...novoNegocio, telefone: formatted });
+                  }}
+                  maxLength={15}
+                />
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2 col-span-2 sm:col-span-1">
+                <label className="text-sm font-medium">Funil <span className="text-red-500">*</span></label>
+                <Select
+                  value={novoNegocio.funilId}
+                  onValueChange={(val) => {
+                    setNovoNegocio({ ...novoNegocio, funilId: val, etapaId: "" });
+                    // Trigger refetch of stages if needed or just rely on state if already loaded
+                    // For now assuming 'funisDisponiveis' has mostly static config or simple mapping
+                    // In real app, changing funnel might need to update stages list
+                  }}
+                >
+                  <SelectTrigger className="shadow-none">
+                    <SelectValue placeholder="Selecione o funil" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {funisDisponiveis.map(f => (
+                      <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 col-span-2 sm:col-span-1">
+                <label className="text-sm font-medium">Etapa <span className="text-red-500">*</span></label>
+                <Select
+                  value={novoNegocio.etapaId}
+                  onValueChange={(val) => setNovoNegocio({ ...novoNegocio, etapaId: val })}
+                  disabled={!novoNegocio.funilId}
+                >
+                  <SelectTrigger className="shadow-none">
+                    <SelectValue placeholder="Selecione a etapa" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(funisDisponiveis.find(f => f.id === novoNegocio.funilId)?.etapas || []).map(e => (
+                      <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 col-span-2">
+                <label className="text-sm font-medium">Responsável</label>
+                <Select
+                  value={novoNegocio.ownerId}
+                  onValueChange={(val) => setNovoNegocio({ ...novoNegocio, ownerId: val })}
+                >
+                  <SelectTrigger className="shadow-none">
+                    <SelectValue placeholder="Selecione o responsável" />
+                  </SelectTrigger>
+                  <SelectContent className="z-[9999]">
+                    <SelectItem value="todos">Selecione...</SelectItem>
+                    {membros.map(m => (
+                      <SelectItem key={m.id} value={m.id}>{m.nome}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <Separator />
+
+            <div className="space-y-3">
+              <label className="text-sm font-medium">Tags</label>
+              <div className="flex flex-wrap gap-2">
+                {novoNegocio.tags.map(tag => (
+                  <Badge key={tag} variant="outline" className="text-white pl-2.5 pr-1.5 py-1 text-xs font-medium border-transparent transition-colors flex items-center gap-1.5 shadow-none rounded-[6px]" style={{
+                    backgroundColor: tagsDisponiveis.find(t => t.nome === tag)?.cor ?? "#94a3b8",
+                    borderColor: (tagsDisponiveis.find(t => t.nome === tag)?.cor ?? "#94a3b8") + '30'
+                  }}>
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => setNovoNegocio(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tag) }))}
+                      className="ml-1 rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors text-white/80 hover:text-white"
+                    >
+                      <XCircle className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+
+                <div className="flex items-center gap-2">
+                  <Input
+                    placeholder="Nova tag"
+                    className="h-7 text-xs w-[120px] rounded-[6px] shadow-none"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        const val = e.currentTarget.value.trim();
+                        if (val && !novoNegocio.tags.includes(val)) {
+                          setNovoNegocio(prev => ({ ...prev, tags: [...prev.tags, val] }));
+                          e.currentTarget.value = "";
+                        }
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs border-dashed gap-1.5 px-3 text-muted-foreground hover:text-foreground hover:border-slate-300 shadow-none rounded-[6px]"
+                    onClick={(e) => {
+                      const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                      const val = input.value.trim();
+                      if (val && !novoNegocio.tags.includes(val)) {
+                        setNovoNegocio(prev => ({ ...prev, tags: [...prev.tags, val] }));
+                        input.value = "";
+                      }
+                    }}
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Adicionar
+                  </Button>
+                </div>
+              </div>
+
+              {tagsDisponiveis.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2 rounded-[6px] border border-border/60 bg-muted/30 p-2">
+                  {tagsDisponiveis.map((tag) => (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => {
+                        if (!novoNegocio.tags.includes(tag.nome)) {
+                          setNovoNegocio(prev => ({ ...prev, tags: [...prev.tags, tag.nome] }));
+                        }
+                      }}
+                      className="rounded-[6px] px-2 py-1 text-xs text-white transition-opacity hover:opacity-90"
+                      style={{ backgroundColor: tag.cor || "#94a3b8" }}
+                    >
+                      {tag.nome}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <Separator />
+
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Nota inicial</label>
+                <Textarea
+                  placeholder="Escreva uma observação inicial..."
+                  value={novoNegocio.nota}
+                  onChange={(e) => setNovoNegocio({ ...novoNegocio, nota: e.target.value })}
+                  className="min-h-[80px] shadow-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <Paperclip className="w-4 h-4" />
+                  Arquivos
+                </label>
+                <div
+                  className="border border-dashed border-border rounded-md p-4 flex flex-col items-center justify-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900 transition-colors"
+                  onClick={() => arquivoNovoNegocioInputRef.current?.click()}
+                >
+                  <p className="text-sm text-muted-foreground text-center">
+                    Clique para adicionar arquivos ({novoNegocio.arquivos.length} selecionados)
+                  </p>
+                </div>
+                <input
+                  type="file"
+                  multiple
+                  ref={arquivoNovoNegocioInputRef}
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files) {
+                      setNovoNegocio(prev => ({
+                        ...prev,
+                        arquivos: [...prev.arquivos, ...Array.from(e.target.files || [])]
+                      }));
+                    }
+                  }}
+                />
+                {novoNegocio.arquivos.length > 0 && (
+                  <div className="space-y-1">
+                    {novoNegocio.arquivos.map((file, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-xs bg-slate-100 dark:bg-slate-800 p-2 rounded">
+                        <span>{file.name}</span>
+                        <X
+                          className="w-3 h-3 cursor-pointer"
+                          onClick={() => setNovoNegocio(prev => ({
+                            ...prev,
+                            arquivos: prev.arquivos.filter((_, i) => i !== idx)
+                          }))}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {erroDados && (
+              <div className="p-3 bg-red-50 text-red-600 text-sm rounded border border-red-100">
+                {erroDados}
+              </div>
+            )}
+          </div>
+          <DialogFooter className="p-4 border-t bg-slate-50 dark:bg-slate-900">
+            <Button variant="ghost" onClick={() => setDialogCriarNegocioAberto(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleCriarNegocio} disabled={enviandoNovoNegocio}>
+              {enviandoNovoNegocio ? "Criando..." : "Criar Negócio"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

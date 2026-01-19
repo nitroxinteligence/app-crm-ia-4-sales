@@ -12,8 +12,14 @@ import {
   Link2,
   Plus,
   Search,
+  Settings,
+  SlidersHorizontal,
   Trash2,
   Undo2,
+  CheckCircle2,
+  AlertCircle,
+  Users,
+  Activity,
 } from "lucide-react";
 import type {
   RelacionamentoTarefa,
@@ -48,6 +54,7 @@ import {
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -531,7 +538,7 @@ export function VisaoCalendario() {
     if (responsavelAtual) {
       todos.add(responsavelAtual);
     }
-    return ["todos", ...Array.from(todos)];
+    return Array.from(todos).sort();
   }, [responsavelAtual, tarefas]);
 
   const obterToken = React.useCallback(async () => {
@@ -1163,8 +1170,8 @@ export function VisaoCalendario() {
     setTarefas((atual) =>
       tarefaEditando
         ? atual.map((tarefa) =>
-            tarefa.id === atualizada.id ? atualizada : tarefa
-          )
+          tarefa.id === atualizada.id ? atualizada : tarefa
+        )
         : [atualizada, ...atual]
     );
     setTarefaEditando(null);
@@ -1228,6 +1235,12 @@ export function VisaoCalendario() {
     ? statusEventoLabel[eventoSelecionado.status] ?? eventoSelecionado.status
     : "Não informado";
 
+  const filtroAtivoCount = [
+    filtroTipo !== "todos",
+    filtroResponsavel !== "todos",
+    filtroStatus !== "todos",
+  ].filter(Boolean).length;
+
   return (
     <div className="space-y-6 [&_*]:rounded-[6px] [&_*]:shadow-none">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1238,32 +1251,29 @@ export function VisaoCalendario() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {abaAtiva === "tarefas" ? (
-            <>
-              <Button
-                variant="outline"
-                className="gap-2"
-                onClick={() => setDialogConcluidasAberto(true)}
-              >
-                <ListChecks className="h-4 w-4" />
-                Tarefas concluídas
-                <Badge variant="secondary">{tarefasConcluidas.length}</Badge>
-              </Button>
-              <Button className="gap-2" onClick={handleAbrirNovaTarefa}>
-                <Plus className="h-4 w-4" />
-                Nova tarefa
-              </Button>
-            </>
-          ) : (
+          <div className={cn("flex flex-wrap items-center gap-2", abaAtiva !== "tarefas" && "hidden")}>
             <Button
+              variant="outline"
               className="gap-2"
-              onClick={handleAbrirNovoEvento}
-              disabled={!statusGoogle?.connected}
+              onClick={() => setDialogConcluidasAberto(true)}
             >
-              <Plus className="h-4 w-4" />
-              Novo evento
+              <ListChecks className="h-4 w-4" />
+              Tarefas concluídas
+              <Badge variant="secondary">{tarefasConcluidas.length}</Badge>
             </Button>
-          )}
+            <Button className="gap-2" onClick={handleAbrirNovaTarefa}>
+              <Plus className="h-4 w-4" />
+              Nova tarefa
+            </Button>
+          </div>
+          <Button
+            className={cn("gap-2", abaAtiva === "tarefas" && "hidden")}
+            onClick={handleAbrirNovoEvento}
+            disabled={!statusGoogle?.connected}
+          >
+            <Plus className="h-4 w-4" />
+            Novo evento
+          </Button>
         </div>
       </div>
 
@@ -1281,8 +1291,13 @@ export function VisaoCalendario() {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="gap-2">
-                <Filter className="h-4 w-4" />
+                <SlidersHorizontal className="h-4 w-4" />
                 Filtrar
+                {filtroAtivoCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 text-xs h-5 px-1.5 min-w-[1.25rem]">
+                    {filtroAtivoCount}
+                  </Badge>
+                )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64 rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
@@ -1291,62 +1306,111 @@ export function VisaoCalendario() {
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>Tipo</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-56 rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                  <DropdownMenuRadioGroup
-                    value={filtroTipo}
-                    onValueChange={(valor) =>
-                      setFiltroTipo(valor as TipoTarefa | "todos")
-                    }
+                  <DropdownMenuCheckboxItem
+                    checked={filtroTipo === "todos"}
+                    onCheckedChange={() => setFiltroTipo("todos")}
+                    className={cn(
+                      "cursor-pointer",
+                      filtroTipo === "todos" && "text-blue-600 font-medium"
+                    )}
                   >
-                    <DropdownMenuRadioItem value="todos">
-                      Todos os tipos
-                    </DropdownMenuRadioItem>
-                    {Object.entries(tiposLabel).map(([valor, label]) => (
-                      <DropdownMenuRadioItem key={valor} value={valor}>
-                        {label}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
+                    Todos os tipos
+                  </DropdownMenuCheckboxItem>
+                  {Object.entries(tiposLabel).map(([valor, label]) => (
+                    <DropdownMenuCheckboxItem
+                      key={valor}
+                      checked={filtroTipo === valor}
+                      onCheckedChange={() =>
+                        setFiltroTipo(
+                          filtroTipo === valor ? "todos" : (valor as TipoTarefa)
+                        )
+                      }
+                      className={cn(
+                        "cursor-pointer",
+                        filtroTipo === valor && "text-blue-600 font-medium"
+                      )}
+                    >
+                      {label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>Responsável</DropdownMenuSubTrigger>
-                <DropdownMenuSubContent className="w-56 rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                  <DropdownMenuRadioGroup
-                    value={filtroResponsavel}
-                    onValueChange={setFiltroResponsavel}
+                <DropdownMenuSubContent className="w-56 max-h-72 overflow-y-auto rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+                  <DropdownMenuCheckboxItem
+                    checked={filtroResponsavel === "todos"}
+                    onCheckedChange={() => setFiltroResponsavel("todos")}
+                    className={cn(
+                      "cursor-pointer",
+                      filtroResponsavel === "todos" && "text-blue-600 font-medium"
+                    )}
                   >
-                    {responsaveis.map((responsavel) => (
-                      <DropdownMenuRadioItem
-                        key={responsavel}
-                        value={responsavel}
-                      >
-                        {responsavel === "todos" ? "Todos" : responsavel}
-                      </DropdownMenuRadioItem>
-                    ))}
-                  </DropdownMenuRadioGroup>
+                    Todos
+                  </DropdownMenuCheckboxItem>
+                  {responsaveis.map((responsavel) => (
+                    <DropdownMenuCheckboxItem
+                      key={responsavel}
+                      checked={filtroResponsavel === responsavel}
+                      onCheckedChange={() =>
+                        setFiltroResponsavel(
+                          filtroResponsavel === responsavel ? "todos" : responsavel
+                        )
+                      }
+                      className={cn(
+                        "cursor-pointer",
+                        filtroResponsavel === responsavel &&
+                        "text-blue-600 font-medium"
+                      )}
+                    >
+                      {responsavel === "todos" ? "Todos" : responsavel}
+                    </DropdownMenuCheckboxItem>
+                  ))}
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
               <DropdownMenuSub>
                 <DropdownMenuSubTrigger>Status</DropdownMenuSubTrigger>
                 <DropdownMenuSubContent className="w-56 rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-                  <DropdownMenuRadioGroup
-                    value={filtroStatus}
-                    onValueChange={(valor) =>
-                      setFiltroStatus(valor as StatusTarefa | "todos")
-                    }
+                  <DropdownMenuCheckboxItem
+                    checked={filtroStatus === "todos"}
+                    onCheckedChange={() => setFiltroStatus("todos")}
+                    className={cn(
+                      "cursor-pointer",
+                      filtroStatus === "todos" && "text-blue-600 font-medium"
+                    )}
                   >
-                    <DropdownMenuRadioItem value="todos">
-                      Todos
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="pendente">
-                      Pendente
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="concluida">
-                      Concluída
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
+                    Todos
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={filtroStatus === "pendente"}
+                    onCheckedChange={() =>
+                      setFiltroStatus(
+                        filtroStatus === "pendente" ? "todos" : "pendente"
+                      )
+                    }
+                    className={cn(
+                      "cursor-pointer",
+                      filtroStatus === "pendente" && "text-blue-600 font-medium"
+                    )}
+                  >
+                    Pendente
+                  </DropdownMenuCheckboxItem>
+                  <DropdownMenuCheckboxItem
+                    checked={filtroStatus === "concluida"}
+                    onCheckedChange={() =>
+                      setFiltroStatus(
+                        filtroStatus === "concluida" ? "todos" : "concluida"
+                      )
+                    }
+                    className={cn(
+                      "cursor-pointer",
+                      filtroStatus === "concluida" && "text-blue-600 font-medium"
+                    )}
+                  >
+                    Concluída
+                  </DropdownMenuCheckboxItem>
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
               <DropdownMenuSeparator />
@@ -1363,7 +1427,8 @@ export function VisaoCalendario() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      ) : null}
+      ) : null
+      }
 
       <Tabs value={abaAtiva} onValueChange={setAbaAtiva}>
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1374,39 +1439,44 @@ export function VisaoCalendario() {
             <TabsTrigger value="periodo">Período</TabsTrigger>
             <TabsTrigger value="tarefas">Tarefas</TabsTrigger>
           </TabsList>
-          <Popover
-            open={popoverPeriodoAberto}
-            onOpenChange={setPopoverPeriodoAberto}
-          >
-            <PopoverTrigger asChild>
-              <Button variant="outline" className="gap-2">
-                <CalendarDays className="h-4 w-4" />
-                Período: {periodoDias} dias
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-56 p-2 rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
-              <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">
-                Visualizar próximos dias
-              </p>
-              <div className="grid gap-1">
-                {periodosDisponiveis.map((dias) => (
-                  <Button
-                    key={dias}
-                    variant={dias === periodoDias ? "secondary" : "ghost"}
-                    size="sm"
-                    className="justify-start"
-                    onClick={() => {
-                      setPeriodoDias(dias);
-                      setAbaAtiva("periodo");
-                      setPopoverPeriodoAberto(false);
-                    }}
-                  >
-                    {dias} dias
-                  </Button>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
+          {abaAtiva !== "tarefas" && (
+            <Popover
+              open={popoverPeriodoAberto}
+              onOpenChange={setPopoverPeriodoAberto}
+            >
+              <PopoverTrigger asChild>
+                <Button variant="outline" className="gap-2">
+                  <CalendarDays className="h-4 w-4" />
+                  Período: {periodoDias} dias
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent
+                align="end"
+                className="w-56 p-2 rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none"
+              >
+                <p className="px-2 pb-2 text-xs font-medium text-muted-foreground">
+                  Visualizar próximos dias
+                </p>
+                <div className="grid gap-1">
+                  {periodosDisponiveis.map((dias) => (
+                    <Button
+                      key={dias}
+                      variant={dias === periodoDias ? "secondary" : "ghost"}
+                      size="sm"
+                      className="justify-start"
+                      onClick={() => {
+                        setPeriodoDias(dias);
+                        setAbaAtiva("periodo");
+                        setPopoverPeriodoAberto(false);
+                      }}
+                    >
+                      {dias} dias
+                    </Button>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
         </div>
 
         <TabsContent value="mes" className="pt-4">
@@ -1892,74 +1962,120 @@ export function VisaoCalendario() {
                   tarefasVisiveis.map((tarefa) => (
                     <div
                       key={tarefa.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-background/80 p-3 text-sm"
+                      className="flex flex-col gap-3 rounded-[8px] border border-border/60 bg-background p-4 sm:flex-row sm:items-center sm:justify-between hover:border-border transition-colors"
                     >
-                      <div className="flex items-start gap-3">
-                        <Checkbox
-                          checked={tarefa.status === "concluida"}
-                          onCheckedChange={() =>
-                            handleAtualizarStatusTarefa(
-                              tarefa.id,
-                              tarefa.status === "pendente" ? "concluida" : "pendente"
-                            )
-                          }
-                          aria-label={`Concluir tarefa ${tarefa.titulo}`}
-                        />
-                        <div>
+                      <div className="flex flex-1 flex-col gap-2">
+                        <div className="flex items-start justify-between gap-4">
                           <p
                             className={cn(
-                              "font-medium",
+                              "font-medium text-base",
                               tarefa.status === "concluida" &&
-                                "text-muted-foreground line-through"
+                              "text-muted-foreground line-through"
                             )}
                           >
                             {tarefa.titulo}
                           </p>
-                          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                            <span>{formatarDataCurta(tarefa.data)}</span>
-                            <span>{formatarHoraCurta(tarefa.data)}</span>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted-foreground">
+                          <div className="flex items-center gap-1.5">
+                            <Clock className="h-3.5 w-3.5" />
+                            <span>
+                              {formatarDataCurta(tarefa.data)} •{" "}
+                              {formatarHoraCurta(tarefa.data)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            <div className="h-1.5 w-1.5 rounded-full bg-primary/60" />
                             <span>{tarefa.responsavel}</span>
-                            {tarefa.relacionamentoTipo && (
-                              <span className="flex items-center gap-1">
-                                <Link2 className="h-3 w-3" />
+                          </div>
+
+                          {tarefa.relacionamentoTipo && (
+                            <div className="flex items-center gap-1.5">
+                              <Link2 className="h-3.5 w-3.5" />
+                              <span>
                                 {relacionamentoLabel[tarefa.relacionamentoTipo]}
                               </span>
-                            )}
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2">
+                            <Badge
+                              variant="secondary"
+                              className="h-5 px-1.5 text-[10px] font-normal"
+                            >
+                              {tarefa.tipo === "outro"
+                                ? tarefa.tipoOutro ?? "Outro"
+                                : tiposLabel[tarefa.tipo]}
+                            </Badge>
+                            <Badge
+                              variant="outline"
+                              className="h-5 px-1.5 text-[10px] font-normal"
+                            >
+                              {statusLabel[tarefa.status]}
+                            </Badge>
                           </div>
                         </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs">
-                        <Badge variant="secondary">
-                          {tarefa.tipo === "outro"
-                            ? tarefa.tipoOutro ?? "Outro"
-                            : tiposLabel[tarefa.tipo]}
-                        </Badge>
-                        <Badge variant="outline">
-                          {statusLabel[tarefa.status]}
-                        </Badge>
-                        {tarefa.criadoPor === "agente" && (
-                          <Badge variant="outline">Criado por agente</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          onClick={() => handleAbrirEditarTarefa(tarefa)}
-                          aria-label="Editar tarefa"
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive"
-                          onClick={() => handleExcluirTarefa(tarefa)}
-                          aria-label="Excluir tarefa"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+
+                      <div className="flex items-center justify-end gap-1 sm:border-l sm:pl-4">
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-green-600 hover:bg-green-50"
+                              onClick={() =>
+                                handleAtualizarStatusTarefa(
+                                  tarefa.id,
+                                  tarefa.status === "pendente"
+                                    ? "concluida"
+                                    : "pendente"
+                                )
+                              }
+                            >
+                              {tarefa.status === "concluida" ? (
+                                <Undo2 className="h-4 w-4" />
+                              ) : (
+                                <ListChecks className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            {tarefa.status === "concluida"
+                              ? "Reabrir tarefa"
+                              : "Concluir tarefa"}
+                          </TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground"
+                              onClick={() => handleAbrirEditarTarefa(tarefa)}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Editar</TooltipContent>
+                        </Tooltip>
+
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                              onClick={() => handleExcluirTarefa(tarefa)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>Excluir</TooltipContent>
+                        </Tooltip>
                       </div>
                     </div>
                   ))
@@ -1976,44 +2092,56 @@ export function VisaoCalendario() {
       </Tabs>
 
       <div className="grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <Card>
-          <CardContent className="space-y-3 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-semibold">Integrações</p>
+        <Card className="flex flex-col h-full">
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between mb-6">
+              <div className="space-y-1">
+                <p className="font-semibold text-base">Integrações</p>
                 <p className="text-xs text-muted-foreground">
-                  Conecte o Google Calendar para espelhar a agenda.
+                  Gerencie suas conexões externas.
                 </p>
               </div>
-              <Badge variant="outline">1 disponível</Badge>
+              <Badge variant="outline" className="h-6 gap-1 font-normal">
+                <Activity className="h-3 w-3 text-primary" />
+                1 disponível
+              </Badge>
             </div>
-            <Separator />
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-background/70 p-3 text-sm">
-                <div className="space-y-1">
-                  <p className="font-medium">Google Calendar</p>
-                  <p className="text-xs text-muted-foreground">
-                    {statusGoogleTexto}
-                  </p>
+
+            <div className="flex flex-col gap-4">
+              <div className="group flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-card p-4 transition-all hover:bg-accent/5 hover:border-border">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
+                    <CalendarDays className="h-5 w-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="font-medium text-sm leading-none">Google Calendar</p>
+                    <div className="flex items-center gap-1.5">
+                      <span className={cn("relative flex h-2 w-2")}>
+                        <span className={cn("animate-ping absolute inline-flex h-full w-full rounded-full opacity-75", statusGoogle?.connected ? "bg-green-400" : "bg-gray-400 hidden")} />
+                        <span className={cn("relative inline-flex rounded-full h-2 w-2", statusGoogle?.connected ? "bg-green-500" : "bg-gray-300")} />
+                      </span>
+                      <p className="text-xs text-muted-foreground">
+                        {statusGoogle?.connected ? "Sincronizado" : "Desconectado"}
+                      </p>
+                    </div>
+                  </div>
                 </div>
+
                 {statusGoogle?.connected ? (
                   <Button
-                    variant="outline"
+                    variant="ghost"
                     size="sm"
-                    className="gap-2"
                     onClick={handleDesconectarGoogle}
+                    className="h-8 px-3 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                   >
-                    <ChevronsRight className="h-4 w-4" />
                     Desconectar
                   </Button>
                 ) : (
                   <Button
-                    variant="outline"
                     size="sm"
-                    className="gap-2"
                     onClick={handleConectarGoogle}
+                    className="h-8 bg-blue-600 text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
                   >
-                    <ChevronsRight className="h-4 w-4" />
                     Conectar
                   </Button>
                 )}
@@ -2022,31 +2150,56 @@ export function VisaoCalendario() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="space-y-3 p-4">
-            <p className="text-sm font-semibold">Resumo rápido</p>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Pendentes</span>
-                <span>
-                  {tarefas.filter((tarefa) => tarefa.status === "pendente").length}
-                </span>
+        <Card className="flex flex-col h-full">
+          <CardContent className="p-6">
+            <div className="space-y-1 mb-6">
+              <p className="font-semibold text-base">Visão Geral</p>
+              <p className="text-xs text-muted-foreground">Status das suas tarefas.</p>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-border/50 bg-accent/5 p-4 text-center transition-colors hover:bg-accent/10">
+                <div className="rounded-full bg-orange-100 p-2 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400">
+                  <AlertCircle className="h-4 w-4" />
+                </div>
+                <div>
+                  <span className="block text-2xl font-bold tracking-tight">
+                    {tarefas.filter((tarefa) => tarefa.status === "pendente").length}
+                  </span>
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Pendentes</span>
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Concluídas</span>
-                <span>
-                  {tarefas.filter((tarefa) => tarefa.status === "concluida").length}
-                </span>
+
+              <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-border/50 bg-accent/5 p-4 text-center transition-colors hover:bg-accent/10">
+                <div className="rounded-full bg-green-100 p-2 text-green-600 dark:bg-green-900/20 dark:text-green-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <span className="block text-2xl font-bold tracking-tight">
+                    {tarefas.filter((tarefa) => tarefa.status === "concluida").length}
+                  </span>
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Concluídas</span>
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">Responsáveis</span>
-                <span>{responsaveis.length - 1}</span>
+
+              <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-border/50 bg-accent/5 p-4 text-center transition-colors hover:bg-accent/10">
+                <div className="rounded-full bg-blue-100 p-2 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400">
+                  <Users className="h-4 w-4" />
+                </div>
+                <div>
+                  <span className="block text-2xl font-bold tracking-tight">
+                    {responsaveis.length - 1}
+                  </span>
+                  <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Responsáveis</span>
+                </div>
               </div>
             </div>
-            <Separator />
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <FilePlus className="h-4 w-4" />
-              Tarefas são pessoais e visíveis apenas para você.
+
+            <div className="mt-6">
+              <div className="flex items-center gap-2 rounded-md bg-muted/50 p-2.5 text-xs text-muted-foreground">
+                <Activity className="h-3.5 w-3.5 shrink-0" />
+                <span className="opacity-90">Tarefas são pessoais e visíveis apenas para você.</span>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -2170,16 +2323,16 @@ export function VisaoCalendario() {
       </Dialog>
 
       <Dialog open={dialogEventoAberto} onOpenChange={setDialogEventoAberto}>
-        <DialogContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none">
+        <DialogContent className="rounded-[6px] shadow-none [&_*]:rounded-[6px] [&_*]:shadow-none max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle>
               {eventoEditando ? "Editar evento" : "Novo evento"}
             </DialogTitle>
             <DialogDescription>
-              Crie ou edite um evento direto no Google Calendar.
+              Crie um evento direto no Google Calendar.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-3">
+          <div className="grid gap-3 flex-1 overflow-y-auto min-h-0 px-1">
             <div className="grid gap-2">
               <label htmlFor="evento-titulo" className="text-sm font-medium">
                 Título
@@ -2363,7 +2516,7 @@ export function VisaoCalendario() {
                   }))
                 }
                 placeholder="Notas adicionais para o evento"
-                className="min-h-[90px]"
+                className="min-h-[90px] max-h-[200px] overflow-y-auto"
               />
             </div>
           </div>
@@ -2573,15 +2726,7 @@ export function VisaoCalendario() {
                 </div>
               ) : null}
             </div>
-            <div className="flex items-center justify-between rounded-[6px] border border-border/60 bg-muted/30 p-3 text-sm">
-              <div className="space-y-1">
-                <p className="font-medium">Criado por agente</p>
-                <p className="text-xs text-muted-foreground">
-                  Bloqueado na versão atual.
-                </p>
-              </div>
-              <Switch disabled />
-            </div>
+
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDialogNovaAberto(false)}>
@@ -2722,6 +2867,6 @@ export function VisaoCalendario() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   );
 }
