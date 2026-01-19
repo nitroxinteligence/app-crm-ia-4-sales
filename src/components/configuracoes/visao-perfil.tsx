@@ -290,7 +290,7 @@ export function VisaoPerfilConfiguracoes() {
       const message = await response.text();
       setErro(
         message ||
-          t("Não foi possível salvar a foto.", "Unable to save the photo.")
+        t("Não foi possível salvar a foto.", "Unable to save the photo.")
       );
       setEnviandoAvatar(false);
       event.target.value = "";
@@ -393,10 +393,10 @@ export function VisaoPerfilConfiguracoes() {
                 <Badge variant="secondary">{usuario.role}</Badge>
                 <Badge variant="outline">{planoLabel}</Badge>
               </div>
-                <p className="text-sm text-muted-foreground">
-                  {perfil?.email ?? usuario.email}
-                </p>
-                <p className="text-xs text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
+                {perfil?.email ?? usuario.email}
+              </p>
+              <p className="text-xs text-muted-foreground">
                 {t("Workspace ativo:", "Active workspace:")}{" "}
                 <span className="font-medium text-foreground">
                   {workspace.nome}
@@ -422,7 +422,7 @@ export function VisaoPerfilConfiguracoes() {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,360px)]">
         <div className="space-y-6">
-          <Card>
+          <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
             <CardContent className="grid gap-6 p-6 lg:grid-cols-[200px_1fr]">
               <div className="space-y-1">
                 <p className="text-sm font-semibold">
@@ -470,7 +470,7 @@ export function VisaoPerfilConfiguracoes() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
             <CardContent className="grid gap-6 p-6 lg:grid-cols-[220px_1fr]">
               <div className="space-y-1">
                 <p className="text-sm font-semibold">
@@ -504,7 +504,7 @@ export function VisaoPerfilConfiguracoes() {
         </div>
 
         <div className="space-y-6">
-          <Card>
+          <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
             <CardContent className="space-y-4 p-6">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -558,7 +558,7 @@ export function VisaoPerfilConfiguracoes() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
             <CardContent className="space-y-4 p-6">
               <div className="space-y-1">
                 <p className="text-sm font-semibold">
@@ -575,9 +575,10 @@ export function VisaoPerfilConfiguracoes() {
                 value={workspaceBusca}
                 onChange={(event) => setWorkspaceBusca(event.target.value)}
                 placeholder={t("Pesquisar workspaces", "Search workspaces")}
+                className="bg-white dark:bg-neutral-950"
               />
               {workspacesFiltrados.length === 0 ? (
-                <div className="rounded-[6px] border border-border/60 px-3 py-4 text-xs text-muted-foreground">
+                <div className="rounded-[6px] border border-border/60 px-3 py-4 text-xs text-muted-foreground bg-white dark:bg-neutral-950">
                   {t(
                     "Nenhum workspace encontrado.",
                     "No workspaces found."
@@ -588,7 +589,7 @@ export function VisaoPerfilConfiguracoes() {
                   {workspacesFiltrados.map((item) => (
                     <div
                       key={item.id}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-muted/20 px-3 py-3 text-sm"
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-white dark:bg-neutral-950 px-3 py-3 text-sm"
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <Avatar className="h-9 w-9 border border-border/60 bg-background/80">

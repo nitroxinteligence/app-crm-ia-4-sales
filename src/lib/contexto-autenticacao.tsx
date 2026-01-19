@@ -9,7 +9,7 @@ import type {
   IdiomaApp,
   Role,
 } from "@/lib/types";
-import { normalizarPlano, planosConfig } from "@/lib/planos";
+import { normalizarPlano, planosConfig, resolverPlanoEfetivo } from "@/lib/planos";
 import { supabaseClient } from "@/lib/supabase/client";
 
 type AuthContextValue = EstadoAutenticacao & {
@@ -105,7 +105,7 @@ export function ProvedorAutenticacao({
       const { data: workspace } = await supabaseClient
         .from("workspaces")
         .select(
-          "id, nome, plano, plano_periodo, plano_selected_at, trial_started_at, trial_ends_at"
+          "id, nome, plano, plano_periodo, plano_selected_at, trial_started_at, trial_ends_at, trial_plano, plano_renova_em"
         )
         .eq("id", membership.workspace_id)
         .maybeSingle();
@@ -137,8 +137,9 @@ export function ProvedorAutenticacao({
 
       const role = (membership.role ?? "MEMBER") as Role;
       const planoWorkspace = normalizarPlano(workspace?.plano);
-      const planoEfetivo: keyof typeof planosConfig =
-        role === "ADMIN" ? "Premium" : planoWorkspace;
+      const planoEfetivo: keyof typeof planosConfig = resolverPlanoEfetivo(
+        workspace
+      );
 
       setEstado({
         usuario: {
@@ -156,6 +157,8 @@ export function ProvedorAutenticacao({
           planoSelecionadoEm: workspace?.plano_selected_at ?? null,
           trialStartedAt: workspace?.trial_started_at ?? null,
           trialEndsAt: workspace?.trial_ends_at ?? null,
+          trialPlano: workspace?.trial_plano ?? null,
+          planoRenovaEm: workspace?.plano_renova_em ?? null,
         },
         canais,
         plano: {

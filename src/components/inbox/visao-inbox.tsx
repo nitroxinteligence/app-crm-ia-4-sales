@@ -16,6 +16,7 @@ import { conversationChannel, workspaceChannel } from "@/lib/pusher/channels";
 import { createPusherClient } from "@/lib/pusher/client";
 import type {
   PusherAttachmentPayload,
+  PusherAttachmentPendingPayload,
   PusherConversationUpdatedPayload,
   PusherMessagePayload,
   PusherTagsUpdatedPayload,
@@ -955,7 +956,7 @@ export function VisaoInbox() {
             dataHora: createdAt ?? undefined,
             interno: payload.message.interno ?? false,
             clientMessageId: payload.message.client_message_id ?? undefined,
-            envioStatus: "sent",
+            envioStatus: "sent" as const,
             anexos: [] as MensagemInbox["anexos"],
             senderId: payload.message.sender_id ?? undefined,
             senderNome: payload.message.sender_nome ?? undefined,
@@ -1035,17 +1036,75 @@ export function VisaoInbox() {
         const anexos = Array.isArray(alvo.anexos)
           ? alvo.anexos
           : ([] as NonNullable<MensagemInbox["anexos"]>);
-        if (anexos.some((item) => item.id === payload.attachment.id)) return atual;
+        const semPendentes = anexos.filter((item) => !item.pending);
+        if (semPendentes.some((item) => item.id === payload.attachment.id)) return atual;
+
+        const atualizado = {
+          ...alvo,
+          anexos: [
+            ...semPendentes,
+            {
+              id: payload.attachment.id,
+              storagePath: payload.attachment.storage_path,
+              tipo: payload.attachment.tipo,
+              tamanhoBytes: payload.attachment.tamanho_bytes ?? undefined,
+            },
+          ],
+        };
+        const mensagensAtualizadas = conversa.mensagens.slice();
+        mensagensAtualizadas[mensagemIndex] = atualizado;
+        const lista = atual.slice();
+        lista[index] = { ...conversa, mensagens: mensagensAtualizadas };
+        return lista;
+      });
+    },
+    [agendarRefresh, logRealtimeLatency, shouldProcessEvent]
+  );
+
+  const handleAttachmentPending = React.useCallback(
+    (payload: PusherAttachmentPendingPayload) => {
+      if (!payload?.conversation_id || !payload.message_id || !payload.attachment?.tipo) {
+        return;
+      }
+      if (!shouldProcessEvent(payload.event_id)) return;
+      logRealtimeLatency(payload.event_id, payload.emitted_at);
+
+      setConversas((atual) => {
+        const index = atual.findIndex((conversa) => conversa.id === payload.conversation_id);
+        if (index === -1) {
+          agendarRefresh();
+          return atual;
+        }
+
+        const conversa = atual[index];
+        const mensagemIndex = conversa.mensagens.findIndex(
+          (mensagem) => mensagem.id === payload.message_id
+        );
+        if (mensagemIndex === -1) {
+          agendarRefresh();
+          return atual;
+        }
+
+        const alvo = conversa.mensagens[mensagemIndex];
+        const anexos = Array.isArray(alvo.anexos)
+          ? alvo.anexos
+          : ([] as NonNullable<MensagemInbox["anexos"]>);
+        const pendingId =
+          payload.attachment.temp_id ?? `pending-${payload.message_id}`;
+        if (anexos.some((item) => item.id === pendingId)) return atual;
 
         const atualizado = {
           ...alvo,
           anexos: [
             ...anexos,
             {
-              id: payload.attachment.id,
-              storagePath: payload.attachment.storage_path,
+              id: pendingId,
+              storagePath: "",
               tipo: payload.attachment.tipo,
               tamanhoBytes: payload.attachment.tamanho_bytes ?? undefined,
+              pending: true,
+              nome: payload.attachment.nome ?? undefined,
+              mimeType: payload.attachment.mime_type ?? undefined,
             },
           ],
         };
@@ -1291,16 +1350,19 @@ export function VisaoInbox() {
     const channel = pusher.subscribe(channelName);
 
     channel.bind("message:created", handleMessageCreated);
+    channel.bind("attachment:pending", handleAttachmentPending);
     channel.bind("attachment:created", handleAttachmentCreated);
 
     return () => {
       channel.unbind("message:created", handleMessageCreated);
+      channel.unbind("attachment:pending", handleAttachmentPending);
       channel.unbind("attachment:created", handleAttachmentCreated);
       pusher.unsubscribe(channelName);
     };
   }, [
     conversaSelecionada?.id,
     handleAttachmentCreated,
+    handleAttachmentPending,
     handleMessageCreated,
     session?.access_token,
     workspaceId,

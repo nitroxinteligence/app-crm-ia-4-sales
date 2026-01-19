@@ -1,18 +1,40 @@
 "use client";
 
 import * as React from "react";
-import { CalendarClock, CreditCard } from "lucide-react";
+import {
+  HelpCircle,
+  LifeBuoy,
+  MessageSquare,
+  Target,
+  TrendingUp,
+} from "lucide-react";
+import Link from "next/link";
 import { supabaseClient } from "@/lib/supabase/client";
 import { useAutenticacao } from "@/lib/contexto-autenticacao";
 import { texto } from "@/lib/idioma";
+import { obterDetalhesPlano, PlanoPeriodo } from "@/lib/planos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type PlanoWorkspace = "Essential" | "Pro" | "Premium";
-type PlanoPeriodo = "mensal" | "semestral" | "anual";
+// type PlanoPeriodo = "mensal" | "semestral" | "anual"; // Imported from lib/planos
 type ModoCobranca = "configuracoes" | "selecao";
 type LayoutCobranca = "app" | "pagina";
 
@@ -26,9 +48,7 @@ type CreditosWorkspace = {
 type PlanoInfo = {
   id: PlanoWorkspace;
   titulo: string;
-  precoMensal: string;
-  precoSemestral: string;
-  precoAnual: string;
+  // Prices removed, using centralized config
   descricao: string;
   descricaoEn: string;
   recursos: string[];
@@ -39,87 +59,95 @@ const planos: PlanoInfo[] = [
   {
     id: "Essential",
     titulo: "Essential",
-    precoMensal: "R$ 97/mes",
-    precoSemestral: "R$ 523,80 a vista",
-    precoAnual: "R$ 931,20 a vista",
     descricao: "Organize o comercial e centralize o atendimento.",
     descricaoEn: "Organize sales and centralize support without AI.",
     recursos: [
-      "Ate 5 pipelines com 10 etapas",
-      "Gestao de deals e produtos",
-      "Ate 10.000 leads/contatos",
-      "Ate 2 usuarios/membros",
-      "Inbox omnichannel com 2 canais",
-      "Relatorios essenciais",
+      "2 Usuários",
+      "2 Conexões de WhatsApp/Insta",
+      "10.000 Contatos",
+      "Funil de Vendas (Kanban)",
+      "Agendamento de Disparos",
     ],
     recursosEn: [
-      "Up to 5 pipelines with 10 stages",
-      "Deals and products management",
-      "Up to 10,000 leads/contacts",
-      "Up to 2 users/members",
-      "Omnichannel inbox with 2 channels",
-      "Essential reports",
+      "2 Users",
+      "2 WhatsApp/Insta Connections",
+      "10,000 Contacts",
+      "Sales Pipeline (Kanban)",
+      "Scheduled Broadcasts",
     ],
   },
   {
     id: "Pro",
     titulo: "Pro",
-    precoMensal: "R$ 597/mes",
-    precoSemestral: "R$ 3.223,80 a vista",
-    precoAnual: "R$ 5.731,20 a vista",
     descricao: "Agente de IA habilitado com creditos inclusos.",
     descricaoEn: "AI agents enabled with included credits.",
     recursos: [
-      "Ate 3 agentes de IA",
-      "10.000 creditos/mês",
-      "Ate 20 pipelines com 15 etapas",
-      "Deals e produtos completos",
-      "Ate 100.000 leads/contatos",
-      "Ate 15 usuarios/membros",
-      "Multiatendimento com 10 canais",
-      "Relatorios avancados com KPIs",
+      "10 Usuários",
+      "10 Conexões de WhatsApp/Insta",
+      "100.000 Contatos",
+      "3 Agentes de IA Treináveis",
+      "Automação de Fluxos",
+      "Relatórios Avançados",
     ],
     recursosEn: [
-      "Up to 3 AI agents",
-      "10,000 credits/month",
-      "Up to 20 pipelines with 15 stages",
-      "Full deals/products management",
-      "Up to 100,000 leads/contacts",
-      "Up to 15 users/members",
-      "Omnichannel with 10 channels",
-      "Advanced reports with KPIs",
+      "10 Users",
+      "10 WhatsApp/Insta Connections",
+      "100,000 Contacts",
+      "3 Trainable AI Agents",
+      "Flow Automation",
+      "Advanced Reports",
     ],
   },
   {
     id: "Premium",
     titulo: "Premium",
-    precoMensal: "R$ 897/mes",
-    precoSemestral: "R$ 4.843,80 a vista",
-    precoAnual: "R$ 8.611,20 a vista",
     descricao: "Operacao completa com IA em todo o CRM.",
     descricaoEn: "Full operation with AI across the CRM.",
     recursos: [
-      "Agentes ilimitados",
-      "30.000 creditos/mês",
-      "Pipelines ilimitadas (ate 25 etapas)",
-      "Leads/contatos ilimitados",
-      "Deals e produtos completos",
-      "Ate 25 usuarios",
-      "Canais conectados ilimitados",
-      "Relatorios avancados + insights IA",
+      "20 Usuários",
+      "Canais Ilimitados",
+      "Contatos Ilimitados",
+      "Agentes de IA Ilimitados",
+      "API Dedicada",
+      "Gerente de Conta Exclusivo",
     ],
     recursosEn: [
-      "Unlimited agents",
-      "30,000 credits/month",
-      "Unlimited pipelines (up to 25 stages)",
-      "Unlimited leads/contacts",
-      "Full deals/products management",
-      "Up to 25 users",
-      "Unlimited connected channels",
-      "Advanced reports + AI insights",
+      "20 Users",
+      "Unlimited Channels",
+      "Unlimited Contacts",
+      "Unlimited AI Agents",
+      "Dedicated API",
+      "Exclusive Account Manager",
     ],
   },
 ];
+
+const limitesPorPlano = {
+  Essential: {
+    leads: 10000,
+    membros: 2,
+    conexoes: 2,
+    integracoes: 2,
+    automacoes: 1,
+    pipelines: 5,
+  },
+  Pro: {
+    leads: 100000,
+    membros: 15,
+    conexoes: 10,
+    integracoes: 10,
+    automacoes: 5,
+    pipelines: 20,
+  },
+  Premium: {
+    leads: null,
+    membros: 25,
+    conexoes: null,
+    integracoes: null,
+    automacoes: null,
+    pipelines: null,
+  },
+} as const;
 
 export function VisaoCobrancaConfiguracoes({
   modo = "configuracoes",
@@ -128,7 +156,7 @@ export function VisaoCobrancaConfiguracoes({
   modo?: ModoCobranca;
   layout?: LayoutCobranca;
 }) {
-  const { usuario, idioma, workspace, recarregar } = useAutenticacao();
+  const { usuario, idioma, workspace, canais } = useAutenticacao();
   const [carregando, setCarregando] = React.useState(true);
   const [erro, setErro] = React.useState<string | null>(null);
   const [planoAtual, setPlanoAtual] = React.useState<PlanoWorkspace>("Essential");
@@ -138,10 +166,17 @@ export function VisaoCobrancaConfiguracoes({
     React.useState<PlanoPeriodo>(
       (workspace?.planoPeriodo as PlanoPeriodo | null) ?? "mensal"
     );
-  const [salvandoPlano, setSalvandoPlano] = React.useState(false);
-  const [planoSelecionando, setPlanoSelecionando] =
-    React.useState<PlanoWorkspace | null>(null);
-  const [sucessoPlano, setSucessoPlano] = React.useState<string | null>(null);
+  const [dialogCreditosAberto, setDialogCreditosAberto] =
+    React.useState(false);
+
+  const [usage, setUsage] = React.useState<{
+    contacts: number;
+    members: number;
+    integrations: number;
+    pipelines: number;
+    agents: number;
+    workspaces: number;
+  } | null>(null);
 
   const t = React.useCallback(
     (pt: string, en: string) => texto(idioma, pt, en),
@@ -181,55 +216,23 @@ export function VisaoCobrancaConfiguracoes({
       const payload = (await response.json()) as {
         workspace: { plano?: PlanoWorkspace; trial_ends_at?: string | null };
         credits?: CreditosWorkspace | null;
+        usage?: {
+          contacts: number;
+          members: number;
+          integrations: number;
+          pipelines: number;
+          agents: number;
+          workspaces: number;
+        };
       };
       setPlanoAtual(payload.workspace?.plano ?? "Essential");
       setTrialEndsAt(payload.workspace?.trial_ends_at ?? null);
       setCreditos(payload.credits ?? null);
+      setUsage(payload.usage ?? null);
       setCarregando(false);
     };
     void carregar();
   }, [obterToken, t]);
-
-  const handleSelecionarPlano = async (planoId: PlanoWorkspace) => {
-    if (!isAdmin) return;
-    setSalvandoPlano(true);
-    setPlanoSelecionando(planoId);
-    setSucessoPlano(null);
-    setErro(null);
-    const token = await obterToken();
-    if (!token) {
-      setErro("Sessao expirada.");
-      setPlanoSelecionando(null);
-      setSalvandoPlano(false);
-      return;
-    }
-
-    const response = await fetch("/api/plans/select", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        plan: planoId,
-        period: periodoSelecionado,
-      }),
-    });
-
-    if (!response.ok) {
-      const message = await response.text();
-      setErro(message || "Falha ao selecionar plano.");
-      setSalvandoPlano(false);
-      setPlanoSelecionando(null);
-      return;
-    }
-
-    setSucessoPlano("Plano selecionado! Trial de 30 dias iniciado.");
-    setPlanoAtual(planoId);
-    await recarregar();
-    setSalvandoPlano(false);
-    setPlanoSelecionando(null);
-  };
 
   const [agora, setAgora] = React.useState<number>(0);
   React.useEffect(() => {
@@ -245,7 +248,6 @@ export function VisaoCobrancaConfiguracoes({
     return diff > 0 ? diff : 0;
   }, [agora, trialEndsAt]);
   const isAdmin = usuario.role === "ADMIN";
-  const planoSelecionado = Boolean(workspace?.planoSelecionadoEm);
   const exibirCabecalho = layout === "app";
   const exibirAvisoAdmin = layout === "app";
   const porcentagemCreditos = React.useMemo(() => {
@@ -255,6 +257,26 @@ export function VisaoCobrancaConfiguracoes({
       Math.round((creditos.credits_used / creditos.credits_total) * 100)
     );
   }, [creditos]);
+  const canaisConectados = React.useMemo(
+    () => canais.filter((canal) => canal.conectado).length,
+    [canais]
+  );
+  const creditosRestantes = React.useMemo(() => {
+    if (!creditos?.credits_total) return 0;
+    return Math.max(0, creditos.credits_total - (creditos.credits_used ?? 0));
+  }, [creditos]);
+  const planoInfoAtual = React.useMemo(
+    () => planos.find((plano) => plano.id === planoAtual) ?? planos[0],
+    [planoAtual]
+  );
+  const iniciaisEmpresa = React.useMemo(() => {
+    const nome = (workspace?.nome ?? "").trim();
+    if (!nome) return "VP";
+    const partes = nome.split(" ").filter(Boolean);
+    const primeira = partes[0]?.[0] ?? "";
+    const ultima = partes.length > 1 ? partes[partes.length - 1]?.[0] : "";
+    return `${primeira}${ultima}`.toUpperCase();
+  }, [workspace?.nome]);
 
   const formatarPeriodo = React.useCallback(
     (data?: string | null) => {
@@ -268,34 +290,121 @@ export function VisaoCobrancaConfiguracoes({
     [idioma]
   );
 
+  const formatarNumero = React.useCallback(
+    (valor: number) =>
+      new Intl.NumberFormat(idioma, {
+        maximumFractionDigits: 0,
+      }).format(valor),
+    [idioma]
+  );
+
   const obterPrecoPlano = React.useCallback(
     (plano: PlanoInfo) => {
-      if (periodoSelecionado === "semestral") return plano.precoSemestral;
-      if (periodoSelecionado === "anual") return plano.precoAnual;
-      return plano.precoMensal;
+      const detalhes = obterDetalhesPlano(plano.id, periodoSelecionado);
+      return detalhes.labelMensal;
     },
     [periodoSelecionado]
   );
 
+  const usosPlano = React.useMemo(() => {
+    const limites = limitesPorPlano[planoAtual];
+    return [
+      {
+        id: "leads",
+        titulo: t("Contatos", "Contacts"),
+        usados: usage?.contacts ?? 0,
+        limite: limites.leads,
+      },
+      {
+        id: "membros",
+        titulo: t("Membros", "Members"),
+        usados: usage?.members ?? 0,
+        limite: limites.membros,
+      },
+      {
+        id: "conexoes",
+        titulo: t("Conexões", "Connections"),
+        usados: usage?.integrations ?? 0,
+        limite: limites.conexoes,
+      },
+      {
+        id: "workspaces",
+        titulo: t("Workspaces", "Workspaces"),
+        usados: usage?.workspaces ?? 1,
+        limite: 1, // All plans limited to 1 for now
+      },
+      {
+        id: "automacoes",
+        titulo: t("Agentes IA", "AI Agents"),
+        usados: usage?.agents ?? 0,
+        limite: limites.automacoes,
+      },
+      {
+        id: "pipelines",
+        titulo: t("Pipelines", "Pipelines"),
+        usados: usage?.pipelines ?? 0,
+        limite: limites.pipelines,
+      },
+    ];
+  }, [canaisConectados, planoAtual, t, usage]);
+
+  const beneficiosAgentes = React.useMemo(
+    () => [
+      {
+        titulo: "SDR",
+        descricao: t(
+          "Qualificação de leads e follow-ups comerciais.",
+          "Lead qualification and sales follow-ups."
+        ),
+        icone: Target,
+      },
+      {
+        titulo: "Atendimento",
+        descricao: t(
+          "Triagem e respostas rápidas em canais omnichannel.",
+          "Triage and fast replies across omnichannel."
+        ),
+        icone: MessageSquare,
+      },
+      {
+        titulo: "Suporte",
+        descricao: t(
+          "Resolução de dúvidas e suporte técnico.",
+          "Issue resolution and technical support."
+        ),
+        icone: LifeBuoy,
+      },
+      {
+        titulo: "Vendas",
+        descricao: t(
+          "Conversas comerciais e fechamento de vendas.",
+          "Sales conversations and deal closing."
+        ),
+        icone: TrendingUp,
+      },
+    ],
+    [t]
+  );
+
   return (
-    <div className="space-y-6 [&_*]:rounded-[6px] [&_*]:shadow-none">
+    <div className="space-y-8 [&_*]:rounded-[6px] [&_*]:shadow-none">
       {exibirCabecalho && (
-        <div>
-          <h2 className="text-lg font-semibold">
+        <div className="space-y-2">
+          <h2 className="text-lg font-semibold text-foreground">
             {modo === "selecao"
               ? t("Escolha seu plano", "Choose your plan")
               : t("Cobrança & plano", "Billing & plan")}
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="max-w-2xl text-sm text-muted-foreground">
             {modo === "selecao"
               ? t(
-                  "Selecione um plano para liberar o app com 30 dias de teste.",
-                  "Select a plan to unlock the app with a 30-day trial."
-                )
+                "Selecione um plano para liberar o app com 30 dias de teste.",
+                "Select a plan to unlock the app with a 30-day trial."
+              )
               : t(
-                  "Visualize o plano atual e compare opções disponíveis.",
-                  "Review your current plan and compare available options."
-                )}
+                "Acompanhe o plano ativo, ciclos de cobrança e uso de créditos.",
+                "Track your active plan, billing cycles, and credit usage."
+              )}
           </p>
         </div>
       )}
@@ -305,31 +414,34 @@ export function VisaoCobrancaConfiguracoes({
           {erro}
         </div>
       )}
-      {sucessoPlano && (
-        <div className="rounded-[6px] border border-emerald-200/60 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-700">
-          {sucessoPlano}
-        </div>
-      )}
       {modo === "selecao" && (
-        <Tabs
-          value={periodoSelecionado}
-          onValueChange={(valor) =>
-            setPeriodoSelecionado(valor as PlanoPeriodo)
-          }
-          className="w-full"
-        >
-          <TabsList className="w-full max-w-md">
-            <TabsTrigger className="flex-1" value="mensal">
-              {t("Mensal", "Monthly")}
-            </TabsTrigger>
-            <TabsTrigger className="flex-1" value="semestral">
-              {t("Semestral", "Semiannual")}
-            </TabsTrigger>
-            <TabsTrigger className="flex-1" value="anual">
-              {t("Anual", "Annual")}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <div className="space-y-2">
+          <Tabs
+            value={periodoSelecionado}
+            onValueChange={(valor) =>
+              setPeriodoSelecionado(valor as PlanoPeriodo)
+            }
+            className="w-full"
+          >
+            <TabsList className="w-full max-w-md">
+              <TabsTrigger className="flex-1" value="mensal">
+                {t("Mensal", "Monthly")}
+              </TabsTrigger>
+              <TabsTrigger className="flex-1" value="semestral">
+                {t("Semestral", "Semiannual")}
+              </TabsTrigger>
+              <TabsTrigger className="flex-1" value="anual">
+                {t("Anual", "Annual")}
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              "Altere o período para comparar valores e condições.",
+              "Switch periods to compare prices and terms."
+            )}
+          </p>
+        </div>
       )}
       {exibirAvisoAdmin && !isAdmin && (
         <div className="rounded-[6px] border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
@@ -341,126 +453,363 @@ export function VisaoCobrancaConfiguracoes({
       )}
 
       {modo === "configuracoes" && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base">
-                {t("Plano atual", "Current plan")}
-              </CardTitle>
-              <Badge variant="secondary">{planoAtual}</Badge>
+        <div className="space-y-6">
+          <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
+            <CardHeader className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-1">
+                <CardTitle className="text-base">
+                  {t("Planos e pagamentos", "Plans and billing")}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "Controle plano, cobrança e uso de recursos.",
+                    "Control plan, billing, and resource usage."
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-muted/40 text-xs font-semibold text-foreground">
+                  {iniciaisEmpresa}
+                </div>
+                <div className="text-xs leading-tight">
+                  <p className="uppercase tracking-[0.16em] text-muted-foreground">
+                    {t("Empresa", "Company")}
+                  </p>
+                  <p className="text-foreground">
+                    {workspace?.nome || t("Workspace", "Workspace")}
+                  </p>
+                </div>
+              </div>
             </CardHeader>
-            <CardContent className="flex flex-wrap items-center justify-between gap-4">
+            <CardContent className="space-y-4">
               {carregando ? (
                 <div className="space-y-2">
                   <Skeleton className="h-4 w-40" />
                   <Skeleton className="h-3 w-32" />
+                  <Skeleton className="h-12 w-full" />
                 </div>
               ) : (
-                <div className="space-y-1 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="h-4 w-4" />
-                    {t(
-                      "Plano ativo no workspace.",
-                      "Plan active on the workspace."
+                <>
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                    <Badge variant="secondary">{planoAtual}</Badge>
+                    {diasTrial !== null && (
+                      <Badge variant="outline" className="text-xs">
+                        {diasTrial > 0
+                          ? t(
+                            `Trial: ${diasTrial} dia(s)`,
+                            `Trial: ${diasTrial} day(s)`
+                          )
+                          : t("Trial encerrado", "Trial ended")}
+                      </Badge>
                     )}
                   </div>
-                  {diasTrial !== null && (
-                    <div className="flex items-center gap-2">
-                      <CalendarClock className="h-4 w-4" />
-                      {t(
-                        `Trial termina em ${diasTrial} dia(s).`,
-                        `Trial ends in ${diasTrial} day(s).`
-                      )}
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="border border-border/60 bg-white dark:bg-neutral-950 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        {t("Renova em", "Renews on")}
+                      </p>
+                      <p className="text-xs text-foreground">
+                        {formatarPeriodo(
+                          workspace?.planoRenovaEm ?? creditos?.period_end
+                        )}
+                      </p>
                     </div>
-                  )}
-                </div>
+                    <div className="border border-border/60 bg-white dark:bg-neutral-950 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        {t("Valor", "Amount")}
+                      </p>
+                      <p className="text-xs text-foreground">
+                        {obterPrecoPlano(planoInfoAtual)}
+                      </p>
+                    </div>
+                    <div className="border border-border/60 bg-white dark:bg-neutral-950 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        {t("Frequência", "Frequency")}
+                      </p>
+                      <p className="text-xs text-foreground">
+                        {periodoSelecionado === "mensal"
+                          ? t("Mensal", "Monthly")
+                          : periodoSelecionado === "semestral"
+                            ? t("Semestral", "Semiannual")
+                            : t("Anual", "Annual")}
+                      </p>
+                    </div>
+                    <div className="border border-border/60 bg-white dark:bg-neutral-950 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        {t("Método", "Payment")}
+                      </p>
+                      <p className="text-xs text-foreground">
+                        {t(
+                          "Sem método de pagamento registrado",
+                          "No payment method on file"
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                </>
               )}
-              <Button variant="outline" disabled={!isAdmin}>
-                {t("Gerenciar cobrança", "Manage billing")}
-              </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                <Button variant="outline" disabled={!isAdmin}>
+                  {t("Gerenciar cobrança", "Manage billing")}
+                </Button>
+                <Button asChild variant="outline">
+                  <Link href="/planos" target="_blank" rel="noreferrer">
+                    {t("Atualizar plano", "Update plan")}
+                  </Link>
+                </Button>
+                {!isAdmin && (
+                  <span className="text-xs text-muted-foreground">
+                    {t(
+                      "Somente admins podem editar o plano.",
+                      "Only admins can update plans."
+                    )}
+                  </span>
+                )}
+              </div>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
             <CardHeader>
               <CardTitle className="text-base">
-                {t("Uso de créditos", "Credit usage")}
+                {t("Benefícios do plano", "Plan benefits")}
               </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  "Visão geral de limites e recursos disponíveis.",
+                  "Overview of limits and available resources."
+                )}
+              </p>
             </CardHeader>
             <CardContent className="space-y-4">
-              {carregando ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-4 w-48" />
-                  <Skeleton className="h-2 w-full" />
-                  <Skeleton className="h-3 w-40" />
-                </div>
-              ) : (
-                <div className="space-y-3 text-sm text-muted-foreground">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span>{t("Créditos usados", "Credits used")}</span>
-                    <span className="text-foreground">
-                      {creditos?.credits_used ?? 0} /{" "}
-                      {creditos?.credits_total ?? 0}
-                    </span>
-                  </div>
-                  <div className="h-2 w-full rounded-[6px] bg-muted">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {usosPlano.map((item) => {
+                  const percentual =
+                    item.limite === null
+                      ? 100
+                      : Math.min(
+                        100,
+                        Math.round(
+                          (item.usados / Math.max(1, item.limite)) * 100
+                        )
+                      );
+                  const limiteLabel =
+                    item.limite === null
+                      ? t("Ilimitado", "Unlimited")
+                      : formatarNumero(item.limite);
+                  const valorLabel =
+                    item.limite === null
+                      ? t("Ilimitado", "Unlimited")
+                      : `${formatarNumero(item.usados)} / ${limiteLabel}`;
+
+                  return (
                     <div
-                      className="h-2 rounded-[6px] bg-primary transition-all"
-                      style={{ width: `${porcentagemCreditos}%` }}
-                    />
+                      key={item.id}
+                      className="border border-border/60 bg-white dark:bg-neutral-950 p-3"
+                    >
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        {item.titulo}
+                      </p>
+                      <p className="text-sm font-semibold text-foreground">
+                        {valorLabel}
+                      </p>
+                      <div className="mt-2 h-1.5 w-full bg-muted">
+                        <div
+                          className="h-1.5 bg-primary/70 transition-all"
+                          style={{ width: `${percentual}%` }}
+                        />
+                      </div>
+                      <p className="mt-2 text-[11px] text-muted-foreground">
+                        {t("Limite:", "Limit:")} {limiteLabel}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+              <Separator />
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(idioma === "en-US"
+                  ? planoInfoAtual.recursosEn
+                  : planoInfoAtual.recursos
+                ).map((recurso) => (
+                  <div
+                    key={recurso}
+                    className="flex items-start gap-2 text-xs text-muted-foreground"
+                  >
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-primary/60" />
+                    <span>{recurso}</span>
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <span>
-                      {t("Ciclo atual:", "Current cycle:")}{" "}
-                      {formatarPeriodo(creditos?.period_start)} -{" "}
-                      {formatarPeriodo(creditos?.period_end)}
-                    </span>
-                    <span>{porcentagemCreditos}%</span>
-                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
+            <CardHeader className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-1">
+                <CardTitle className="text-base">
+                  {t("Agentes de IA", "AI Agents")}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "Gerencie agentes inteligentes e seus limites de atuação.",
+                    "Manage intelligent agents and their operating limits."
+                  )}
+                </p>
+              </div>
+
+            </CardHeader>
+            <CardContent className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">
+              <div className="space-y-2">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  {t("Benefícios dos agentes", "Agent benefits")}
+                </p>
+                <div className="space-y-2 text-xs text-muted-foreground">
+                  {beneficiosAgentes.map((beneficio) => {
+                    const Icone = beneficio.icone;
+                    return (
+                      <div key={beneficio.titulo} className="flex items-start gap-2">
+                        <Icone className="mt-0.5 h-4 w-4 text-primary" />
+                        <span>
+                          <span className="font-medium text-foreground">
+                            {beneficio.titulo}
+                          </span>{" "}
+                          — {beneficio.descricao}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
+              <div className="border border-border/60 bg-white dark:bg-neutral-950 p-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                      {t("Consumo IA", "AI usage")}
+                    </p>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                            onClick={() => setDialogCreditosAberto(true)}
+                            aria-label={t(
+                              "Clique para saber mais sobre créditos",
+                              "Learn more about credits"
+                            )}
+                          >
+                            <HelpCircle className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent className="bg-blue-600 text-xs text-white">
+                          {t(
+                            "Clique para saber mais...",
+                            "Click to learn more..."
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  </div>
+                  <Badge variant="secondary" className="text-xs">
+                    {porcentagemCreditos}%
+                  </Badge>
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {t(
+                    "Créditos são usados por respostas, follow-ups e automações dos agentes.",
+                    "Credits are used by agent replies, follow-ups, and automations."
+                  )}
+                </p>
+                <div className="mt-4 h-2 w-full bg-muted">
+                  <div
+                    className="h-2 bg-gradient-to-r from-primary/60 via-primary to-primary transition-all"
+                    style={{ width: `${porcentagemCreditos}%` }}
+                  />
+                </div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>
+                    {creditos?.credits_used ?? 0} /{" "}
+                    {creditos?.credits_total ?? 0}
+                  </span>
+                  <span>
+                    {t("Saldo:", "Remaining:")} {creditosRestantes}
+                  </span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Dialog
+            open={dialogCreditosAberto}
+            onOpenChange={setDialogCreditosAberto}
+          >
+            <DialogContent className="max-w-lg">
+              <DialogHeader>
+                <DialogTitle>
+                  {t("Créditos dos agentes", "Agent credits")}
+                </DialogTitle>
+                <DialogDescription>
+                  {t(
+                    "Os créditos representam o consumo de IA dentro do CRM.",
+                    "Credits represent AI usage across the CRM."
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  {t(
+                    "Cada resposta gerada pelos agentes consome créditos conforme o tamanho e complexidade da interação.",
+                    "Each agent response consumes credits based on size and complexity."
+                  )}
+                </p>
+                <p>
+                  {t(
+                    "Automatizações, resumos e follow-ups também utilizam créditos do ciclo atual.",
+                    "Automations, summaries, and follow-ups also use credits from the current cycle."
+                  )}
+                </p>
+                <p>
+                  {t(
+                    "Quando o saldo chega a zero, as ações de IA são pausadas até a próxima renovação ou upgrade.",
+                    "When the balance reaches zero, AI actions pause until renewal or upgrade."
+                  )}
+                </p>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
+            <CardHeader>
+              <CardTitle className="text-base">
+                {t("Pagamentos", "Payments")}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {t(
+                  "Histórico das últimas cobranças do workspace.",
+                  "History of the most recent charges."
+                )}
+              </p>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-hidden border border-border/60">
+                <div className="grid grid-cols-4 border-b border-border/60 bg-muted/20 px-4 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  <span>{t("Valor", "Amount")}</span>
+                  <span>{t("Descrição", "Description")}</span>
+                  <span>{t("Data", "Date")}</span>
+                  <span>{t("Status", "Status")}</span>
+                </div>
+                <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+                  {t("Não há dados", "No data")}
+                </div>
+              </div>
             </CardContent>
           </Card>
         </div>
       )}
 
-      <div className="grid gap-4 md:grid-cols-3">
-        {planos.map((plano) => (
-          <Card key={plano.id} className="shadow-none">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base">{plano.titulo}</CardTitle>
-                {planoSelecionado && planoAtual === plano.id && (
-                  <Badge variant="secondary">{t("Atual", "Current")}</Badge>
-                )}
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {idioma === "en-US" ? plano.descricaoEn : plano.descricao}
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-lg font-semibold">{obterPrecoPlano(plano)}</p>
-              <ul className="space-y-1 text-xs text-muted-foreground">
-                {(idioma === "en-US" ? plano.recursosEn : plano.recursos).map(
-                  (recurso) => (
-                  <li key={recurso}>• {recurso}</li>
-                  )
-                )}
-              </ul>
-              <Button
-                variant="outline"
-                className="w-full"
-                disabled={!isAdmin || salvandoPlano}
-                onClick={() => handleSelecionarPlano(plano.id)}
-              >
-                {planoSelecionando === plano.id
-                  ? t("Selecionando...", "Selecting...")
-                  : t("Selecionar plano", "Select plan")}
-              </Button>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }

@@ -176,6 +176,16 @@ const formatarDataMensagem = (valor?: string) => {
   });
 };
 
+const formatarHorarioMensagem = (valor?: string) => {
+  if (!valor) return "";
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return "";
+  return data.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 const urlRegex = /(?:https?:\/\/|www\.)[^\s]+/gi;
 const corPadraoTag = "#94a3b8";
 
@@ -808,8 +818,28 @@ type MembroOpcao = {
 type QuickReplyOpcao = {
   id: string;
   titulo: string;
-  atalho: string;
+  atalho?: string | null;
   conteudo: string;
+  media?: {
+    anexos?: Array<{
+      id?: string;
+      tipo: string;
+      nome: string;
+      mimeType?: string;
+      tamanhoBytes?: number;
+      storagePath: string;
+      ordem?: number;
+    }>;
+    audio?: {
+      id?: string;
+      tipo: string;
+      nome: string;
+      mimeType?: string;
+      tamanhoBytes?: number;
+      storagePath: string;
+      ordem?: number;
+    } | null;
+  };
 };
 type TemplateWhatsapp = {
   id: string;
@@ -892,6 +922,9 @@ function ChatConversaConteudo({
   const [tempoGravacao, setTempoGravacao] = React.useState(0);
   const [duracaoAudio, setDuracaoAudio] = React.useState(0);
   const [erroAudio, setErroAudio] = React.useState<string | null>(null);
+  const [mensagensLocais, setMensagensLocais] = React.useState<MensagemInbox[]>(
+    []
+  );
 
   const fecharTodosDialogs = React.useCallback(() => {
     setDialogTagAberto(false);
@@ -917,6 +950,8 @@ function ChatConversaConteudo({
   const [novoQuickReplyAtalho, setNovoQuickReplyAtalho] = React.useState("");
   const [novoQuickReplyConteudo, setNovoQuickReplyConteudo] =
     React.useState("");
+  const atalhoQuickReplyNormalizado = novoQuickReplyAtalho.trim();
+  const atalhoQuickReplyValido = /^\/\S+$/.test(atalhoQuickReplyNormalizado);
   const [tagsDisponiveis, setTagsDisponiveis] = React.useState<TagOpcao[]>([]);
   const [membrosDisponiveis, setMembrosDisponiveis] = React.useState<
     MembroOpcao[]
@@ -990,6 +1025,95 @@ function ChatConversaConteudo({
       );
     });
   }, [buscaQuickReply, quickReplies]);
+
+  const localizarAtalhoQuickReply = React.useCallback((texto: string) => {
+    const indice = texto.lastIndexOf("/");
+    if (indice < 0) return null;
+    const prefixo = texto.slice(0, indice);
+    if (prefixo && !/\s$/.test(prefixo)) return null;
+    const termo = texto.slice(indice + 1);
+    if (termo.includes(" ")) return null;
+    return { indice, termo };
+  }, []);
+
+  const aplicarQuickReply = React.useCallback(
+    async (item: QuickReplyOpcao) => {
+      const atual = mensagemAtual;
+      const encontrado = localizarAtalhoQuickReply(atual);
+      if (encontrado) {
+        const antes = atual.slice(0, encontrado.indice);
+        setMensagemAtual(`${antes}${item.conteudo}`);
+      } else {
+        setMensagemAtual(item.conteudo);
+      }
+
+      const anexos = item.media?.anexos ?? [];
+      if (anexos.length) {
+        const { data } = await supabaseClient.auth.getSession();
+        const token = data.session?.access_token;
+        if (token) {
+          const arquivos = await Promise.all(
+            anexos.map(async (anexo) => {
+              try {
+                const url = await getR2SignedUrl(token, {
+                  action: "download",
+                  bucket: "inbox-attachments",
+                  key: anexo.storagePath,
+                  expiresIn: 60 * 60,
+                });
+                const response = await fetch(url);
+                if (!response.ok) return null;
+                const blob = await response.blob();
+                return new File([blob], anexo.nome, {
+                  type: anexo.mimeType || blob.type || "application/octet-stream",
+                });
+              } catch {
+                return null;
+              }
+            })
+          );
+          setArquivosSelecionados(arquivos.filter(Boolean) as File[]);
+        }
+      }
+
+      const audio = item.media?.audio ?? null;
+      if (audio) {
+        const { data } = await supabaseClient.auth.getSession();
+        const token = data.session?.access_token;
+        if (token) {
+          try {
+            const url = await getR2SignedUrl(token, {
+              action: "download",
+              bucket: "inbox-attachments",
+              key: audio.storagePath,
+              expiresIn: 60 * 60,
+            });
+            const response = await fetch(url);
+            if (!response.ok) return;
+            const blob = await response.blob();
+            const arquivoAudio = new File([blob], audio.nome, {
+              type: audio.mimeType || blob.type || "audio/webm",
+            });
+            if (audioPreviewUrl) {
+              URL.revokeObjectURL(audioPreviewUrl);
+            }
+            setAudioGravado(arquivoAudio);
+            setAudioPreviewUrl(URL.createObjectURL(arquivoAudio));
+          } catch {
+            return;
+          }
+        }
+      }
+    },
+    [
+      localizarAtalhoQuickReply,
+      mensagemAtual,
+      audioPreviewUrl,
+      setArquivosSelecionados,
+      setAudioGravado,
+      setAudioPreviewUrl,
+    ]
+  );
   const [variaveisTemplate, setVariaveisTemplate] = React.useState("");
   const scrollAreaRef = React.useRef<HTMLDivElement | null>(null);
   const shouldStickToBottomRef = React.useRef(true);
@@ -1000,13 +1124,69 @@ function ChatConversaConteudo({
     setMidiaAberta(midia);
     setZoomImagem(1);
   }, []);
+  const criarClientMessageId = React.useCallback(() => {
+    if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+      return crypto.randomUUID();
+    }
+    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }, []);
+
+  React.useEffect(() => {
+    setMensagensLocais([]);
+  }, [conversa.id]);
+
+  React.useEffect(() => {
+    if (mensagensLocais.length === 0) return;
+    const clientIds = new Set(
+      conversa.mensagens
+        .map((mensagem) => mensagem.clientMessageId)
+        .filter(Boolean) as string[]
+    );
+    setMensagensLocais((atual) =>
+      atual.filter((mensagem) => {
+        if (mensagem.clientMessageId && clientIds.has(mensagem.clientMessageId)) {
+          return false;
+        }
+        if (mensagem.envioStatus === "sent" && mensagem.dataHora) {
+          const referencia = new Date(mensagem.dataHora).getTime();
+          const duplicada = conversa.mensagens.some((item) => {
+            if (item.autor !== "equipe") return false;
+            if (item.conteudo !== mensagem.conteudo) return false;
+            if (!item.dataHora) return false;
+            const diff = Math.abs(
+              new Date(item.dataHora).getTime() - referencia
+            );
+            return diff < 15000;
+          });
+          if (duplicada) return false;
+        }
+        return true;
+      })
+    );
+  }, [conversa.mensagens, mensagensLocais.length]);
+
+  const mensagensExibidas = React.useMemo(() => {
+    if (mensagensLocais.length === 0) return conversa.mensagens;
+    const combinadas = [...conversa.mensagens, ...mensagensLocais];
+    const vistos = new Set<string>();
+    const unicas = combinadas.filter((mensagem) => {
+      if (vistos.has(mensagem.id)) return false;
+      vistos.add(mensagem.id);
+      return true;
+    });
+    return unicas.sort((a, b) => {
+      const dataA = a.dataHora ? new Date(a.dataHora).getTime() : 0;
+      const dataB = b.dataHora ? new Date(b.dataHora).getTime() : 0;
+      return dataA - dataB;
+    });
+  }, [conversa.mensagens, mensagensLocais]);
   const mensagensComData = React.useMemo(() => {
     const itens: Array<
       | { type: "date"; label: string; key: string }
       | { type: "message"; mensagem: MensagemInbox }
     > = [];
     let ultimoLabel = "";
-    conversa.mensagens.forEach((mensagem, index) => {
+    mensagensExibidas.forEach((mensagem, index) => {
       const label = formatarDataMensagem(mensagem.dataHora) ?? "";
       if (label && label !== ultimoLabel) {
         itens.push({
@@ -1019,9 +1199,9 @@ function ChatConversaConteudo({
       itens.push({ type: "message", mensagem });
     });
     return itens;
-  }, [conversa.mensagens]);
+  }, [mensagensExibidas]);
   const enviarMensagem = React.useCallback(
-    async (texto: string, arquivos: File[]) => {
+    async (texto: string, arquivos: File[], clientMessageId?: string) => {
       const temAnexos = arquivos.length > 0;
       const { data } = await supabaseClient.auth.getSession();
       let accessToken = data.session?.access_token ?? null;
@@ -1039,6 +1219,9 @@ function ChatConversaConteudo({
         formData.append("conversationId", conversa.id);
         if (texto) {
           formData.append("message", texto);
+        }
+        if (clientMessageId) {
+          formData.append("clientMessageId", clientMessageId);
         }
         arquivos.forEach((file) => {
           formData.append("files", file);
@@ -1060,6 +1243,7 @@ function ChatConversaConteudo({
           body: JSON.stringify({
             conversationId: conversa.id,
             message: texto,
+            clientMessageId,
           }),
         });
       }
@@ -1168,10 +1352,42 @@ function ChatConversaConteudo({
     }
     setEnviosPendentes((atual) => atual + 1);
 
+    const clientMessageId =
+      anexos.length === 0 ? criarClientMessageId() : null;
+    if (clientMessageId) {
+      const agora = new Date().toISOString();
+      const mensagemLocal: MensagemInbox = {
+        id: `local-${clientMessageId}`,
+        clientMessageId,
+        autor: "equipe",
+        tipo: "texto",
+        conteudo: texto,
+        horario: formatarHorarioMensagem(agora),
+        dataHora: agora,
+        interno: false,
+        envioStatus: "sending",
+        anexos: [],
+      };
+      setMensagensLocais((atual) => [...atual, mensagemLocal]);
+    }
+
     try {
-      const resultado = await enviarMensagem(texto, anexos);
+      const resultado = await enviarMensagem(
+        texto,
+        anexos,
+        clientMessageId ?? undefined
+      );
       if (!resultado.ok) {
         setErroEnvio(resultado.erro ?? "Falha ao enviar mensagem.");
+        if (clientMessageId) {
+          setMensagensLocais((atual) =>
+            atual.map((mensagem) =>
+              mensagem.clientMessageId === clientMessageId
+                ? { ...mensagem, envioStatus: "failed" }
+                : mensagem
+            )
+          );
+        }
         setMensagemAtual(textoBackup);
         setArquivosSelecionados(arquivosBackup);
         if (audioBackup) {
@@ -1183,12 +1399,30 @@ function ChatConversaConteudo({
         return;
       }
 
+      if (clientMessageId) {
+        setMensagensLocais((atual) =>
+          atual.map((mensagem) =>
+            mensagem.clientMessageId === clientMessageId
+              ? { ...mensagem, envioStatus: "sent" }
+              : mensagem
+          )
+        );
+      }
       if (audioBackup) {
         limparAudioGravado({ revogarUrl: true });
       }
       aoAtualizarConversa?.();
     } catch {
       setErroEnvio("Falha ao enviar mensagem.");
+      if (clientMessageId) {
+        setMensagensLocais((atual) =>
+          atual.map((mensagem) =>
+            mensagem.clientMessageId === clientMessageId
+              ? { ...mensagem, envioStatus: "failed" }
+              : mensagem
+          )
+        );
+      }
       setMensagemAtual(textoBackup);
       setArquivosSelecionados(arquivosBackup);
       if (audioBackup) {
@@ -1204,6 +1438,7 @@ function ChatConversaConteudo({
     arquivosSelecionados,
     audioGravado,
     aoAtualizarConversa,
+    criarClientMessageId,
     envioAtivo,
     mensagemAtual,
     enviarMensagem,
@@ -1280,7 +1515,7 @@ function ChatConversaConteudo({
     requestAnimationFrame(() => {
       viewport.scrollTop = viewport.scrollHeight;
     });
-  }, [conversa.id, conversa.mensagens.length, getViewport]);
+  }, [conversa.id, mensagensExibidas.length, getViewport]);
 
   React.useLayoutEffect(() => {
     const viewport = getViewport();
@@ -1289,7 +1524,7 @@ function ChatConversaConteudo({
     const diff = viewport.scrollHeight - ajuste.altura;
     viewport.scrollTop = ajuste.topo + diff;
     ajusteScrollRef.current = null;
-  }, [conversa.mensagens.length, getViewport]);
+  }, [mensagensExibidas.length, getViewport]);
   const handleSelecionarEmoji = React.useCallback((emoji: string) => {
     setMensagemAtual((atual) => `${atual}${emoji}`);
   }, []);
@@ -1640,7 +1875,8 @@ function ChatConversaConteudo({
         const payload = (await quickResp.json()) as {
           quickReplies?: QuickReplyOpcao[];
         };
-        setQuickReplies(payload.quickReplies ?? []);
+        const base = payload.quickReplies ?? [];
+        setQuickReplies(base);
       }
 
       if (templatesResp?.ok) {
@@ -1987,6 +2223,10 @@ function ChatConversaConteudo({
 
   const handleCriarQuickReply = React.useCallback(async () => {
     if (!novoQuickReplyTitulo.trim() || !novoQuickReplyConteudo.trim()) return;
+    if (!atalhoQuickReplyValido) {
+      setErroQuickReply("Informe um atalho válido começando com /, sem espaços.");
+      return;
+    }
     const token = await obterToken();
     if (!token) {
       setErroQuickReply("Sessao expirada.");
@@ -2003,7 +2243,7 @@ function ChatConversaConteudo({
       },
       body: JSON.stringify({
         titulo: novoQuickReplyTitulo,
-        atalho: novoQuickReplyAtalho,
+        atalho: atalhoQuickReplyNormalizado,
         conteudo: novoQuickReplyConteudo,
       }),
     });
@@ -2025,6 +2265,8 @@ function ChatConversaConteudo({
     setSalvandoQuickReply(false);
   }, [
     novoQuickReplyAtalho,
+    atalhoQuickReplyNormalizado,
+    atalhoQuickReplyValido,
     novoQuickReplyConteudo,
     novoQuickReplyTitulo,
     obterToken,
@@ -2686,8 +2928,17 @@ function ChatConversaConteudo({
               <Input
                 value={novoQuickReplyAtalho}
                 onChange={(event) => setNovoQuickReplyAtalho(event.target.value)}
-                placeholder="Atalho (opcional)"
+                placeholder="Atalho (ex: /boas-vindas)"
               />
+              <p
+                className={`text-[11px] ${
+                  atalhoQuickReplyNormalizado.length > 0 && !atalhoQuickReplyValido
+                    ? "text-destructive"
+                    : "text-muted-foreground"
+                }`}
+              >
+                Use / seguido do atalho, sem espaços.
+              </p>
               <Textarea
                 value={novoQuickReplyConteudo}
                 onChange={(event) => setNovoQuickReplyConteudo(event.target.value)}
@@ -2704,7 +2955,8 @@ function ChatConversaConteudo({
                 disabled={
                   salvandoQuickReply ||
                   !novoQuickReplyTitulo.trim() ||
-                  !novoQuickReplyConteudo.trim()
+                  !novoQuickReplyConteudo.trim() ||
+                  !atalhoQuickReplyValido
                 }
               >
                 Salvar resposta rápida
@@ -2909,7 +3161,17 @@ function ChatConversaConteudo({
           <div className="relative rounded-[6px] border border-border/40 bg-transparent px-3 pb-12 pt-3 shadow-none">
             <Textarea
               value={mensagemAtual}
-              onChange={(event) => setMensagemAtual(event.target.value)}
+              onChange={(event) => {
+                const value = event.target.value;
+                setMensagemAtual(value);
+                const encontrado = localizarAtalhoQuickReply(value);
+                if (encontrado) {
+                  setBuscaQuickReply(encontrado.termo);
+                  setQuickReplyPopoverAberto(true);
+                } else if (quickReplyPopoverAberto) {
+                  setQuickReplyPopoverAberto(false);
+                }
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
@@ -3166,7 +3428,7 @@ function ChatConversaConteudo({
                               key={item.id}
                               type="button"
                               onClick={() => {
-                                setMensagemAtual(item.conteudo);
+                                void aplicarQuickReply(item);
                                 setQuickReplyPopoverAberto(false);
                               }}
                               className="w-full rounded-md border border-transparent px-2 py-2 text-left text-xs transition hover:border-border/70 hover:bg-muted/50"
@@ -3285,6 +3547,7 @@ function MensagemChat({
       tipo: string;
       tipoNormalizado: string;
       tamanhoBytes?: number;
+      pending?: boolean;
     }>
   >([]);
 
@@ -3299,12 +3562,23 @@ function MensagemChat({
 
       const resultado = await Promise.all(
         mensagem.anexos.map(async (anexo, index) => {
-          let signedUrl: string | null = null;
-          signedUrl = obterUrlAnexo
+          const nomeFallback =
+            anexo.storagePath?.split("/").pop() ?? anexo.nome ?? "arquivo";
+          const nome = anexo.nome ?? nomeFallback;
+          if (anexo.pending || !anexo.storagePath) {
+            return {
+              id: anexo.id ?? `${index}`,
+              url: null,
+              nome,
+              tipo: anexo.tipo,
+              tipoNormalizado: normalizarTipoAnexo(anexo.tipo, nome),
+              tamanhoBytes: anexo.tamanhoBytes,
+              pending: true,
+            };
+          }
+          const signedUrl = obterUrlAnexo
             ? await obterUrlAnexo(anexo.storagePath)
             : null;
-          const nomeFallback = anexo.storagePath.split("/").pop() ?? "arquivo";
-          const nome = nomeFallback;
           return {
             id: anexo.id ?? `${index}`,
             url: signedUrl,
@@ -3312,6 +3586,7 @@ function MensagemChat({
             tipo: anexo.tipo,
             tipoNormalizado: normalizarTipoAnexo(anexo.tipo, nome),
             tamanhoBytes: anexo.tamanhoBytes,
+            pending: false,
           };
         })
       );
@@ -3392,6 +3667,16 @@ function MensagemChat({
         <span className="text-[10px] uppercase tracking-wide">
           {mensagem.horario}
         </span>
+        {mensagem.envioStatus === "sending" && (
+          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Enviando
+          </span>
+        )}
+        {mensagem.envioStatus === "failed" && (
+          <span className="text-[10px] uppercase tracking-wide text-destructive">
+            Falha
+          </span>
+        )}
       </div>
       <div
         className={cn(
@@ -3434,7 +3719,14 @@ function MensagemChat({
             anexosSticker.length > 0) && (
               <div className="space-y-2">
                 {anexosImagem.map((anexo) =>
-                  anexo.url ? (
+                  anexo.pending ? (
+                    <div
+                      key={anexo.id}
+                      className="flex h-32 w-full max-w-[260px] items-center justify-center rounded-md border border-dashed border-border/60 bg-muted/30 text-xs text-muted-foreground"
+                    >
+                      Enviando imagem...
+                    </div>
+                  ) : anexo.url ? (
                     <button
                       key={anexo.id}
                       type="button"
@@ -3461,7 +3753,14 @@ function MensagemChat({
                   )
                 )}
                 {anexosVideo.map((anexo) =>
-                  anexo.url ? (
+                  anexo.pending ? (
+                    <div
+                      key={anexo.id}
+                      className="flex h-32 w-full max-w-[260px] items-center justify-center rounded-md border border-dashed border-border/60 bg-muted/30 text-xs text-muted-foreground"
+                    >
+                      Enviando vídeo...
+                    </div>
+                  ) : anexo.url ? (
                     <button
                       key={anexo.id}
                       type="button"
@@ -3497,7 +3796,14 @@ function MensagemChat({
                   )
                 )}
                 {anexosSticker.map((anexo) =>
-                  anexo.url ? (
+                  anexo.pending ? (
+                    <div
+                      key={anexo.id}
+                      className="flex h-24 w-full max-w-[180px] items-center justify-center rounded-md border border-dashed border-border/60 bg-muted/30 text-xs text-muted-foreground"
+                    >
+                      Enviando sticker...
+                    </div>
+                  ) : anexo.url ? (
                     <img
                       key={anexo.id}
                       src={anexo.url}
@@ -3517,7 +3823,17 @@ function MensagemChat({
           {anexosAudio.length > 0 && (
             <div className="space-y-2">
               {anexosAudio.map((anexo) =>
-                anexo.url ? (
+                anexo.pending ? (
+                  <div
+                    key={anexo.id}
+                    className={cn(
+                      "rounded-md border border-dashed border-border/60 px-3 py-2 text-xs text-muted-foreground",
+                      enviada ? "text-primary-foreground" : "text-muted-foreground"
+                    )}
+                  >
+                    Enviando áudio...
+                  </div>
+                ) : anexo.url ? (
                   <AudioPlayer
                     key={anexo.id}
                     src={anexo.url}
@@ -3555,7 +3871,11 @@ function MensagemChat({
                     const texto = extensao
                       ? `${rotulo} ${extensao.toUpperCase()}`
                       : rotulo;
-                    return anexo.url ? (
+                    return anexo.pending ? (
+                      <span className="truncate text-muted-foreground">
+                        Enviando {texto}...
+                      </span>
+                    ) : anexo.url ? (
                       <a
                         href={anexo.url}
                         target="_blank"

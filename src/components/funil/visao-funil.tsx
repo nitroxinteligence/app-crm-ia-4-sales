@@ -542,6 +542,9 @@ export function VisaoFunil() {
   const [motivoPerdaSelecionado, setMotivoPerdaSelecionado] =
     React.useState("Sem orçamento");
   const [motivoPerdaOutro, setMotivoPerdaOutro] = React.useState("");
+  const [motivosPerdaConfigurados, setMotivosPerdaConfigurados] = React.useState<
+    string[]
+  >([]);
   const [limites, setLimites] = React.useState<Record<string, number>>(() =>
     etapas.reduce(
       (acc, etapa) => ({ ...acc, [etapa.id]: LIMITE_INICIAL }),
@@ -1031,6 +1034,32 @@ export function VisaoFunil() {
     }
   }, [modoSelecao]);
 
+  const carregarMotivosPerdaConfigurados = React.useCallback(async () => {
+    const { data } = await supabaseClient.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return;
+    const response = await fetch("/api/pipeline/loss-reasons", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!response.ok) return;
+    const payload = (await response.json()) as {
+      lossReasons?: Array<{ titulo: string }>;
+    };
+    setMotivosPerdaConfigurados(
+      (payload.lossReasons ?? []).map((item) => item.titulo)
+    );
+  }, []);
+
+  React.useEffect(() => {
+    carregarMotivosPerdaConfigurados();
+  }, [carregarMotivosPerdaConfigurados]);
+
+  React.useEffect(() => {
+    if (dialogPerdaAberto) {
+      carregarMotivosPerdaConfigurados();
+    }
+  }, [carregarMotivosPerdaConfigurados, dialogPerdaAberto]);
+
   const owners = React.useMemo(() => {
     const todos = new Set(deals.map((deal) => deal.owner));
     return ["todos", ...Array.from(todos)];
@@ -1070,8 +1099,11 @@ export function VisaoFunil() {
     const todos = new Set(
       deals.map((deal) => deal.motivoPerda).filter(Boolean) as string[]
     );
+    motivosPerdaConfigurados.forEach((motivo) => {
+      if (motivo) todos.add(motivo);
+    });
     return ["todos", ...Array.from(todos)];
-  }, [deals]);
+  }, [deals, motivosPerdaConfigurados]);
 
   const etapasFiltro = React.useMemo(
     () => ["todas", ...etapas.map((etapa) => etapa.id)],
@@ -1228,8 +1260,12 @@ export function VisaoFunil() {
   const motivosPerdaBase =
     motivosPerdaValidos.length > 0
       ? motivosPerdaValidos
-      : ["Sem orçamento", "Sem resposta", "Concorrência"];
-  const motivosPerdaOpcoes = motivosPerdaBase;
+      : motivosPerdaConfigurados.length > 0
+        ? motivosPerdaConfigurados
+        : ["Sem orçamento", "Sem resposta", "Concorrência"];
+  const motivosPerdaOpcoes = Array.from(
+    new Set([...motivosPerdaBase, "Outro"])
+  );
   const etapaGanho = React.useMemo(
     () =>
       etapas.find(

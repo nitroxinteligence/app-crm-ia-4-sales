@@ -12,10 +12,10 @@ import { IconeCanal } from "@/components/inbox/icone-canal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ModalWhatsappBaileys } from "@/components/integracoes/modal-whatsapp-baileys";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
@@ -32,6 +32,29 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToastAviso } from "@/components/ui/toast-aviso";
+import { Progress } from "@/components/ui/progress";
+import { Info } from "lucide-react";
+
+const IconeMessenger = ({ className }: { className?: string }) => (
+  <svg
+    viewBox="0 0 24 24"
+    className={cn("h-5 w-5", className)}
+    aria-hidden
+    focusable="false"
+  >
+    <defs>
+      <linearGradient id="messenger-gradient" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#00B2FF" />
+        <stop offset="100%" stopColor="#006AFF" />
+      </linearGradient>
+    </defs>
+    <circle cx="12" cy="12" r="10" fill="url(#messenger-gradient)" />
+    <path
+      d="M6.7 15.1l4.1-4.3 2.4 2.3 4.1-2.4-4.6 4.7-2.4-2.3-3.6 2Z"
+      fill="#fff"
+    />
+  </svg>
+);
 
 const appId = process.env.NEXT_PUBLIC_WHATSAPP_APP_ID ?? "";
 const configId = process.env.NEXT_PUBLIC_WHATSAPP_CONFIG_ID ?? "";
@@ -377,6 +400,8 @@ export function VisaoIntegracoes() {
     });
   }, [contasBaileys, statusInstagram, statusWhatsapp, t]);
 
+  const integracoesFiltradas = integracoes;
+
   const obterTituloIntegracao = React.useCallback(
     (integracao: IntegracaoCanal) =>
       idioma === "en-US" ? integracao.tituloEn : integracao.titulo,
@@ -712,7 +737,7 @@ export function VisaoIntegracoes() {
           </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2">
           {carregandoSessao || (session && carregandoIntegracoes) ? (
             Array.from({ length: 3 }).map((_, index) => (
               <Card key={`skeleton-${index}`} className="shadow-none">
@@ -744,22 +769,31 @@ export function VisaoIntegracoes() {
               </Card>
             ))
           ) : (
-            integracoes.map((integracao) => {
-              const conectado = integracao.conectado;
+            integracoesFiltradas.map((integracao) => {
+              const emBreve = integracao.id === "instagram";
+              const conectado = emBreve ? false : integracao.conectado;
               const titulo = obterTituloIntegracao(integracao);
               const descricao = obterDescricaoIntegracao(integracao);
-              const recursos = obterRecursosIntegracao(integracao);
-              const bloqueado = integracao.id === "whatsapp_oficial";
+              const bloqueado =
+                integracao.id === "whatsapp_oficial" || emBreve;
               const statusRotulo = bloqueado
-                ? t("Bloqueado", "Blocked")
+                ? emBreve
+                  ? t("Em breve", "Coming soon")
+                  : t("Bloqueado", "Blocked")
                 : conectado
                   ? t("Conectado", "Connected")
                   : t("Desconectado", "Disconnected");
-              const statusVariante = bloqueado
-                ? "outline"
+              const statusVariante = "outline";
+              const statusBadge = bloqueado
+                ? "border-slate-200 bg-slate-50 text-slate-500"
                 : conectado
-                  ? "default"
-                  : "outline";
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                  : "border-amber-200 bg-amber-50 text-amber-700";
+              const statusDot = bloqueado
+                ? "bg-slate-400"
+                : conectado
+                  ? "bg-emerald-500"
+                  : "bg-amber-500";
               const destaqueBaileys =
                 integracao.id === "whatsapp_baileys" && baileysConectado;
               return (
@@ -771,138 +805,106 @@ export function VisaoIntegracoes() {
                     destaqueBaileys && "border-emerald-200 bg-emerald-50/40"
                   )}
                 >
-                  <CardHeader className="gap-4">
+                  <CardHeader className="gap-3">
                     <div className="flex items-start justify-between gap-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-[6px] bg-muted/60">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-[6px] bg-muted/60">
                           <IconeCanal
                             canal={integracao.canalIcone}
                             className="h-5 w-5"
                           />
                         </div>
-                        <div className="space-y-1">
-                          <CardTitle className="text-base">
+                        <div className="flex items-center gap-2">
+                          <CardTitle className="text-sm font-semibold">
                             {titulo}
                           </CardTitle>
-                          <CardDescription>{descricao}</CardDescription>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                type="button"
+                                className="rounded-[6px] p-1 text-muted-foreground transition-colors hover:text-foreground"
+                                aria-label={t("Detalhes", "Details")}
+                              >
+                                <Info className="h-3.5 w-3.5" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="top"
+                              className="bg-primary text-xs text-primary-foreground"
+                              arrowClassName="bg-primary fill-primary"
+                            >
+                              {descricao}
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
                       </div>
-                      <Badge variant={statusVariante}>{statusRotulo}</Badge>
+                      <Badge
+                        variant={statusVariante}
+                        className={cn("flex items-center gap-1.5", statusBadge)}
+                      >
+                        <span className={cn("h-1.5 w-1.5 rounded-full", statusDot)} />
+                        {statusRotulo}
+                      </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div />
-                    {bloqueado && (
-                      <div className="rounded-[6px] border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                        {t(
-                          "Em breve vamos abrir novas vagas para esta conexão.",
-                          "We will open new slots for this connection soon."
-                        )}
-                      </div>
-                    )}
-                    {integracao.id === "whatsapp_baileys" && (
-                      <div className="space-y-3 rounded-[6px] border border-border/60 bg-muted/30 p-3">
+                  {integracao.id === "whatsapp_baileys" ? (
+                    <CardContent className="space-y-3 pt-0">
+                      {bloqueado && (
+                        <p className="text-xs text-muted-foreground">
+                          {t(
+                            "Indisponível no momento.",
+                            "Unavailable right now."
+                          )}
+                        </p>
+                      )}
+                      <div className="space-y-2 rounded-[6px] border border-border/60 bg-muted/30 p-3">
                         {mostraSyncBaileys && (
-                          <div className="rounded-[6px] border border-border/60 bg-background/60 px-3 py-2">
-                            <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                              <span className="flex items-center gap-2">
-                                <span className="h-2 w-2 animate-pulse rounded-[6px] bg-amber-400" />
+                          <>
+                            <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                              <span>
                                 {syncConcluidoBaileys
                                   ? "Sincronização concluída"
-                                  : syncAguardandoBaileys
-                                    ? "Sincronizando histórico do WhatsApp"
-                                    : usaContagemChats
-                                      ? "Sincronizando chats"
-                                      : "Sincronizando histórico"}
+                                  : "Sincronizando histórico"}
                               </span>
                               {!syncAguardandoBaileys && syncTotalBaileys != null && (
                                 <span>
-                                  {syncDoneBaileys ?? 0}/{syncTotalBaileys}{" "}
-                                  {usaContagemChats ? "chats" : "mensagens"}
+                                  {syncDoneBaileys ?? 0}/{syncTotalBaileys}
                                 </span>
                               )}
                             </div>
-                            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-[6px] bg-muted">
-                              <div
-                                className={cn(
-                                  "h-full rounded-[6px] bg-emerald-500 transition-all duration-500",
-                                  syncAguardandoBaileys && "animate-pulse bg-emerald-300"
-                                )}
-                                style={{
-                                  width: syncAguardandoBaileys
-                                    ? "100%"
-                                    : `${progressoSyncBaileys}%`,
-                                }}
-                              />
-                            </div>
-                            {syncConcluidoBaileys && (syncTotalBaileys ?? 0) === 0 && (
-                              <p className="mt-2 text-[11px] text-muted-foreground">
-                                Nenhuma conversa nos últimos 14 dias.
-                              </p>
-                            )}
-                          </div>
+                            <Progress
+                              className="h-1.5"
+                              value={syncAguardandoBaileys ? 100 : progressoSyncBaileys}
+                            />
+                          </>
                         )}
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-xs text-muted-foreground">
-                            {contaBaileysAtiva
-                              ? "Instância da API não oficial ativa no workspace."
-                              : "Conecte um WhatsApp via API não oficial"}
-                          </p>
-                          <Badge
-                            variant="outline"
-                            className={
-                              baileysConectado
-                                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                : ""
-                            }
-                          >
-                            {baileysConectado ? "Ativo" : "Pendente"}
-                          </Badge>
-                        </div>
                         {carregandoBaileys ? (
                           <div className="space-y-2">
                             <Skeleton className="h-4 w-full" />
                             <Skeleton className="h-4 w-3/4" />
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-3 rounded-[6px] border border-border/60 bg-background/60 px-3 py-2">
-                            <div className="min-w-0">
-                              <p className="truncate text-xs font-medium">
-                                {(contaBaileysAtiva?.numero?.split(':')[0] ??
-                                  contaBaileysAtiva?.identificador?.split(':')[0]) ??
-                                  "Nenhum número conectado"}
-                              </p>
-                              <p className="text-[11px] text-muted-foreground">
-                                {contaBaileysAtiva
-                                  ? `${contaBaileysAtiva.nome?.includes("Baileys")
-                                    ? "WhatsApp (API não oficial)"
-                                    : contaBaileysAtiva.nome ?? "Instância"} · ${contaBaileysAtiva.status ?? "pendente"
-                                  }`
-                                  : ""}
-                              </p>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              {!contaBaileysAtiva && (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => abrirModalBaileys()}
-                                >
-                                  Conectar
-                                </Button>
-                              )}
-                            </div>
+                          <div className="text-xs text-muted-foreground">
+                            {(contaBaileysAtiva?.numero ||
+                              contaBaileysAtiva?.identificador)
+                              ? `${t("Último WhatsApp conectado", "Last WhatsApp connected")}: ${(contaBaileysAtiva?.numero?.split(":")[0] ??
+                                contaBaileysAtiva?.identificador?.split(":")[0]) ??
+                              ""
+                              }`
+                              : t("Nenhum número conectado", "No number connected")}
                           </div>
                         )}
                       </div>
-                    )}
-                  </CardContent>
+                    </CardContent>
+                  ) : null}
                   <CardFooter className="border-t pt-4">
                     <div className="flex w-full items-center justify-between gap-3">
                       {integracao.id !== "whatsapp_baileys" || !baileysConectado ? (
                         <span className="text-xs text-muted-foreground">
                           {bloqueado
-                            ? t("Indisponível no momento", "Unavailable right now")
+                            ? emBreve
+                              ? t("Integração pendente", "Integration pending")
+                              : t("Indisponível no momento", "Unavailable right now")
                             : conectado
                               ? t("Integração ativa", "Integration active")
                               : t("Integração pendente", "Integration pending")}
@@ -910,41 +912,95 @@ export function VisaoIntegracoes() {
                       ) : (
                         <span />
                       )}
-                      <Button
-                        size="sm"
-                        variant={bloqueado ? "outline" : conectado ? "secondary" : "default"}
-                        disabled={bloqueado}
-                        onClick={() => {
-                          if (bloqueado) return;
-                          if (integracao.id === "whatsapp_baileys") {
-                            if (conectado) {
-                              void handleDesconectarBaileys();
-                            } else {
-                              abrirModalBaileys();
+                      {!emBreve && (
+                        <Button
+                          size="sm"
+                          variant={bloqueado ? "outline" : conectado ? "secondary" : "default"}
+                          disabled={bloqueado}
+                          onClick={() => {
+                            if (bloqueado) return;
+                            if (integracao.id === "whatsapp_baileys") {
+                              if (conectado) {
+                                void handleDesconectarBaileys();
+                              } else {
+                                abrirModalBaileys();
+                              }
+                              return;
                             }
-                            return;
-                          }
-                          abrirDialogo(
-                            integracao,
-                            conectado ? "gerenciar" : "conectar"
-                          );
-                        }}
-                      >
-                        {bloqueado
-                          ? t("Bloqueado", "Blocked")
-                          : integracao.id === "whatsapp_baileys"
-                            ? conectado
-                              ? t("Desconectar", "Disconnect")
-                              : t("Conectar", "Connect")
-                            : conectado
-                              ? t("Gerenciar", "Manage")
-                              : t("Conectar", "Connect")}
-                      </Button>
+                            abrirDialogo(
+                              integracao,
+                              conectado ? "gerenciar" : "conectar"
+                            );
+                          }}
+                        >
+                          {bloqueado
+                            ? t("Bloqueado", "Blocked")
+                            : integracao.id === "whatsapp_baileys"
+                              ? conectado
+                                ? t("Desconectar", "Disconnect")
+                                : t("Conectar", "Connect")
+                              : conectado
+                                ? t("Gerenciar", "Manage")
+                                : t("Conectar", "Connect")}
+                        </Button>
+                      )}
                     </div>
                   </CardFooter>
                 </Card>
               );
             })
+          )}
+          {!carregandoSessao && !(session && carregandoIntegracoes) && (
+            <Card className="shadow-none border-dashed border-border/60 bg-muted/10">
+              <CardHeader className="gap-3">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-[6px] bg-muted/60">
+                      <IconeMessenger className="h-5 w-5" />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <CardTitle className="text-sm font-semibold">
+                        Messenger do Facebook
+                      </CardTitle>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            className="rounded-[6px] p-1 text-muted-foreground transition-colors hover:text-foreground"
+                            aria-label={t("Detalhes", "Details")}
+                          >
+                            <Info className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="top"
+                          className="bg-primary text-xs text-primary-foreground"
+                          arrowClassName="bg-primary fill-primary"
+                        >
+                          {t(
+                            "Conecte seu Messenger para mensagens do Facebook.",
+                            "Connect your Messenger for Facebook messages."
+                          )}
+                        </TooltipContent>
+                      </Tooltip>
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className="border-slate-200 bg-slate-50 text-slate-500"
+                  >
+                    {t("Em breve", "Coming soon")}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardFooter className="border-t pt-4">
+                <div className="flex w-full items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    {t("Integração pendente", "Planned integration.")}
+                  </span>
+                </div>
+              </CardFooter>
+            </Card>
           )}
         </div>
 

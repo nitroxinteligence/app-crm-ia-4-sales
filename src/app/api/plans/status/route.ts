@@ -59,12 +59,10 @@ export async function GET(request: Request) {
   const planoSelecionado = Boolean(workspace.plano_selected_at);
   const trialEndsAt = workspace.trial_ends_at ?? null;
   const trialExpirado =
-    planoSelecionado &&
-    Boolean(trialEndsAt) &&
-    Date.parse(trialEndsAt as string) < Date.now();
+    Boolean(trialEndsAt) && Date.parse(trialEndsAt as string) < Date.now();
 
-  const status = !planoSelecionado
-    ? "plan_unselected"
+  const status = planoSelecionado
+    ? "active"
     : trialExpirado
       ? "trial_expired"
       : "trialing";

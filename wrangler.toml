@@ -1,10 +1,23 @@
-name = "app-crm-ia-4-sales"
+name = "app-crm-ia-four-sales"
 main = ".open-next/worker.js"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
+
+minify = false
 
 [assets]
 binding = "ASSETS"
 directory = ".open-next/assets"
 
-minify = true
+# Cloudflare Queue for async contact imports (Phase 2)
+# To enable: wrangler queues create contact-import-queue
+[[queues.producers]]
+binding = "CONTACT_IMPORT_QUEUE"
+queue = "contact-import-queue"
+
+# Queue consumer configuration
+# Note: Consumer is handled by a separate worker defined in workers/queue-consumer/
+[[queues.consumers]]
+queue = "contact-import-queue"
+max_batch_size = 10
+max_batch_timeout = 30

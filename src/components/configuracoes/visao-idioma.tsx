@@ -101,7 +101,7 @@ export function VisaoIdiomaConfiguracoes() {
         </div>
       )}
 
-      <Card>
+      <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
         <CardContent className="space-y-4 p-6">
           {carregando ? (
             <Skeleton className="h-9 w-[220px]" />

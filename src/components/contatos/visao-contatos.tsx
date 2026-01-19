@@ -23,7 +23,7 @@ import {
   Building2,
   User,
 } from "lucide-react";
-import type { CanalId, ContatoCRM, StatusContato } from "@/lib/types";
+import type { CanalId, ContatoCRM, Pipeline, Role, StatusContato } from "@/lib/types";
 import { mascararEmail, mascararTelefone } from "@/lib/mascaramento";
 import { supabaseClient } from "@/lib/supabase/client";
 import { buildR2PublicUrl } from "@/lib/r2/public";
@@ -91,12 +91,6 @@ type PipelineEtapa = {
   nome: string;
   ordem: number;
   cor?: string | null;
-};
-
-type Pipeline = {
-  id: string;
-  nome: string;
-  etapas: PipelineEtapa[];
 };
 
 type TagSelecionada = {
@@ -319,7 +313,7 @@ export function VisaoContatos() {
   const [carregandoPipelines, setCarregandoPipelines] = React.useState(false);
   const [erroDados, setErroDados] = React.useState<string | null>(null);
   const [erroPipelines, setErroPipelines] = React.useState<string | null>(null);
-  const podeVer = podeVerDadosSensiveis(role);
+  const podeVer = podeVerDadosSensiveis(role as Role);
 
   const obterToken = React.useCallback(async () => {
     const { data } = await supabaseClient.auth.getSession();
@@ -355,6 +349,7 @@ export function VisaoContatos() {
   const [dialogExcluirContatoAberto, setDialogExcluirContatoAberto] = React.useState(false);
   const [excluindoContato, setExcluindoContato] = React.useState(false);
   const [dialogExportarAberto, setDialogExportarAberto] = React.useState(false);
+  const [isDragging, setIsDragging] = React.useState(false);
   const [dialogImportarAberto, setDialogImportarAberto] = React.useState(false);
   const [dialogNovoContatoAberto, setDialogNovoContatoAberto] =
     React.useState(false);
@@ -1294,53 +1289,115 @@ export function VisaoContatos() {
     }
   };
 
+  const processarArquivoImportacao = async (arquivo: File) => {
+    setCsvArquivo(arquivo);
+    setCsvErro(null);
+    setCsvResumo(null);
+
+    const isExcel = arquivo.name.endsWith('.xlsx') || arquivo.name.endsWith('.xls');
+
+    try {
+      let headers: string[] = [];
+      let rows: string[][] = [];
+
+      if (isExcel) {
+        // Dynamic import of xlsx library
+        const XLSX = await import('xlsx');
+        const buffer = await arquivo.arrayBuffer();
+        const workbook = XLSX.read(buffer, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json<string[]>(firstSheet, { header: 1 });
+
+        if (jsonData.length > 0) {
+          headers = (jsonData[0] || []).map(String);
+          rows = jsonData.slice(1).map(row => (row || []).map(String));
+        }
+      } else {
+        // CSV parsing
+        const conteudo = await arquivo.text();
+        const parsed = parseCsvTexto(conteudo);
+        headers = parsed.headers;
+        rows = parsed.rows;
+      }
+
+      if (headers.length === 0) {
+        setCsvErro("Arquivo vazio ou inválido.");
+        setCsvDados(null);
+        return;
+      }
+
+      // Check row limit
+      if (rows.length > 10000) {
+        setCsvErro(`Limite máximo de 10.000 contatos. Seu arquivo tem ${rows.length} linhas.`);
+        setCsvDados(null);
+        return;
+      }
+
+      let mapping = detectarMapeamentoCsv(headers);
+      const temMapping = Object.values(mapping).some(
+        (valor) => valor !== undefined
+      );
+      const pareceDados = headers.some((valor) => /@|\d/.test(valor));
+
+      let headersNormalizados = headers;
+      let rowsNormalizados = rows;
+
+      if (!temMapping && pareceDados) {
+        rowsNormalizados = [headers, ...rows];
+        headersNormalizados = ["Nome", "Telefone", "Email", "Empresa"];
+        mapping = { nome: 0, telefone: 1, email: 2, empresa: 3 };
+      }
+
+      setCsvDados({
+        headers: headersNormalizados,
+        rows: rowsNormalizados,
+        mapping,
+      });
+
+      if (mapping.nome === undefined) {
+        setCsvErro(
+          "Não foi possível encontrar a coluna Nome. Use cabeçalhos como Nome, Telefone, Email, Empresa."
+        );
+      }
+    } catch (error) {
+      console.error('Erro ao processar arquivo:', error);
+      setCsvErro("Erro ao processar o arquivo. Verifique se o formato está correto.");
+      setCsvDados(null);
+    }
+  };
+
   const handleSelecionarArquivoCsv = async (
     event: React.ChangeEvent<HTMLInputElement>
   ) => {
     const arquivo = event.target.files?.[0];
     if (!arquivo) return;
-
-    setCsvArquivo(arquivo);
-    setCsvErro(null);
-    setCsvResumo(null);
-
-    const conteudo = await arquivo.text();
-    const { headers, rows } = parseCsvTexto(conteudo);
-
-    if (headers.length === 0) {
-      setCsvErro("Arquivo CSV vazio ou inválido.");
-      setCsvDados(null);
-      return;
-    }
-
-    let mapping = detectarMapeamentoCsv(headers);
-    const temMapping = Object.values(mapping).some(
-      (valor) => valor !== undefined
-    );
-    const pareceDados = headers.some((valor) => /@|\d/.test(valor));
-
-    let headersNormalizados = headers;
-    let rowsNormalizados = rows;
-
-    if (!temMapping && pareceDados) {
-      rowsNormalizados = [headers, ...rows];
-      headersNormalizados = ["Nome", "Telefone", "Email", "Empresa"];
-      mapping = { nome: 0, telefone: 1, email: 2, empresa: 3 };
-    }
-
-    setCsvDados({
-      headers: headersNormalizados,
-      rows: rowsNormalizados,
-      mapping,
-    });
-
-    if (mapping.nome === undefined) {
-      setCsvErro(
-        "Não foi possível encontrar a coluna Nome. Use cabeçalhos como Nome, Telefone, Email, Empresa."
-      );
-    }
-
+    await processarArquivoImportacao(arquivo);
     event.target.value = "";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    const arquivo = e.dataTransfer.files?.[0];
+    if (arquivo && (arquivo.name.endsWith('.csv') || arquivo.name.endsWith('.xlsx') || arquivo.name.endsWith('.xls'))) {
+      await processarArquivoImportacao(arquivo);
+    } else {
+      setCsvErro("Por favor, envie um arquivo CSV ou Excel válido.");
+    }
   };
 
   const handleImportarCsv = async () => {
@@ -1353,9 +1410,6 @@ export function VisaoContatos() {
       );
       return;
     }
-
-    const pipelinePadrao = pipelines[0];
-    const etapaPadrao = pipelinePadrao?.etapas[0];
 
     const contatosParaImportar = rows
       .map((linha) => {
@@ -1383,7 +1437,7 @@ export function VisaoContatos() {
       .filter((linha) => linha.nome);
 
     if (contatosParaImportar.length === 0) {
-      setCsvErro("Nenhum contato válido encontrado no CSV.");
+      setCsvErro("Nenhum contato válido encontrado.");
       return;
     }
 
@@ -1391,50 +1445,48 @@ export function VisaoContatos() {
     setCsvErro(null);
     setCsvResumo(null);
 
-    let importados = 0;
-    let ignorados = 0;
-
-    for (const contato of contatosParaImportar) {
-      const telefoneNormalizado = apenasNumeros(contato.telefone);
-
-      const { data, error } = await supabaseClient
-        .from("contacts")
-        .insert({
-          workspace_id: workspaceId,
-          nome: contato.nome,
-          telefone: telefoneNormalizado || null,
-          email: contato.email || null,
-          status: "novo",
-          owner_id: session.user.id,
-          empresa: contato.empresa || null,
-          pipeline_id: pipelinePadrao?.id ?? null,
-          pipeline_stage_id: etapaPadrao?.id ?? null,
-        })
-        .select("id")
-        .single();
-
-      if (error || !data) {
-        ignorados += 1;
-        continue;
+    try {
+      const token = await obterToken();
+      if (!token) {
+        setCsvErro("Sessão expirada. Faça login novamente.");
+        setCsvImportando(false);
+        return;
       }
 
-      importados += 1;
-      await registrarAuditoria({
-        contatoId: data.id,
-        acao: "Contato importado",
-        detalhes: { mensagem: "Contato importado via CSV." },
+      const response = await fetch("/api/contacts/import", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          contacts: contatosParaImportar,
+          fileName: csvArquivo?.name,
+        }),
       });
-    }
 
-    await carregarContatos();
+      const result = await response.json();
 
-    setCsvImportando(false);
-    setCsvResumo(
-      `Importação concluída: ${importados} contatos adicionados, ${ignorados} ignorados.`
-    );
+      if (!response.ok) {
+        setCsvErro(result.error || "Erro ao importar contatos.");
+        setCsvImportando(false);
+        return;
+      }
 
-    if (ignorados === 0) {
-      setDialogImportarAberto(false);
+      await carregarContatos();
+
+      setCsvImportando(false);
+      setCsvResumo(
+        `Importação concluída: ${result.imported} contatos adicionados, ${result.errors} ignorados.`
+      );
+
+      if (result.errors === 0) {
+        setDialogImportarAberto(false);
+      }
+    } catch (error) {
+      console.error("Erro na importação:", error);
+      setCsvErro("Erro ao processar a importação. Tente novamente.");
+      setCsvImportando(false);
     }
   };
 
@@ -2164,7 +2216,7 @@ export function VisaoContatos() {
             onClick={() => setDialogImportarAberto(true)}
           >
             <Upload className="h-4 w-4" />
-            Importar CSV
+            Importar
           </Button>
           <Button
             className="gap-2 rounded-[6px] shadow-none"
@@ -2573,7 +2625,9 @@ export function VisaoContatos() {
             </DialogDescription>
           </DialogHeader>
           <div className="rounded-[6px] border border-dashed border-border/60 p-4 text-sm text-muted-foreground">
-            Exportação pronta para download.
+            {selecionados.length > 0
+              ? `${selecionados.length} contatos selecionados para exportação.`
+              : `${contatosFiltrados.length} contatos serão exportados.`}
           </div>
           <DialogFooter>
             <Button
@@ -2583,7 +2637,49 @@ export function VisaoContatos() {
             >
               Cancelar
             </Button>
-            <Button className="rounded-[6px] shadow-none">Baixar CSV</Button>
+            <Button
+              className="rounded-[6px] shadow-none"
+              onClick={() => {
+                // Get contacts to export
+                const contatosParaExportar = selecionados.length > 0
+                  ? contatos.filter((c) => selecionados.includes(c.id))
+                  : contatosFiltrados;
+
+                // Build CSV content
+                const headers = ["Nome", "Telefone", "Email", "Empresa", "Status", "Tags"];
+                const rows = contatosParaExportar.map((c) => [
+                  c.nome,
+                  c.telefone,
+                  c.email,
+                  c.empresa || "",
+                  c.status,
+                  c.tags.join("; "),
+                ]);
+
+                const csvContent = [
+                  headers.join(","),
+                  ...rows.map((row) =>
+                    row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")
+                  ),
+                ].join("\n");
+
+                // Create and download file
+                const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.href = url;
+                link.download = `contatos_${new Date().toISOString().split("T")[0]}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+
+                setDialogExportarAberto(false);
+              }}
+            >
+              <FileDown className="h-4 w-4 mr-2" />
+              Baixar CSV
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -2603,45 +2699,59 @@ export function VisaoContatos() {
       >
         <DialogContent className="sm:max-w-2xl rounded-[6px] shadow-none">
           <DialogHeader>
-            <DialogTitle>Importar contatos via CSV</DialogTitle>
+            <DialogTitle>Importar contatos via CSV ou Excel</DialogTitle>
             <DialogDescription>
-              Envie o arquivo CSV e revise a pré-visualização antes de importar.
+              Envie o arquivo CSV ou Excel (.xlsx) e revise a pré-visualização antes de importar.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
-            <div className="rounded-[6px] border border-dashed border-border/70 bg-card/40 p-4">
+            <div
+              className={cn(
+                "rounded-[6px] border border-dashed border-border/70 bg-card/40 p-8 transition-colors duration-200",
+                isDragging && "border-primary bg-primary/5 scale-[1.01]"
+              )}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+            >
               <input
                 id="importar-csv"
                 type="file"
-                accept=".csv"
+                accept=".csv,.xlsx,.xls"
                 className="hidden"
                 onChange={handleSelecionarArquivoCsv}
               />
               <label
                 htmlFor="importar-csv"
-                className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center"
+                className="flex flex-col items-center justify-center gap-4 cursor-pointer"
               >
-                <div className="flex items-center gap-3">
-                  <span className="rounded-[6px] bg-primary/10 p-2 text-primary">
-                    <Upload className="h-4 w-4" />
+                <div className="flex flex-col items-center gap-3 text-center">
+                  <span className={cn(
+                    "rounded-full p-3 transition-colors duration-200",
+                    isDragging ? "bg-primary/20 text-primary" : "bg-primary/10 text-primary"
+                  )}>
+                    <Upload className={cn("h-6 w-6", isDragging && "scale-110")} />
                   </span>
                   <div className="space-y-1">
-                    <p className="text-sm font-medium">
-                      Arraste o CSV ou clique para selecionar
+                    <p className="text-base font-medium">
+                      {isDragging ? "Solte o arquivo para enviar" : "Arraste o arquivo ou clique para selecionar"}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      Cabeçalhos sugeridos: Nome, Telefone, Email, Empresa.
+                    <p className="text-sm text-muted-foreground">
+                      Formatos: CSV, XLSX. Máx: 10.000 contatos.
                     </p>
                   </div>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="rounded-[6px] shadow-none"
-                >
-                  Selecionar arquivo
-                </Button>
+                {!isDragging && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="rounded-[6px] shadow-none mt-2"
+                    onClick={() => document.getElementById('importar-csv')?.click()}
+                  >
+                    Selecionar arquivo do computador
+                  </Button>
+                )}
               </label>
             </div>
 

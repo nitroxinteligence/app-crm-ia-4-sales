@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
 import {
   badRequest,
+  conflict,
   forbidden,
   notFound,
   serverError,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/api/responses";
 import { parseJsonBody } from "@/lib/api/validation";
 import { getEnv } from "@/lib/config";
+import { planosConfig, resolverPlanoEfetivo } from "@/lib/planos";
 
 export const runtime = "nodejs";
 
@@ -110,6 +112,36 @@ export async function POST(request: Request) {
     }
 
     if (!contactId) {
+      const { data: workspace } = await supabaseServer
+        .from("workspaces")
+        .select("plano, trial_plano, trial_ends_at, plano_selected_at")
+        .eq("id", lead.workspace_id)
+        .maybeSingle();
+
+      const trialEndsAt = workspace?.trial_ends_at
+        ? Date.parse(workspace.trial_ends_at)
+        : null;
+      const trialExpirado =
+        trialEndsAt !== null && !Number.isNaN(trialEndsAt) && trialEndsAt < Date.now();
+
+      if (trialExpirado && !workspace?.plano_selected_at) {
+        return conflict("Trial encerrado. Selecione um plano para continuar.");
+      }
+
+      const planoEfetivo = resolverPlanoEfetivo(workspace);
+      const limiteContatos = planosConfig[planoEfetivo].contatos ?? 0;
+
+      if (limiteContatos > 0) {
+        const { count } = await supabaseServer
+          .from("contacts")
+          .select("id", { count: "exact", head: true })
+          .eq("workspace_id", lead.workspace_id);
+
+        if ((count ?? 0) >= limiteContatos) {
+          return conflict("Limite de contatos atingido.");
+        }
+      }
+
       const { data: createdContact, error: contactError } = await supabaseServer
         .from("contacts")
         .insert({

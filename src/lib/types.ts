@@ -1,4 +1,4 @@
-export type Role = "ADMIN" | "MANAGER" | "MEMBER" | "VIEWER";
+export type Role = "ADMIN" | "MEMBER" | "VIEWER";
 export type IdiomaApp = "pt-BR" | "en-US";
 
 export type CanalId = "whatsapp" | "instagram";
@@ -18,6 +18,8 @@ export type Workspace = {
   planoSelecionadoEm?: string | null;
   trialEndsAt?: string | null;
   trialStartedAt?: string | null;
+  trialPlano?: "Essential" | "Pro" | "Premium" | null;
+  planoRenovaEm?: string | null;
 };
 
 export type Usuario = {
@@ -127,6 +129,9 @@ export type MensagemInbox = {
     storagePath: string;
     tipo: string;
     tamanhoBytes?: number;
+    pending?: boolean;
+    nome?: string;
+    mimeType?: string;
   }>;
 };
 
@@ -372,6 +377,14 @@ export type EtapaFunil = {
   id: string;
   nome: string;
   cor?: string;
+  ordem?: number;
+};
+
+export type Pipeline = {
+  id: string;
+  nome: string;
+  etapas: EtapaFunil[];
+  padrao?: boolean;
 };
 
 export type DealFunil = {

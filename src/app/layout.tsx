@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import { ProvedorTema } from "@/components/provedores/provedor-tema";
+import { ProvedorAutenticacao } from "@/lib/contexto-autenticacao";
 import "./globals.css";
 
 const inter = Inter({
@@ -33,7 +34,9 @@ export default function RootLayout({
         className={`${inter.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        <ProvedorTema>{children}</ProvedorTema>
+        <ProvedorTema>
+          <ProvedorAutenticacao>{children}</ProvedorAutenticacao>
+        </ProvedorTema>
       </body>
     </html>
   );

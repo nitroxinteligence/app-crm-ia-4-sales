@@ -27,65 +27,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  obterNotificacoesLocal,
-  ouvirNotificacoes,
-  type NotificacaoUI,
-} from "@/lib/notificacoes";
-
-const notificacoesMock = [
-  {
-    id: "notif-1",
-    titulo: "Novo lead qualificado",
-    descricao: "Luiza Rocha entrou no funil.",
-    tempo: "Agora",
-    categoria: "Leads",
-    nova: true,
-  },
-  {
-    id: "notif-2",
-    titulo: "Agente sugeriu resposta",
-    descricao: "Inbox: conversa com alta intenção.",
-    tempo: "12 min",
-    categoria: "Inbox",
-    nova: true,
-  },
-  {
-    id: "notif-3",
-    titulo: "Follow-up atrasado",
-    descricao: "3 conversas aguardam retorno.",
-    tempo: "1h",
-    categoria: "Inbox",
-    nova: false,
-  },
-];
-
-const notificacoesExtras = [
-  {
-    id: "notif-4",
-    titulo: "Negociação atualizada",
-    descricao: "Etapa movida para Qualificado.",
-    tempo: "2h",
-    categoria: "Funil",
-    nova: false,
-  },
-  {
-    id: "notif-5",
-    titulo: "Novo contato importado",
-    descricao: "15 contatos adicionados ao CRM.",
-    tempo: "3h",
-    categoria: "Contatos",
-    nova: false,
-  },
-  {
-    id: "notif-6",
-    titulo: "Atividade agendada",
-    descricao: "Reunião com Rafaela Torres.",
-    tempo: "Hoje",
-    categoria: "Agenda",
-    nova: false,
-  },
-];
+import { useNotifications } from "@/hooks/use-notifications";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
+import { CheckCheck } from "lucide-react";
 
 export function BarraLateral({
   colapsada,
@@ -103,36 +49,12 @@ export function BarraLateral({
       !["prospeccao", "email-marketing"].includes(item.id)
   );
   const itensSidebar = [...itensCore, ...itensInteligencia];
-  const [notificacoesBase, setNotificacoesBase] =
-    React.useState(notificacoesMock);
-  const [notificacoesDinamicas, setNotificacoesDinamicas] = React.useState<
-    NotificacaoUI[]
-  >([]);
-  const [indiceMais, setIndiceMais] = React.useState(0);
-  const [menusProntos, setMenusProntos] = React.useState(false);
-  const podeCarregarMais = indiceMais < notificacoesExtras.length;
-  const handleCarregarMais = React.useCallback(() => {
-    if (!podeCarregarMais) return;
-    const proximos = notificacoesExtras.slice(indiceMais, indiceMais + 2);
-    setNotificacoesBase((atual) => [...atual, ...proximos]);
-    setIndiceMais((atual) => atual + proximos.length);
-  }, [indiceMais, podeCarregarMais]);
 
-  const notificacoes = React.useMemo(
-    () => [...notificacoesDinamicas, ...notificacoesBase],
-    [notificacoesBase, notificacoesDinamicas]
-  );
+  const { notifications, unreadCount, markAsRead, mutate } = useNotifications();
+  const [menusProntos, setMenusProntos] = React.useState(false);
 
   React.useEffect(() => {
     setMenusProntos(true);
-  }, []);
-
-  React.useEffect(() => {
-    const atualizarNotificacoes = () => {
-      setNotificacoesDinamicas(obterNotificacoesLocal());
-    };
-    atualizarNotificacoes();
-    return ouvirNotificacoes(atualizarNotificacoes);
   }, []);
 
   return (
@@ -164,9 +86,9 @@ export function BarraLateral({
               <img
                 src="/logo-ia-four-sales.svg"
                 alt="IA FOUR SALES"
-                className="h-6 w-auto"
+                className="h-7.5 w-auto"
               />
-          </div>
+            </div>
             <Button
               variant="ghost"
               size="icon"
@@ -219,75 +141,146 @@ export function BarraLateral({
                 >
                   <span className="relative flex h-5 w-5 items-center justify-center">
                     <Bell className="h-5 w-5" />
-                    <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
+                    {unreadCount > 0 && (
+                      <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
+                        {unreadCount > 9 ? "9+" : unreadCount}
+                      </span>
+                    )}
                   </span>
                   {!colapsada && (
                     <span className="text-sm font-medium">Notificações</span>
                   )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="right" className="w-96 p-0">
-                <div className="flex items-center justify-between px-4 py-3">
+              <DropdownMenuContent align="start" side="right" className="w-[380px] p-0">
+                <div className="flex items-center justify-between px-4 py-3 border-b">
                   <div>
                     <p className="text-sm font-semibold">
                       {texto(idioma, "Notificações", "Notifications")}
                     </p>
-                    <p className="text-xs text-muted-foreground">
-                      {notificacoes.filter((item) => item.nova).length}{" "}
-                      {texto(idioma, "novas", "new")}
-                    </p>
                   </div>
-                  <Button variant="ghost" size="sm" className="h-7">
-                    {texto(idioma, "Marcar tudo", "Mark all")}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    title={texto(idioma, "Marcar tudo como lido", "Mark all as read")}
+                    onClick={() => markAsRead()}
+                  >
+                    <CheckCheck className="h-4 w-4" />
                   </Button>
                 </div>
-                <DropdownMenuSeparator />
-                <div className="max-h-80 overflow-auto py-1">
-                  {notificacoes.map((notificacao) => (
-                    <DropdownMenuItem
-                      key={notificacao.id}
-                      className="flex items-start gap-3 px-4 py-3 focus:bg-muted/40"
+
+                <Tabs defaultValue="all" className="w-full">
+                  <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0">
+                    <TabsTrigger
+                      value="all"
+                      className="relative h-9 rounded-none border-b-2 border-transparent bg-transparent px-4 pb-3 pt-2 font-semibold text-muted-foreground shadow-none transition-none data-[state=active]:border-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
                     >
-                      <span
-                        className={cn(
-                          "mt-2 h-2 w-2 rounded-full",
-                          notificacao.nova
-                            ? "bg-primary"
-                            : "bg-muted-foreground/40"
-                        )}
-                      />
-                      <div className="flex-1 space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-medium">
-                            {notificacao.titulo}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {notificacao.tempo}
-                          </span>
+                      Todas
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="unread"
+                      className="relative h-9 rounded-none border-b-2 border-transparent bg-transparent px-4 pb-3 pt-2 font-semibold text-muted-foreground shadow-none transition-none data-[state=active]:border-transparent data-[state=active]:text-primary data-[state=active]:shadow-none"
+                    >
+                      Não lidas
+                      {unreadCount > 0 && (
+                        <span className="ml-2 rounded-full bg-primary/10 px-1.5 py-0.5 text-xs text-primary">
+                          {unreadCount}
+                        </span>
+                      )}
+                    </TabsTrigger>
+                  </TabsList>
+
+                  <div className="max-h-[400px] overflow-auto">
+                    <TabsContent value="all" className="m-0">
+                      {notifications.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+                          <Bell className="mb-2 h-8 w-8 opacity-20" />
+                          <p className="text-sm">Nenhuma notificação</p>
                         </div>
-                        <p className="text-xs text-muted-foreground">
-                          {notificacao.descricao}
-                        </p>
-                        <Badge variant="outline" className="text-[10px]">
-                          {notificacao.categoria}
-                        </Badge>
-                      </div>
-                    </DropdownMenuItem>
-                  ))}
-                </div>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  disabled={!podeCarregarMais}
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    handleCarregarMais();
-                  }}
-                  className="justify-center text-sm text-primary"
-                >
-                  {podeCarregarMais
-                    ? texto(idioma, "Carregar mais", "Load more")
-                    : texto(idioma, "Sem mais notificações", "No more notifications")}
-                </DropdownMenuItem>
+                      ) : (
+                        notifications.map((notificacao) => (
+                          <DropdownMenuItem
+                            key={notificacao.id}
+                            className={cn(
+                              "flex flex-col items-start gap-1 p-4 cursor-pointer focus:bg-muted/50",
+                              !notificacao.read_at && "bg-primary/5"
+                            )}
+                            onSelect={(e) => {
+                              e.preventDefault();
+                              if (!notificacao.read_at) markAsRead(notificacao.id);
+                            }}
+                          >
+                            <div className="flex w-full items-start justify-between gap-2">
+                              <span className="text-sm font-medium leading-none">
+                                {notificacao.title}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                {formatDistanceToNow(new Date(notificacao.created_at), {
+                                  addSuffix: true,
+                                  locale: ptBR,
+                                })}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground line-clamp-2">
+                              {notificacao.description}
+                            </p>
+                            <div className="mt-1 flex items-center gap-2">
+                              <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                                {notificacao.category}
+                              </Badge>
+                              {!notificacao.read_at && (
+                                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+                              )}
+                            </div>
+                          </DropdownMenuItem>
+                        ))
+                      )}
+                    </TabsContent>
+
+                    <TabsContent value="unread" className="m-0">
+                      {notifications.filter(n => !n.read_at).length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-8 text-center text-muted-foreground">
+                          <CheckCheck className="mb-2 h-8 w-8 opacity-20" />
+                          <p className="text-sm">Tudo lido por aqui!</p>
+                        </div>
+                      ) : (
+                        notifications
+                          .filter(n => !n.read_at)
+                          .map((notificacao) => (
+                            <DropdownMenuItem
+                              key={notificacao.id}
+                              className="flex flex-col items-start gap-1 p-4 cursor-pointer bg-primary/5 focus:bg-primary/10"
+                              onSelect={(e) => {
+                                e.preventDefault();
+                                markAsRead(notificacao.id);
+                              }}
+                            >
+                              <div className="flex w-full items-start justify-between gap-2">
+                                <span className="text-sm font-medium leading-none">
+                                  {notificacao.title}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                  {formatDistanceToNow(new Date(notificacao.created_at), {
+                                    addSuffix: true,
+                                    locale: ptBR,
+                                  })}
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground line-clamp-2">
+                                {notificacao.description}
+                              </p>
+                              <div className="mt-1 flex items-center gap-2">
+                                <Badge variant="outline" className="text-[10px] h-5 px-1.5">
+                                  {notificacao.category}
+                                </Badge>
+                              </div>
+                            </DropdownMenuItem>
+                          ))
+                      )}
+                    </TabsContent>
+                  </div>
+                </Tabs>
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type TagItem = {
   id: string;
@@ -202,14 +203,14 @@ export function VisaoTagsConfiguracoes() {
         </div>
       )}
 
-      <Card>
+      <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
         <CardContent className="space-y-4 p-6">
           <div className="flex flex-wrap items-center gap-3">
             <Input
               value={busca}
               onChange={(event) => setBusca(event.target.value)}
               placeholder={t("Pesquisar tags", "Search tags")}
-              className="w-full sm:max-w-xs"
+              className="w-full sm:max-w-xs bg-white dark:bg-neutral-950"
             />
             <Badge variant="secondary">
               {tagsFiltradas.length} {t("tags", "tags")}
@@ -223,7 +224,7 @@ export function VisaoTagsConfiguracoes() {
               <Skeleton className="h-12 w-full" />
             </div>
           ) : tagsFiltradas.length === 0 ? (
-            <div className="rounded-[6px] border border-border/60 px-4 py-6 text-sm text-muted-foreground">
+            <div className="rounded-[6px] border border-border/60 px-4 py-6 text-sm text-muted-foreground bg-white dark:bg-neutral-950">
               {t("Nenhuma tag encontrada.", "No tags found.")}
             </div>
           ) : (
@@ -231,7 +232,7 @@ export function VisaoTagsConfiguracoes() {
               {tagsFiltradas.map((tag) => (
                 <div
                   key={tag.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-muted/20 px-3 py-3"
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-white dark:bg-neutral-950 px-3 py-3"
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <span
@@ -246,23 +247,37 @@ export function VisaoTagsConfiguracoes() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => abrirEditarTag(tag)}
-                      aria-label={t("Editar tag", "Edit tag")}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => abrirExcluirTag(tag)}
-                      aria-label={t("Excluir tag", "Delete tag")}
-                      className="text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => abrirEditarTag(tag)}
+                            aria-label={t("Editar tag", "Edit tag")}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Editar</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => abrirExcluirTag(tag)}
+                            aria-label={t("Excluir tag", "Delete tag")}
+                            className="text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Excluir</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 </div>
               ))}
@@ -337,8 +352,8 @@ export function VisaoTagsConfiguracoes() {
                         type="button"
                         onClick={() => setFormCor(cor)}
                         className={`w-7 h-7 rounded-[6px] border-2 transition-all hover:scale-110 ${formCor.toLowerCase() === cor.toLowerCase()
-                            ? "border-slate-900 dark:border-white ring-2 ring-offset-1 ring-slate-400"
-                            : "border-transparent hover:border-slate-300"
+                          ? "border-slate-900 dark:border-white ring-2 ring-offset-1 ring-slate-400"
+                          : "border-transparent hover:border-slate-300"
                           }`}
                         style={{ backgroundColor: cor }}
                         title={cor}

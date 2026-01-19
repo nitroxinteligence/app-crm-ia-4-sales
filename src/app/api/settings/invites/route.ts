@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { createClient } from "@supabase/supabase-js";
-import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { badRequest, conflict, serverError, unauthorized } from "@/lib/api/responses";
 import { parseJsonBody } from "@/lib/api/validation";
 import { getEnv } from "@/lib/config";
+import { planosConfig, resolverPlanoEfetivo } from "@/lib/planos";
 
 export const runtime = "nodejs";
 
@@ -104,6 +105,36 @@ export async function POST(request: Request) {
   const parsed = await parseJsonBody(request, createSchema);
   if (!parsed.ok) {
     return badRequest("Invalid payload.");
+  }
+
+  const { data: workspace } = await userClient
+    .from("workspaces")
+    .select("id, plano, trial_plano, trial_ends_at, plano_selected_at")
+    .eq("id", membership.workspace_id)
+    .maybeSingle();
+
+  if (workspace?.id) {
+    const planoEfetivo = resolverPlanoEfetivo(workspace);
+    const limiteUsuarios = planosConfig[planoEfetivo].usuarios ?? 0;
+    if (limiteUsuarios > 0 && limiteUsuarios < 999999) {
+      const [{ count: membros }, { count: convitesPendentes }] =
+        await Promise.all([
+          userClient
+            .from("workspace_members")
+            .select("id", { count: "exact", head: true })
+            .eq("workspace_id", membership.workspace_id),
+          userClient
+            .from("workspace_invites")
+            .select("id", { count: "exact", head: true })
+            .eq("workspace_id", membership.workspace_id)
+            .eq("status", "pendente"),
+        ]);
+
+      const total = (membros ?? 0) + (convitesPendentes ?? 0);
+      if (total >= limiteUsuarios) {
+        return conflict("Limite de membros atingido para o seu plano.");
+      }
+    }
   }
 
   const token = crypto.randomUUID();

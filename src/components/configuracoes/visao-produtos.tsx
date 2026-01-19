@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { texto } from "@/lib/idioma";
 import { useAutenticacao } from "@/lib/contexto-autenticacao";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { supabaseClient } from "@/lib/supabase/client";
 import { ToastAviso } from "@/components/ui/toast-aviso";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Produto = {
   id: string;
@@ -81,6 +82,13 @@ export function VisaoProdutosConfiguracoes() {
       produto.nome.toLowerCase().includes(termo)
     );
   }, [busca, produtos]);
+
+  const categoriasCount = React.useMemo(() => {
+    const categorias = produtos
+      .map((produto) => produto.categoria?.trim())
+      .filter(Boolean) as string[];
+    return new Set(categorias).size;
+  }, [produtos]);
 
   const abrirNovoProduto = () => {
     setProdutoEditando(null);
@@ -198,18 +206,31 @@ export function VisaoProdutosConfiguracoes() {
         </Button>
       </div>
 
-      <Card>
-        <CardContent className="space-y-4 p-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <Input
-              value={busca}
-              onChange={(event) => setBusca(event.target.value)}
-              placeholder={t("Pesquisar produtos", "Search products")}
-              className="w-full sm:max-w-xs"
-            />
-            <Badge variant="secondary">
-              {produtosFiltrados.length} {t("produtos", "products")}
-            </Badge>
+      <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
+        <CardContent className="space-y-5 p-6">
+          <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-center">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex w-full items-center gap-2 rounded-md border border-border/60 bg-white dark:bg-neutral-950 px-3 py-2 sm:max-w-xs">
+                <Search className="h-4 w-4 text-muted-foreground" />
+                <Input
+                  value={busca}
+                  onChange={(event) => setBusca(event.target.value)}
+                  placeholder={t("Pesquisar produtos", "Search products")}
+                  className="h-7 border-0 bg-transparent p-0 text-sm focus-visible:ring-0"
+                />
+              </div>
+              <Badge variant="secondary">
+                {produtosFiltrados.length} {t("produtos", "products")}
+              </Badge>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 md:justify-end">
+              <span className="rounded-full border border-border/60 bg-muted/20 px-3 py-1 text-xs text-muted-foreground">
+                {t("Total", "Total")}: {produtos.length}
+              </span>
+              <span className="rounded-full border border-border/60 bg-muted/20 px-3 py-1 text-xs text-muted-foreground">
+                {t("Categorias", "Categories")}: {categoriasCount}
+              </span>
+            </div>
           </div>
 
           {loading ? (
@@ -217,12 +238,14 @@ export function VisaoProdutosConfiguracoes() {
               {Array.from({ length: 3 }).map((_, i) => (
                 <div
                   key={i}
-                  className="flex items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-muted/20 px-3 py-3"
+                  className="grid gap-3 rounded-[6px] border border-border/60 bg-muted/20 px-3 py-3 md:grid-cols-[1.5fr_0.6fr_0.6fr_auto]"
                 >
                   <div className="space-y-2">
                     <Skeleton className="h-4 w-[200px]" />
                     <Skeleton className="h-3 w-[150px]" />
                   </div>
+                  <Skeleton className="h-5 w-20" />
+                  <Skeleton className="h-5 w-16" />
                   <div className="flex gap-2">
                     <Skeleton className="h-8 w-8" />
                     <Skeleton className="h-8 w-8" />
@@ -231,48 +254,78 @@ export function VisaoProdutosConfiguracoes() {
               ))}
             </div>
           ) : produtosFiltrados.length === 0 ? (
-            <div className="rounded-[6px] border border-border/60 px-4 py-6 text-sm text-muted-foreground">
+            <div className="rounded-[6px] border border-border/60 px-4 py-6 text-sm text-muted-foreground bg-white dark:bg-neutral-950">
               {t("Nenhum produto encontrado.", "No products found.")}
             </div>
           ) : (
             <div className="space-y-2">
+              <div className="grid gap-3 rounded-[6px] border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground md:grid-cols-[1.5fr_0.6fr_0.6fr_auto]">
+                <span>{t("Produto", "Product")}</span>
+                <span>{t("Categoria", "Category")}</span>
+                <span>{t("Preço", "Price")}</span>
+                <span className="text-right">{t("Ações", "Actions")}</span>
+              </div>
               {produtosFiltrados.map((produto) => (
                 <div
                   key={produto.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-muted/20 px-3 py-3"
+                  className="grid gap-3 rounded-[6px] border border-border/60 bg-white dark:bg-neutral-950 px-3 py-3 md:grid-cols-[1.5fr_0.6fr_0.6fr_auto] md:items-center"
                 >
                   <div className="min-w-0 space-y-1">
                     <p className="truncate text-sm font-medium">{produto.nome}</p>
                     <p className="text-xs text-muted-foreground">
                       {produto.descricao || t("Sem descrição.", "No description.")}
                     </p>
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      {produto.categoria && (
-                        <Badge variant="outline">{produto.categoria}</Badge>
-                      )}
-                      {produto.preco && (
-                        <Badge variant="secondary">{produto.preco}</Badge>
-                      )}
-                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => abrirEditarProduto(produto)}
-                      aria-label={t("Editar produto", "Edit product")}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      onClick={() => abrirExcluirProduto(produto)}
-                      aria-label={t("Excluir produto", "Delete product")}
-                      className="text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                  <div>
+                    {produto.categoria ? (
+                      <Badge variant="outline">{produto.categoria}</Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        {t("Sem categoria", "No category")}
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    {produto.preco ? (
+                      <Badge variant="secondary">{produto.preco}</Badge>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">
+                        {t("Sem preço", "No price")}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 md:justify-end">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => abrirEditarProduto(produto)}
+                            aria-label={t("Editar produto", "Edit product")}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Editar</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            onClick={() => abrirExcluirProduto(produto)}
+                            aria-label={t("Excluir produto", "Delete product")}
+                            className="text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Excluir</TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                   </div>
                 </div>
               ))}

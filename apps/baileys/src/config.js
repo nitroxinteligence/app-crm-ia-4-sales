@@ -1,3 +1,12 @@
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+dotenv.config({ path: path.resolve(__dirname, "../.env"), override: true });
+
 export const PORT = Number(process.env.PORT ?? 3030);
 export const API_KEY = process.env.BAILEYS_API_KEY ?? "";
 export const SUPABASE_URL = process.env.SUPABASE_URL ?? "";
@@ -39,6 +48,32 @@ export const BAILEYS_RETRY_REQUEST_DELAY_MS = Number(
 );
 export const BAILEYS_SYNC_FULL_HISTORY =
   process.env.BAILEYS_SYNC_FULL_HISTORY === "true";
+const historyDaysRaw = Number.parseInt(
+  process.env.BAILEYS_HISTORY_DAYS ?? "",
+  10
+);
+export const BAILEYS_HISTORY_DAYS =
+  Number.isFinite(historyDaysRaw) && historyDaysRaw > 0
+    ? historyDaysRaw
+    : 14;
+export const REDIS_URL = process.env.REDIS_URL ?? "";
+export const BAILEYS_REDIS_QUEUE_ENABLED =
+  process.env.BAILEYS_REDIS_QUEUE_ENABLED === "true";
+export const BAILEYS_REDIS_QUEUE_INCLUDE_REALTIME =
+  process.env.BAILEYS_REDIS_QUEUE_INCLUDE_REALTIME === "true";
+export const BAILEYS_REDIS_STREAM_KEY =
+  process.env.BAILEYS_REDIS_STREAM_KEY ?? "baileys:message-queue";
+export const BAILEYS_REDIS_CONSUMER_GROUP =
+  process.env.BAILEYS_REDIS_CONSUMER_GROUP ?? "baileys";
+export const BAILEYS_REDIS_BATCH_SIZE = Number(
+  process.env.BAILEYS_REDIS_BATCH_SIZE ?? 100
+);
+export const BAILEYS_REDIS_BLOCK_MS = Number(
+  process.env.BAILEYS_REDIS_BLOCK_MS ?? 2000
+);
+export const BAILEYS_REDIS_MAXLEN = Number(
+  process.env.BAILEYS_REDIS_MAXLEN ?? 20000
+);
 export const BAILEYS_RESTART_MAX_ATTEMPTS = Number(
   process.env.BAILEYS_RESTART_MAX_ATTEMPTS ?? 8
 );
@@ -60,4 +95,12 @@ export const BAILEYS_RETRY_QUEUE_MAX = Number(
 );
 export const BAILEYS_RETRY_QUEUE_COOLDOWN_MS = Number(
   process.env.BAILEYS_RETRY_QUEUE_COOLDOWN_MS ?? 15000
+);
+export const BAILEYS_DB_BATCH_ENABLED =
+  process.env.BAILEYS_DB_BATCH_ENABLED !== "false";
+export const BAILEYS_DB_BATCH_SIZE = Number(
+  process.env.BAILEYS_DB_BATCH_SIZE ?? 100
+);
+export const BAILEYS_DB_BATCH_FLUSH_MS = Number(
+  process.env.BAILEYS_DB_BATCH_FLUSH_MS ?? 500
 );

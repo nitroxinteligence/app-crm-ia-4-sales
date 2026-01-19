@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { supabaseClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,7 +15,6 @@ import {
 type GateMode = "none" | "planos" | "trial_expirado";
 
 export function GatePlanoTrial() {
-  const pathname = usePathname();
   const router = useRouter();
   const [modo, setModo] = React.useState<GateMode>("none");
 
@@ -42,16 +41,8 @@ export function GatePlanoTrial() {
       }
 
       const payload = (await response.json()) as {
-        status?: "plan_unselected" | "trial_expired" | "trialing";
+        status?: "trial_expired" | "trialing" | "active";
       };
-
-      if (payload.status === "plan_unselected") {
-        setModo("planos");
-        if (pathname !== "/planos") {
-          router.replace("/planos");
-        }
-        return;
-      }
 
       if (payload.status === "trial_expired") {
         setModo("trial_expirado");
@@ -66,27 +57,29 @@ export function GatePlanoTrial() {
     return () => {
       ativo = false;
     };
-  }, [pathname, router]);
+  }, [router]);
 
   if (modo !== "trial_expirado") {
     return null;
   }
 
   return (
-    <Dialog open onOpenChange={() => {}}>
-      <DialogContent className="max-w-md">
+    <Dialog open onOpenChange={() => { }}>
+      <DialogContent className="max-w-md [&>button]:hidden">
         <DialogHeader>
-          <DialogTitle>Periodo de teste encerrado</DialogTitle>
+          <DialogTitle>Seu plano PRO de testes acabou</DialogTitle>
           <DialogDescription>
-            Seu trial de 30 dias terminou. O acesso ao app permanece bloqueado
-            ate a liberacao do checkout de assinatura.
+            Seu trial de 30 dias expirou. Para continuar utilizando todas as funcionalidades e liberar o acesso completo, você precisa escolher um plano.
           </DialogDescription>
         </DialogHeader>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => router.replace("/planos")}>
-            Ver planos
+        <div className="flex flex-col gap-2 pt-2">
+          <Button
+            size="lg"
+            className="w-full font-semibold"
+            onClick={() => router.replace("/planos")}
+          >
+            Escolher plano agora!
           </Button>
-          <Button onClick={() => router.replace("/entrar")}>Sair</Button>
         </div>
       </DialogContent>
     </Dialog>

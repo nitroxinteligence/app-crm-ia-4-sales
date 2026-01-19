@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { supabaseServer } from "@/lib/supabase/server";
 import { NextRequest } from "next/server";
 import { authenticateRequest } from "@/lib/auth/api-auth";
-import { badRequest, serverError, unauthorized } from "@/lib/api/responses";
+import { badRequest, conflict, serverError, unauthorized } from "@/lib/api/responses";
 import { parseJsonBody } from "@/lib/api/validation";
 import { getEnv } from "@/lib/config";
 
@@ -137,6 +137,22 @@ export async function POST(request: NextRequest) {
 
   if (!membership?.workspace_id) {
     return badRequest("Workspace not found.");
+  }
+
+  const { data: workspace } = await supabaseServer
+    .from("workspaces")
+    .select("trial_ends_at, plano_selected_at")
+    .eq("id", membership.workspace_id)
+    .maybeSingle();
+
+  const trialEndsAt = workspace?.trial_ends_at
+    ? Date.parse(workspace.trial_ends_at)
+    : null;
+  const trialExpirado =
+    trialEndsAt !== null && !Number.isNaN(trialEndsAt) && trialEndsAt < Date.now();
+
+  if (trialExpirado && !workspace?.plano_selected_at) {
+    return conflict("Trial encerrado. Selecione um plano para continuar.");
   }
 
   const parsed = await parseJsonBody(request, createSchema);

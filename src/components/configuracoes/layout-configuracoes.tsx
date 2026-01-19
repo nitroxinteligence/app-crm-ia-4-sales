@@ -6,6 +6,9 @@ import { usePathname } from "next/navigation";
 import {
   CreditCard,
   Globe,
+  Layers,
+  MessageSquare,
+  OctagonAlert,
   Package,
   Tag,
   User,
@@ -60,11 +63,32 @@ const grupos: Array<{ titulo: string; tituloEn: string; itens: ItemMenu[] }> = [
         icone: Users,
       },
       {
+        id: "workspaces",
+        titulo: "Workspaces",
+        tituloEn: "Workspaces",
+        href: "/app/configuracoes/workspaces",
+        icone: Layers,
+      },
+      {
         id: "integracoes",
         titulo: "Conexões",
         tituloEn: "Connections",
         href: "/app/configuracoes/conexoes",
         icone: Plug,
+      },
+      {
+        id: "respostas-rapidas",
+        titulo: "Respostas rápidas",
+        tituloEn: "Quick replies",
+        href: "/app/configuracoes/respostas-rapidas",
+        icone: MessageSquare,
+      },
+      {
+        id: "motivos-perda",
+        titulo: "Motivos de perdas",
+        tituloEn: "Loss reasons",
+        href: "/app/configuracoes/motivos-perda",
+        icone: OctagonAlert,
       },
       {
         id: "tags",
@@ -96,10 +120,10 @@ export function LayoutConfiguracoes({ children }: { children: React.ReactNode })
   const { idioma } = useAutenticacao();
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-6 lg:grid-cols-[240px_1fr]">
-        <aside className="space-y-4">
-          <div className="-ml-6 space-y-4 border-r border-border/60 bg-muted/10 py-4 pr-4 pl-6">
+    <div>
+      <div className="grid lg:grid-cols-[240px_1fr]">
+        <aside className="sticky top-0 h-screen self-start">
+          <div className="-ml-6 h-full space-y-4 border-r border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50 py-4 pr-4 pl-6">
             {grupos.map((grupo, index) => (
               <div key={grupo.titulo} className="space-y-2">
                 <p className="text-xs font-semibold uppercase text-muted-foreground">
@@ -135,7 +159,7 @@ export function LayoutConfiguracoes({ children }: { children: React.ReactNode })
           </div>
         </aside>
 
-        <section className="space-y-6">{children}</section>
+        <section className="space-y-6 p-6">{children}</section>
       </div>
     </div>
   );

@@ -3,6 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import {
   badRequest,
   forbidden,
+  conflict,
+  paymentRequired,
   serverError,
   unauthorized,
   unprocessableEntity,
@@ -10,6 +12,7 @@ import {
 import { parseJsonBody } from "@/lib/api/validation";
 import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
+import { planosConfig, resolverPlanoEfetivo } from "@/lib/planos";
 
 export const runtime = "nodejs";
 
@@ -244,6 +247,39 @@ export async function POST(request: Request) {
 
     if (!membership) {
       return forbidden("Forbidden");
+    }
+
+    const { data: workspace } = await supabaseServer
+      .from("workspaces")
+      .select("id, plano, trial_ends_at, plano_selected_at, trial_plano")
+      .eq("id", workspaceId)
+      .maybeSingle();
+
+    if (!workspace) {
+      return forbidden("Workspace nao encontrado.");
+    }
+
+    if (workspace.trial_ends_at && !workspace.plano_selected_at) {
+      const trialEndsAt = new Date(workspace.trial_ends_at).getTime();
+      if (trialEndsAt < Date.now()) {
+        return paymentRequired("Trial expirado.");
+      }
+    }
+
+    const planoEfetivo = resolverPlanoEfetivo(workspace);
+    const limiteCanais = planosConfig[planoEfetivo].canais ?? 0;
+    if (limiteCanais > 0 && limiteCanais < 999) {
+      const { data: contasAtivas } = await supabaseServer
+        .from("integration_accounts")
+        .select("id, integrations!inner(canal, workspace_id), status")
+        .eq("integrations.workspace_id", workspaceId)
+        .eq("status", "conectado")
+        .in("integrations.canal", ["whatsapp", "instagram"]);
+
+      const totalAtivo = (contasAtivas ?? []).length;
+      if (totalAtivo >= limiteCanais) {
+        return conflict("Limite de canais atingido para o seu plano.");
+      }
     }
 
     let tokenResponse: TokenResponse | null = null;

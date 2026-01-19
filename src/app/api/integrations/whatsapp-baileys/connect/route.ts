@@ -13,7 +13,7 @@ import {
 import { parseJsonBody } from "@/lib/api/validation";
 import { getEnv } from "@/lib/config";
 import { supabaseServer } from "@/lib/supabase/server";
-import { normalizarPlano, planosConfig } from "@/lib/planos";
+import { normalizarPlano, planosConfig, resolverPlanoEfetivo } from "@/lib/planos";
 
 export const runtime = "nodejs";
 
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
 
   const { data: workspace } = await supabaseServer
     .from("workspaces")
-    .select("id, plano, trial_ends_at")
+    .select("id, plano, trial_ends_at, plano_selected_at, trial_plano")
     .eq("id", workspaceId)
     .maybeSingle();
 
@@ -86,11 +86,14 @@ export async function POST(request: Request) {
     return notFound("Workspace nao encontrado");
   }
 
-  if (isTrialExpired(workspace.trial_ends_at ?? undefined)) {
+  if (
+    isTrialExpired(workspace.trial_ends_at ?? undefined) &&
+    !workspace.plano_selected_at
+  ) {
     return paymentRequired("Trial expirado.");
   }
 
-  const plano = normalizarPlano(workspace.plano);
+  const plano = normalizarPlano(resolverPlanoEfetivo(workspace));
   const limiteCanais = planosConfig[plano].canais ?? 0;
   if (limiteCanais > 0 && limiteCanais < 999) {
     const { data: contasAtivas } = await supabaseServer
@@ -182,17 +185,61 @@ export async function POST(request: Request) {
   if (!baileysApiUrl) {
     return serverError("Missing BAILEYS_API_URL");
   }
+  let baileysBaseUrl = baileysApiUrl.trim();
+  if (!/^https?:\/\//i.test(baileysBaseUrl)) {
+    return serverError("BAILEYS_API_URL invalido (use http/https).");
+  }
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (baileysApiKey) {
-    headers["X-API-KEY"] = baileysApiKey;
+    headers["x-api-key"] = baileysApiKey;
+  }
+
+  const withTimeout = async <T>(
+    fn: (signal: AbortSignal) => Promise<T>,
+    ms: number
+  ) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ms);
+    try {
+      return await fn(controller.signal);
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  try {
+    const health = await withTimeout(
+      (signal) =>
+        fetch(`${baileysBaseUrl}/health`, {
+          signal,
+          headers,
+        }),
+      2000
+    );
+    if (!health.ok) {
+      const detalhe = await health.text().catch(() => "");
+      return badGateway(
+        detalhe
+          ? `Baileys /health ${health.status}: ${detalhe}`
+          : `Baileys /health ${health.status}`
+      );
+    }
+  } catch (error) {
+    console.error("Baileys health check failed:", {
+      error,
+      baileysApiUrl: baileysBaseUrl,
+    });
+    return badGateway(
+      `Baileys /health indisponível em ${baileysBaseUrl}`
+    );
   }
 
   let response: Response;
   try {
-    response = await fetch(`${baileysApiUrl}/sessions`, {
+    response = await fetch(`${baileysBaseUrl}/sessions`, {
       method: "POST",
       headers,
       body: JSON.stringify({
@@ -202,13 +249,26 @@ export async function POST(request: Request) {
       }),
     });
   } catch (error) {
-    console.error("Baileys connect fetch failed:", error);
+    console.error("Baileys connect fetch failed:", {
+      error,
+      baileysApiUrl: baileysBaseUrl,
+    });
     return badGateway("Falha ao acessar a API do Baileys.");
   }
 
   if (!response.ok) {
     const detalhe = await response.text().catch(() => "");
-    return badGateway(detalhe || "Falha ao iniciar sessão da API não oficial.");
+    console.error("Baileys connect response error:", {
+      status: response.status,
+      statusText: response.statusText,
+      detalhe,
+      baileysApiUrl: baileysBaseUrl,
+    });
+    return badGateway(
+      detalhe
+        ? `Baileys ${response.status}: ${detalhe}`
+        : `Baileys ${response.status}: Falha ao iniciar sessão da API não oficial.`
+    );
   }
 
   const payload = await response.json();

@@ -95,9 +95,26 @@ export const createRealtime = ({
     });
   };
 
+  const emitAttachmentPending = async ({
+    workspaceId,
+    conversationId,
+    messageId,
+    attachment,
+  }) => {
+    await triggerPusher(conversationChannel(conversationId), "attachment:pending", {
+      event_id: crypto.randomUUID(),
+      emitted_at: new Date().toISOString(),
+      workspace_id: workspaceId,
+      conversation_id: conversationId,
+      message_id: messageId,
+      attachment,
+    });
+  };
+
   return {
     emitMessageCreated,
     emitConversationUpdated,
     emitAttachmentCreated,
+    emitAttachmentPending,
   };
 };

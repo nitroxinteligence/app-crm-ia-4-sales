@@ -104,7 +104,7 @@ export function VisaoCamposConfiguracoes() {
   const [formObrigatorio, setFormObrigatorio] = React.useState(false);
   const [formOpcoes, setFormOpcoes] = React.useState("");
   const [salvando, setSalvando] = React.useState(false);
-  const podeEditar = usuario.role === "ADMIN" || usuario.role === "MANAGER";
+  const podeEditar = usuario.role === "ADMIN";
   const t = React.useCallback(
     (pt: string, en: string) => texto(idioma, pt, en),
     [idioma]
@@ -321,7 +321,7 @@ export function VisaoCamposConfiguracoes() {
         </TabsList>
 
         <TabsContent value={entidade} className="pt-4">
-          <Card>
+          <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base">
                 {texto(

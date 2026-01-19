@@ -7,6 +7,13 @@ mkdir -p "$LOG_DIR"
 
 pids=()
 
+if [[ -f "$ROOT_DIR/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ROOT_DIR/.env"
+  set +a
+fi
+
 cleanup() {
   for pid in "${pids[@]}"; do
     if kill -0 "$pid" 2>/dev/null; then

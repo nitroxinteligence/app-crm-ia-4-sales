@@ -108,7 +108,7 @@ export function VisaoPrivacidadeConfiguracoes() {
         </div>
       )}
 
-      <Card>
+      <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
         <CardHeader>
           <CardTitle className="text-base">
             {t("Mascaramento de dados", "Data masking")}
@@ -118,7 +118,7 @@ export function VisaoPrivacidadeConfiguracoes() {
           {carregando || !settings ? (
             <Skeleton className="h-10 w-full" />
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-muted/20 px-3 py-3 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-white dark:bg-neutral-950 px-3 py-3 text-sm">
               <div className="flex items-center gap-3">
                 <ShieldCheck className="h-5 w-5 text-muted-foreground" />
                 <div>

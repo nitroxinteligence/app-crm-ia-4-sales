@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Eye, EyeOff, Loader2, Lock, Mail, User, Building } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
@@ -74,11 +75,15 @@ export default function CadastroPage() {
             style={{ backgroundImage: "url(/pattern-bg.svg)" }}
           />
 
-          <div className="relative z-20 flex items-center text-lg font-bold tracking-tight">
-            <div className="mr-2 h-8 w-8 rounded-lg bg-sidebar-primary-foreground text-sidebar-primary flex items-center justify-center">
-              F
-            </div>
-            IA Four Sales
+          <div className="relative z-20 flex items-center">
+            <Image
+              src="/logo-ia-four-sales-white.svg"
+              alt="IA Four Sales"
+              width={160}
+              height={40}
+              priority
+              className="h-8 w-auto"
+            />
           </div>
 
           <div className="relative z-20 mt-auto">

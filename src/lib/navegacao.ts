@@ -130,4 +130,7 @@ export const rotulosRotas: Record<string, string> = {
   cobranca: "Cobrança",
   idioma: "Idioma",
   privacidade: "Privacidade",
+  "respostas-rapidas": "Respostas rápidas",
+  "motivos-perda": "Motivos de perdas",
+  workspaces: "Workspaces",
 };

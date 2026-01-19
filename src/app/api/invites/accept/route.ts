@@ -2,6 +2,7 @@ import { z } from "zod";
 import { supabaseServer } from "@/lib/supabase/server";
 import { badRequest, forbidden, notFound } from "@/lib/api/responses";
 import { parseJsonBody } from "@/lib/api/validation";
+import { planosConfig, resolverPlanoEfetivo } from "@/lib/planos";
 
 export const runtime = "nodejs";
 
@@ -20,7 +21,9 @@ export async function POST(request: Request) {
 
   const { data: invite, error: inviteError } = await supabaseServer
     .from("workspace_invites")
-    .select("id, email, status, expires_at, workspaces (trial_ends_at)")
+    .select(
+      "id, email, status, expires_at, workspaces (id, trial_ends_at, plano_selected_at, plano, trial_plano)"
+    )
     .eq("token", token)
     .maybeSingle();
 
@@ -39,10 +42,24 @@ export async function POST(request: Request) {
   const workspace = Array.isArray(invite.workspaces)
     ? invite.workspaces[0]
     : invite.workspaces;
-  if (workspace?.trial_ends_at) {
+  if (workspace?.trial_ends_at && !workspace?.plano_selected_at) {
     const trialEndsAt = new Date(workspace.trial_ends_at).getTime();
     if (trialEndsAt < Date.now()) {
       return forbidden("Workspace trial expired.");
+    }
+  }
+
+  if (workspace?.id) {
+    const planoEfetivo = resolverPlanoEfetivo(workspace);
+    const limiteUsuarios = planosConfig[planoEfetivo].usuarios ?? 0;
+    if (limiteUsuarios > 0 && limiteUsuarios < 999999) {
+      const { count: membros } = await supabaseServer
+        .from("workspace_members")
+        .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspace.id);
+      if ((membros ?? 0) >= limiteUsuarios) {
+        return forbidden("Limite de membros atingido para o seu plano.");
+      }
     }
   }
 

@@ -24,6 +24,27 @@ export const validateEnv = ({ logger } = {}) => {
   if (!API_KEY) {
     warn("BAILEYS_API_KEY not configured. API auth is disabled.");
   }
+  const historyDaysRaw = process.env.BAILEYS_HISTORY_DAYS;
+  if (historyDaysRaw) {
+    const parsed = Number.parseInt(historyDaysRaw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      warn(
+        "BAILEYS_HISTORY_DAYS invalido. Use um numero inteiro maior que zero."
+      );
+    }
+  }
+  if (process.env.BAILEYS_REDIS_QUEUE_ENABLED === "true") {
+    if (!process.env.REDIS_URL) {
+      warn("REDIS_URL not configured. Redis queue is disabled.");
+    }
+  }
+  const batchSizeRaw = process.env.BAILEYS_DB_BATCH_SIZE;
+  if (batchSizeRaw) {
+    const parsed = Number.parseInt(batchSizeRaw, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      warn("BAILEYS_DB_BATCH_SIZE invalido. Use um numero inteiro > 0.");
+    }
+  }
 
   if (!SUPABASE_URL) errors.push("SUPABASE_URL");
   if (!SUPABASE_SERVICE_ROLE_KEY) errors.push("SUPABASE_SERVICE_ROLE_KEY");

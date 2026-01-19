@@ -39,6 +39,21 @@ export type PusherAttachmentPayload = {
   };
 };
 
+export type PusherAttachmentPendingPayload = {
+  event_id: string;
+  emitted_at?: string;
+  workspace_id: string;
+  conversation_id: string;
+  message_id: string;
+  attachment: {
+    temp_id?: string | null;
+    tipo: string;
+    nome?: string | null;
+    mime_type?: string | null;
+    tamanho_bytes?: number | null;
+  };
+};
+
 export type PusherConversationUpdatedPayload = {
   event_id: string;
   emitted_at?: string;

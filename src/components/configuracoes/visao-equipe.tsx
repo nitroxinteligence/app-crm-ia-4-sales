@@ -44,10 +44,9 @@ type ConviteEquipe = {
 };
 
 const rolesLabel: Record<Role, string> = {
-  ADMIN: "Admin",
-  MANAGER: "Manager",
-  MEMBER: "Member",
-  VIEWER: "Viewer",
+  ADMIN: "Administrador",
+  MEMBER: "Membro",
+  VIEWER: "Visualizador",
 };
 
 export function VisaoEquipeConfiguracoes() {
@@ -297,7 +296,7 @@ export function VisaoEquipeConfiguracoes() {
         </div>
       )}
 
-      <Card>
+      <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">
             {t("Membros ativos", "Active members")}
@@ -321,7 +320,7 @@ export function VisaoEquipeConfiguracoes() {
             membros.map((membro) => (
               <div
                 key={membro.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-background/80 p-3"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-white dark:bg-neutral-950 p-3"
               >
                 <div>
                   <p className="text-sm font-medium">
@@ -375,7 +374,7 @@ export function VisaoEquipeConfiguracoes() {
 
       <Separator />
 
-      <Card>
+      <Card className="border-border/60 bg-[#F9F9F9] dark:bg-neutral-900/50">
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle className="text-base">
             {t("Convites pendentes", "Pending invites")}
@@ -403,7 +402,7 @@ export function VisaoEquipeConfiguracoes() {
             convites.map((invite) => (
               <div
                 key={invite.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-background/80 p-3"
+                className="flex flex-wrap items-center justify-between gap-3 rounded-[6px] border border-border/60 bg-white dark:bg-neutral-950 p-3"
               >
                 <div>
                   <p className="text-sm font-medium">{invite.email}</p>
@@ -490,14 +489,25 @@ export function VisaoEquipeConfiguracoes() {
                 </SelectContent>
               </Select>
             </div>
-            <div className="rounded-[6px] border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <MailPlus className="h-4 w-4" />
-                {t(
-                  "O convite será compartilhado manualmente por enquanto.",
-                  "Invites are shared manually for now."
+            <div className="rounded-[6px] border border-border/60 bg-muted/20 px-3 py-3 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground mb-1">
+                {rolesLabel[roleConvite]}
+              </p>
+              {roleConvite === "ADMIN" &&
+                t(
+                  "Acesso total ao workspace: configurações, cobrança, equipe e todos os recursos.",
+                  "Full workspace access: settings, billing, team, and all features."
                 )}
-              </div>
+              {roleConvite === "MEMBER" &&
+                t(
+                  "Acesso operacional: gerenciar contatos, deals e tarefas. Sem acesso a configurações.",
+                  "Operational access: manage contacts, deals, and tasks. No settings access."
+                )}
+              {roleConvite === "VIEWER" &&
+                t(
+                  "Acesso de visualização: pode ver tudo mas não pode criar, editar ou excluir nada.",
+                  "View-only access: can view everything but cannot create, edit, or delete."
+                )}
             </div>
           </div>
           <DialogFooter>

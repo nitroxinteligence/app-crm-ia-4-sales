@@ -3,10 +3,12 @@
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { BarraLateral } from "@/components/estrutura/barra-lateral";
+import { AvisoTrialFooter } from "@/components/estrutura/aviso-trial-footer";
 import { AvisoCreditosZerados } from "@/components/estrutura/aviso-creditos-zerados";
 import { AvisoOnboarding } from "@/components/estrutura/aviso-onboarding";
 import { GatePlanoTrial } from "@/components/estrutura/gate-plano-trial";
 import { ProvedorAutenticacao, useAutenticacao } from "@/lib/contexto-autenticacao";
+import { cn } from "@/lib/utils";
 
 const CHAVE_COLAPSO = "vpcrm:sidebar-colapsada";
 
@@ -71,6 +73,14 @@ function LayoutInterno({ children }: { children: React.ReactNode }) {
         colapsada={colapsada}
         aoAlternar={() => setColapsada((atual) => !atual)}
       />
+      {!modoInbox && (
+        <AvisoTrialFooter
+          className={cn(
+            "transition-[left] duration-300 -translate-x-1/2",
+            colapsada ? "left-[calc(50%+2rem)]" : "left-[calc(50%+7rem)]"
+          )}
+        />
+      )}
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <main
           className={

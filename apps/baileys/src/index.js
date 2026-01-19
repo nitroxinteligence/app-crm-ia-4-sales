@@ -22,7 +22,11 @@ import {
 } from "@whiskeysockets/baileys";
 import { createClient } from "@supabase/supabase-js";
 import { createRetryQueue } from "./retry-queue.js";
+import { createLeadBatcher } from "./lead-batcher.js";
+import { createAttachmentBatcher } from "./attachment-batcher.js";
+import { createMessageBatcher } from "./message-batcher.js";
 import { createRealtime } from "./realtime.js";
+import { createRedisQueue } from "./redis-queue.js";
 import { createSessionRepository } from "./session-repository.js";
 import { createSessionRoutes } from "./routes/sessions.js";
 import { bootstrapSessions } from "./session-bootstrap.js";
@@ -42,7 +46,18 @@ import {
   BAILEYS_BAD_SESSION_WINDOW_MS,
   BAILEYS_CONNECT_TIMEOUT_MS,
   BAILEYS_DEFAULT_QUERY_TIMEOUT_MS,
+  BAILEYS_DB_BATCH_ENABLED,
+  BAILEYS_DB_BATCH_FLUSH_MS,
+  BAILEYS_DB_BATCH_SIZE,
+  BAILEYS_HISTORY_DAYS,
   BAILEYS_KEEP_ALIVE_MS,
+  BAILEYS_REDIS_BATCH_SIZE,
+  BAILEYS_REDIS_BLOCK_MS,
+  BAILEYS_REDIS_CONSUMER_GROUP,
+  BAILEYS_REDIS_MAXLEN,
+  BAILEYS_REDIS_QUEUE_ENABLED,
+  BAILEYS_REDIS_QUEUE_INCLUDE_REALTIME,
+  BAILEYS_REDIS_STREAM_KEY,
   BAILEYS_RESTART_BACKOFF_MS,
   BAILEYS_RESTART_MAX_ATTEMPTS,
   BAILEYS_RESTART_MAX_BACKOFF_MS,
@@ -62,6 +77,7 @@ import {
   R2_BUCKET_INBOX_ATTACHMENTS,
   R2_ENDPOINT,
   R2_SECRET_ACCESS_KEY,
+  REDIS_URL,
   SUPABASE_SERVICE_ROLE_KEY,
   SUPABASE_URL,
 } from "./config.js";
@@ -92,7 +108,7 @@ const buildR2Key = (prefix, key) => {
 };
 
 const SESSION_TABLE = "whatsapp_baileys_sessions";
-const DAYS_HISTORY = 14;
+const DAYS_HISTORY = BAILEYS_HISTORY_DAYS;
 
 const sessionRepository = createSessionRepository({
   supabase,
@@ -188,6 +204,82 @@ const retryQueue = createRetryQueue({
   buildChatMap: (...args) => buildChatMap(...args),
   isTransientDbError,
 });
+
+const messageBatcher = createMessageBatcher({
+  supabase,
+  logger,
+  batchSize: BAILEYS_DB_BATCH_SIZE,
+  flushIntervalMs: BAILEYS_DB_BATCH_FLUSH_MS,
+});
+
+const leadBatcher = createLeadBatcher({
+  supabase,
+  logger,
+  batchSize: BAILEYS_DB_BATCH_SIZE,
+  flushIntervalMs: BAILEYS_DB_BATCH_FLUSH_MS,
+});
+
+const attachmentBatcher = createAttachmentBatcher({
+  supabase,
+  logger,
+  batchSize: BAILEYS_DB_BATCH_SIZE,
+  flushIntervalMs: BAILEYS_DB_BATCH_FLUSH_MS,
+});
+
+const redisQueue = createRedisQueue({
+  enabled: BAILEYS_REDIS_QUEUE_ENABLED,
+  redisUrl: REDIS_URL,
+  streamKey: BAILEYS_REDIS_STREAM_KEY,
+  consumerGroup: BAILEYS_REDIS_CONSUMER_GROUP,
+  batchSize: BAILEYS_REDIS_BATCH_SIZE,
+  blockMs: BAILEYS_REDIS_BLOCK_MS,
+  maxLen: BAILEYS_REDIS_MAXLEN,
+  logger,
+  bufferJSON: BufferJSON,
+  processMessage: (...args) => processMessage(...args),
+  getSession: (integrationAccountId) => sessions.get(integrationAccountId),
+  buildChatMap: (...args) => buildChatMap(...args),
+  onMessageProcessed: async ({ payload, session }) => {
+    if (payload?.source !== "history") return;
+    if (!session?.syncQueueTotal) return;
+    session.syncQueueDone = (session.syncQueueDone ?? 0) + 1;
+    const chatId = payload?.message?.key?.remoteJid;
+    if (chatId && session.syncQueueChatIds?.has(chatId)) {
+      if (!session.syncQueueSeenChats) {
+        session.syncQueueSeenChats = new Set();
+      }
+      if (!session.syncQueueSeenChats.has(chatId)) {
+        session.syncQueueSeenChats.add(chatId);
+        session.syncQueueDoneChats = (session.syncQueueDoneChats ?? 0) + 1;
+      }
+    }
+    const shouldFlush =
+      session.syncQueueDone % 50 === 0 ||
+      session.syncQueueDone >= session.syncQueueTotal;
+    if (!shouldFlush) return;
+    const finished =
+      session.syncQueueDone >= session.syncQueueTotal;
+    await sessionRepository.updateSyncStatus(session.integrationAccountId, {
+      sync_status: finished ? "done" : "running",
+      sync_done: session.syncQueueDone,
+      sync_done_chats: session.syncQueueDoneChats ?? 0,
+      sync_finished_at: finished ? new Date().toISOString() : null,
+    });
+    if (finished) {
+      session.syncQueueTotal = null;
+      session.syncQueueDone = null;
+      session.syncQueueChatIds = null;
+      session.syncQueueSeenChats = null;
+      session.syncQueueDoneChats = null;
+    }
+  },
+});
+
+const shouldQueueMessage = (source) =>
+  redisQueue.enabled &&
+  (source === "history" || BAILEYS_REDIS_QUEUE_INCLUDE_REALTIME);
+const shouldBatchInsert = (source) =>
+  BAILEYS_DB_BATCH_ENABLED && source === "history";
 
 const scheduleRestart = ({
   integrationAccountId,
@@ -726,7 +818,7 @@ const uploadAttachment = async ({
   return storagePath;
 };
 
-const upsertLead = async ({
+const buildLeadPayload = ({
   workspaceId,
   waId,
   name,
@@ -745,6 +837,42 @@ const upsertLead = async ({
   }
   if (avatarUrl) {
     payload.avatar_url = avatarUrl;
+  }
+  return payload;
+};
+
+const upsertLeadBatched = async ({ payload }) => {
+  const id = await leadBatcher.enqueue({ payload });
+  if (id) return id;
+  if (!payload?.workspace_id || !payload?.whatsapp_wa_id) return null;
+  const { data, error } = await supabase
+    .from("leads")
+    .select("id")
+    .eq("workspace_id", payload.workspace_id)
+    .eq("whatsapp_wa_id", payload.whatsapp_wa_id)
+    .maybeSingle();
+  throwIfSupabaseError(error, "Falha ao buscar lead");
+  return data?.id ?? null;
+};
+
+const upsertLead = async ({
+  workspaceId,
+  waId,
+  name,
+  phone,
+  avatarUrl,
+  source,
+}) => {
+  const payload = buildLeadPayload({
+    workspaceId,
+    waId,
+    name,
+    phone,
+    avatarUrl,
+  });
+
+  if (shouldBatchInsert(source)) {
+    return upsertLeadBatched({ payload });
   }
 
   const { data, error } = await supabase
@@ -819,6 +947,42 @@ const upsertConversation = async ({
   return { id: inserted.id, isNew: true };
 };
 
+const buildMessagePayload = ({
+  workspaceId,
+  conversationId,
+  messageId,
+  author,
+  messageType,
+  content,
+  createdAt,
+  senderId,
+  senderName,
+  senderAvatarUrl,
+  quotedMessageId,
+  quotedContent,
+  quotedType,
+  quotedAuthor,
+  quotedSenderId,
+  quotedSenderName,
+}) => ({
+  workspace_id: workspaceId,
+  conversation_id: conversationId,
+  whatsapp_message_id: messageId,
+  autor: author,
+  tipo: messageType,
+  conteudo: content,
+  created_at: createdAt,
+  sender_id: senderId || null,
+  sender_nome: senderName || null,
+  sender_avatar_url: senderAvatarUrl || null,
+  quoted_message_id: quotedMessageId || null,
+  quoted_conteudo: quotedContent || null,
+  quoted_tipo: quotedType || null,
+  quoted_autor: quotedAuthor || null,
+  quoted_sender_id: quotedSenderId || null,
+  quoted_sender_nome: quotedSenderName || null,
+});
+
 const upsertMessage = async ({
   workspaceId,
   conversationId,
@@ -855,42 +1019,93 @@ const upsertMessage = async ({
       authorToSave = "agente";
     }
   }
-  const payload = {
-    workspace_id: workspaceId,
-    conversation_id: conversationId,
-    whatsapp_message_id: messageId,
-    autor: authorToSave,
-    tipo: messageType,
-    conteudo: content,
-    created_at: createdAt,
-    sender_id: senderId || null,
-    sender_nome: senderName || null,
-    sender_avatar_url: senderAvatarUrl || null,
-    quoted_message_id: quotedMessageId || null,
-    quoted_conteudo: quotedContent || null,
-    quoted_tipo: quotedType || null,
-    quoted_autor: quotedAuthor || null,
-    quoted_sender_id: quotedSenderId || null,
-    quoted_sender_nome: quotedSenderName || null,
-  };
+  const payload = buildMessagePayload({
+    workspaceId,
+    conversationId,
+    messageId,
+    author: authorToSave,
+    messageType,
+    content,
+    createdAt,
+    senderId,
+    senderName,
+    senderAvatarUrl,
+    quotedMessageId,
+    quotedContent,
+    quotedType,
+    quotedAuthor,
+    quotedSenderId,
+    quotedSenderName,
+  });
 
-  const { error: upsertError } = await supabase
+  const { data, error: upsertError } = await supabase
     .from("messages")
-    .upsert(payload, { onConflict: "workspace_id,whatsapp_message_id" });
-  throwIfSupabaseError(upsertError, "Falha ao salvar mensagem");
-
-  const { data, error: selectError } = await supabase
-    .from("messages")
+    .upsert(payload, { onConflict: "workspace_id,whatsapp_message_id" })
     .select("id")
-    .eq("workspace_id", workspaceId)
-    .eq("whatsapp_message_id", messageId)
     .maybeSingle();
-  throwIfSupabaseError(selectError, "Falha ao buscar id da mensagem");
+  throwIfSupabaseError(upsertError, "Falha ao salvar mensagem");
 
   return {
     id: data?.id ?? null,
     isNew,
   };
+};
+
+const upsertMessageBatched = async ({ payload }) => {
+  const id = await messageBatcher.enqueue({ payload });
+  if (id) {
+    return { id, isNew: true };
+  }
+  if (!payload?.workspace_id || !payload?.whatsapp_message_id) {
+    return { id: null, isNew: true };
+  }
+  const { data, error } = await supabase
+    .from("messages")
+    .select("id")
+    .eq("workspace_id", payload.workspace_id)
+    .eq("whatsapp_message_id", payload.whatsapp_message_id)
+    .maybeSingle();
+  throwIfSupabaseError(error, "Falha ao buscar id da mensagem");
+  return { id: data?.id ?? null, isNew: true };
+};
+
+const buildAttachmentPayload = ({
+  workspaceId,
+  messageId,
+  storagePath,
+  tipo,
+  tamanhoBytes,
+}) => ({
+  workspace_id: workspaceId,
+  message_id: messageId,
+  storage_path: storagePath,
+  tipo,
+  tamanho_bytes: tamanhoBytes ?? null,
+});
+
+const resolveAttachmentType = (rawType) => {
+  if (rawType === "audio") return "audio";
+  if (rawType === "document") return "pdf";
+  if (rawType === "video") return "video";
+  if (rawType === "sticker") return "sticker";
+  return "imagem";
+};
+
+const insertAttachmentBatched = async ({ payload }) => {
+  const id = await attachmentBatcher.enqueue({ payload });
+  if (id) return id;
+  if (!payload?.workspace_id || !payload?.message_id || !payload?.storage_path) {
+    return null;
+  }
+  const { data, error } = await supabase
+    .from("attachments")
+    .select("id")
+    .eq("workspace_id", payload.workspace_id)
+    .eq("message_id", payload.message_id)
+    .eq("storage_path", payload.storage_path)
+    .maybeSingle();
+  throwIfSupabaseError(error, "Falha ao buscar anexo");
+  return data?.id ?? null;
 };
 
 const insertAttachment = async ({
@@ -899,16 +1114,21 @@ const insertAttachment = async ({
   storagePath,
   tipo,
   tamanhoBytes,
+  source,
 }) => {
+  const payload = buildAttachmentPayload({
+    workspaceId,
+    messageId,
+    storagePath,
+    tipo,
+    tamanhoBytes,
+  });
+  if (shouldBatchInsert(source)) {
+    return insertAttachmentBatched({ payload });
+  }
   const { data, error } = await supabase
     .from("attachments")
-    .insert({
-      workspace_id: workspaceId,
-      message_id: messageId,
-      storage_path: storagePath,
-      tipo,
-      tamanho_bytes: tamanhoBytes ?? null,
-    })
+    .insert(payload)
     .select("id")
     .maybeSingle();
   throwIfSupabaseError(error, "Falha ao salvar anexo");
@@ -1729,7 +1949,7 @@ const backfillAvatars = async ({
   };
 };
 
-const syncLeadFromChat = async ({ session, chat }) => {
+const syncLeadFromChat = async ({ session, chat, source }) => {
   const remoteJid = chat?.id || chat?.jid || chat?.remoteJid;
   if (!remoteJid || !session?.workspaceId) return;
   if (session.blocked || session.status === "desconectado") return;
@@ -1762,6 +1982,7 @@ const syncLeadFromChat = async ({ session, chat }) => {
       name,
       phone,
       avatarUrl,
+      source,
     });
   } catch (error) {
     logger.warn({ err: error }, "Failed to sync lead from chat");
@@ -1827,6 +2048,7 @@ processMessage = async ({
       name: displayName,
       phone,
       avatarUrl,
+      source,
     });
 
     const conversationResult = await upsertConversation({
@@ -1902,7 +2124,7 @@ processMessage = async ({
       }
     }
 
-    const messageResult = await upsertMessage({
+    const messagePayload = buildMessagePayload({
       workspaceId: session.workspaceId,
       conversationId,
       messageId: message.key.id,
@@ -1920,6 +2142,26 @@ processMessage = async ({
       quotedSenderId,
       quotedSenderName,
     });
+    const messageResult = shouldBatchInsert(source)
+      ? await upsertMessageBatched({ payload: messagePayload })
+      : await upsertMessage({
+          workspaceId: session.workspaceId,
+          conversationId,
+          messageId: message.key.id,
+          author,
+          messageType: payload.tipo,
+          content: normalizedText,
+          createdAt,
+          senderId,
+          senderName,
+          senderAvatarUrl,
+          quotedMessageId: quoted?.messageId ?? null,
+          quotedContent: quoted?.texto ?? null,
+          quotedType: quoted?.tipo ?? null,
+          quotedAuthor,
+          quotedSenderId,
+          quotedSenderName,
+        });
     const messageId = messageResult?.id ?? null;
 
     const createdAtMs = Date.parse(createdAt);
@@ -1927,7 +2169,9 @@ processMessage = async ({
     const isRecent =
       Number.isFinite(createdAtMs) &&
       nowMs - createdAtMs < 2 * 60 * 1000;
-    const shouldEmitRealtime = source === "realtime" || isRecent;
+    const shouldEmitRealtime = shouldBatchInsert(source)
+      ? source === "realtime"
+      : source === "realtime" || isRecent;
     const shouldEmitConversationUpdate =
       shouldEmitRealtime || (source === "history" && isNewConversation);
     const processingMs = nowMs - processingStartedAt;
@@ -2026,6 +2270,21 @@ processMessage = async ({
 
     if ((existingAttachments.data ?? []).length > 0) return;
 
+    const attachmentType = resolveAttachmentType(payload.media.type);
+    if (shouldEmitRealtime) {
+      void realtime.emitAttachmentPending({
+        workspaceId: session.workspaceId,
+        conversationId,
+        messageId,
+        attachment: {
+          temp_id: crypto.randomUUID(),
+          tipo: attachmentType,
+          nome: payload.media.fileName ?? null,
+          mime_type: payload.media.mimetype ?? null,
+        },
+      });
+    }
+
     const buffer = await downloadMediaMessage(
       messageForDownload,
       "buffer",
@@ -2044,22 +2303,13 @@ processMessage = async ({
       contentType: payload.media.mimetype || "application/octet-stream",
     });
 
-    const attachmentType =
-      payload.media.type === "audio"
-        ? "audio"
-        : payload.media.type === "document"
-          ? "pdf"
-          : payload.media.type === "video"
-            ? "video"
-            : payload.media.type === "sticker"
-              ? "sticker"
-              : "imagem";
     const attachmentId = await insertAttachment({
       workspaceId: session.workspaceId,
       messageId,
       storagePath,
       tipo: attachmentType,
       tamanhoBytes: buffer?.length ?? null,
+      source,
     });
 
     if (shouldEmitRealtime && attachmentId) {
@@ -2219,6 +2469,12 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
     senderNameBackfillRunning: false,
     senderNameBackfillScheduled: false,
     lastSenderNameBackfillAt: null,
+    syncQueueTotal: null,
+    syncQueueDone: null,
+    syncQueueChatIds: null,
+    syncQueueSeenChats: null,
+    syncQueueDoneChats: null,
+    historySyncRunning: false,
   };
 
   sessions.set(integrationAccountId, session);
@@ -2408,6 +2664,15 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
 
   sock.ev.on("messaging-history.set", async ({ messages, chats, contacts }) => {
     if (session.blocked || session.status === "desconectado") return;
+    if (session.historySyncRunning) {
+      logger.warn(
+        { integrationAccountId },
+        "History sync already running; skipping duplicate"
+      );
+      return;
+    }
+    session.historySyncRunning = true;
+    try {
     logger.info(
       {
         totalMessages: messages?.length ?? 0,
@@ -2422,21 +2687,25 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
         await syncContactAliases({ session, contact });
       }
     }
+    const validMessages = (messages ?? [])
+      .filter(shouldSyncMessage)
+      .sort((a, b) => getTimestampMs(a) - getTimestampMs(b));
+    const validChatIds = new Set(
+      validMessages
+        .map((message) => message?.key?.remoteJid)
+        .filter(Boolean)
+    );
     const chatMap = mergeChatMap(
       session.chatMap,
       buildChatMap(chats ?? [])
     );
     for (const chat of chats ?? []) {
-      await syncLeadFromChat({ session, chat });
+      const chatId = chat?.id || chat?.jid || chat?.remoteJid;
+      if (chatId && validChatIds.has(chatId)) {
+        await syncLeadFromChat({ session, chat, source: "history" });
+      }
     }
-    const chatIds = new Set(
-      (chats ?? [])
-        .map((chat) => chat?.id || chat?.jid || chat?.remoteJid)
-        .filter(Boolean)
-    );
-    const validMessages = (messages ?? [])
-      .filter(shouldSyncMessage)
-      .sort((a, b) => getTimestampMs(a) - getTimestampMs(b));
+    const chatIds = validChatIds;
     const total = validMessages.length;
     const totalChats = chatIds.size;
     await sessionRepository.updateSyncStatus(integrationAccountId, {
@@ -2450,6 +2719,14 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
       sync_last_error: null,
     });
 
+    if (shouldQueueMessage("history")) {
+      session.syncQueueTotal = total;
+      session.syncQueueDone = 0;
+      session.syncQueueChatIds = chatIds;
+      session.syncQueueSeenChats = new Set();
+      session.syncQueueDoneChats = 0;
+    }
+
     let processed = 0;
     const seenChats = new Set();
     for (const message of validMessages) {
@@ -2459,29 +2736,49 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
         seenChats.add(chatId);
       }
       try {
-        await processMessage({ message, session, chatMap, source: "history" });
+        if (shouldQueueMessage("history")) {
+          await redisQueue.enqueue({
+            integrationAccountId,
+            message,
+            source: "history",
+          });
+        } else {
+          await processMessage({ message, session, chatMap, source: "history" });
+        }
       } catch (error) {
         logger.error({ err: error }, "Failed to process history message");
       } finally {
         processed += 1;
-        if (chatChanged || processed % 50 === 0 || processed === total) {
-          await sessionRepository.updateSyncStatus(integrationAccountId, {
-            sync_done: processed,
-            sync_done_chats: seenChats.size,
-          });
+        if (!shouldQueueMessage("history")) {
+          if (chatChanged || processed % 50 === 0 || processed === total) {
+            await sessionRepository.updateSyncStatus(integrationAccountId, {
+              sync_done: processed,
+              sync_done_chats: seenChats.size,
+            });
+          }
         }
       }
     }
 
-    await sessionRepository.updateSyncStatus(integrationAccountId, {
-      sync_status: "done",
-      sync_finished_at: new Date().toISOString(),
-      sync_done_chats: totalChats,
-    });
-    logger.info(
-      { processed, total },
-      "Messaging history sync completed"
-    );
+    if (!shouldQueueMessage("history")) {
+      await sessionRepository.updateSyncStatus(integrationAccountId, {
+        sync_status: "done",
+        sync_finished_at: new Date().toISOString(),
+        sync_done_chats: totalChats,
+      });
+      logger.info(
+        { processed, total },
+        "Messaging history sync completed"
+      );
+    } else {
+      logger.info(
+        { queued: processed, total },
+        "Messaging history queued"
+      );
+    }
+    } finally {
+      session.historySyncRunning = false;
+    }
   });
 
   sock.ev.on("messages.upsert", async ({ type, messages }) => {
@@ -2489,7 +2786,15 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
     const chatMap = session.chatMap ?? buildChatMap();
     for (const message of messages ?? []) {
       try {
-        await processMessage({ message, session, chatMap, source: "realtime" });
+        if (shouldQueueMessage("realtime")) {
+          await redisQueue.enqueue({
+            integrationAccountId,
+            message,
+            source: "realtime",
+          });
+        } else {
+          await processMessage({ message, session, chatMap, source: "realtime" });
+        }
       } catch (error) {
         logger.error({ err: error }, "Failed to process message");
       }
@@ -2499,14 +2804,14 @@ const createSession = async ({ integrationAccountId, workspaceId, forceNew }) =>
   sock.ev.on("chats.upsert", (chats) => {
     mergeChatMap(session.chatMap, buildChatMap(chats ?? []));
     (chats ?? []).forEach((chat) => {
-      void syncLeadFromChat({ session, chat });
+      void syncLeadFromChat({ session, chat, source: "realtime" });
     });
   });
 
   sock.ev.on("chats.update", (updates) => {
     mergeChatMap(session.chatMap, buildChatMap(updates ?? []));
     (updates ?? []).forEach((chat) => {
-      void syncLeadFromChat({ session, chat });
+      void syncLeadFromChat({ session, chat, source: "realtime" });
     });
   });
 
@@ -2588,9 +2893,11 @@ app.get("/health", (_req, res) => {
   const pusherEnabled = Boolean(
     PUSHER_APP_ID && PUSHER_KEY && PUSHER_SECRET && PUSHER_CLUSTER
   );
+  const redisEnabled = redisQueue.enabled;
   res.json({
     ok: true,
     pusher: { enabled: pusherEnabled },
+    redis: { enabled: redisEnabled },
   });
 });
 
@@ -2600,6 +2907,7 @@ app.listen(PORT, () => {
     .loadFromDisk()
     .then(() => {
       retryQueue.start();
+      redisQueue.start();
       return bootstrapSessions({ supabase, createSession, logger });
     })
     .catch((error) => {
